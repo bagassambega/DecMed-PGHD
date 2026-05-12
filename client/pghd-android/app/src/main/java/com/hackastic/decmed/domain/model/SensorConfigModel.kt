@@ -8,5 +8,6 @@ data class SensorConfigModel(
     val sensorType: Int,
     val sensorName: String,
     val isApproved: Boolean,
-    val healthDataDescription: String
+    val healthDataDescription: String,
+    val collectionIntervalMs: Int = 5000
 )

@@ -19,28 +19,24 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/**
- * UI state for the sensor enumeration and configuration screens.
- * Kept as a single data class so state updates are atomic (no partial states).
- */
 data class SensorUiState(
     val availableSensors: List<SensorInfo> = emptyList(),
     val unavailableSensors: List<SensorInfo> = emptyList(),
     val sensorConfigs: List<SensorConfigModel> = emptyList(),
+    val collectionSelection: Map<Int, Boolean> = emptyMap(),
+    val collectionIntervals: Map<Int, Int> = emptyMap(),
     val isEnumerating: Boolean = false,
     val enumerationComplete: Boolean = false,
-    val configSaved: Boolean = false
+    val configSaved: Boolean = false,
+    val isCollecting: Boolean = false
 )
 
-/**
- * ViewModel shared across SensorListScreen, SensorConfigScreen, HomeScreen, and Settings.
- *
- * Design rationale:
- * - Uses AndroidViewModel because it needs the Application context to obtain SensorManager
- *   and access the AppContainer (manual DI) for repository and use cases.
- * - Scoped to the Activity lifecycle so state persists across navigation within the NavHost.
- */
 class SensorViewModel(application: Application) : AndroidViewModel(application) {
+
+    companion object {
+        const val DEFAULT_COLLECTION_INTERVAL_MS = 5000
+        val INTERVAL_OPTIONS_MS = listOf(1000, 5000, 10000, 15000, 30000, 60000)
+    }
 
     private val container = (application as MainApplication).container
     private val sensorManager =
@@ -54,33 +50,25 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
     val uiState: StateFlow<SensorUiState> = _uiState.asStateFlow()
 
     init {
-        // Load existing config from DB if available (for Home screen and Settings re-entry)
         loadExistingConfig()
     }
 
-    /**
-     * Enumerates all known sensor types against the device's SensorManager.
-     * A short artificial delay (500ms) is added so the loading indicator is visible
-     * to the user, providing feedback that work is happening.
-     */
     fun enumerateSensors() {
         viewModelScope.launch {
             _uiState.update { it.copy(isEnumerating = true) }
-
-            // Short delay for UX feedback — the actual enumeration is near-instant
             delay(500)
 
             val allSensors = getAvailableSensorsUseCase(sensorManager)
             val available = allSensors.filter { it.isAvailable }
             val unavailable = allSensors.filter { !it.isAvailable }
 
-            // Initialize config models for available sensors (all unapproved by default)
             val configs = available.map { sensor ->
                 SensorConfigModel(
                     sensorType = sensor.type,
                     sensorName = sensor.name,
-                    isApproved = false,
-                    healthDataDescription = sensor.healthDataCapabilities.joinToString(", ")
+                    isApproved = true,
+                    healthDataDescription = sensor.healthDataCapabilities.joinToString(", "),
+                    collectionIntervalMs = DEFAULT_COLLECTION_INTERVAL_MS
                 )
             }
 
@@ -89,6 +77,10 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
                     availableSensors = available,
                     unavailableSensors = unavailable,
                     sensorConfigs = configs,
+                    collectionSelection = configs.associate { cfg -> cfg.sensorType to cfg.isApproved },
+                    collectionIntervals = configs.associate { cfg ->
+                        cfg.sensorType to cfg.collectionIntervalMs
+                    },
                     isEnumerating = false,
                     enumerationComplete = true
                 )
@@ -96,27 +88,91 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /**
-     * Toggles a single sensor's approval status in the in-memory config list.
-     * Does NOT persist to DB — that happens on explicit "Save".
-     */
     fun toggleSensorApproval(sensorType: Int, approved: Boolean) {
         _uiState.update { state ->
+            val updatedConfigs = state.sensorConfigs.map { config ->
+                if (config.sensorType == sensorType) {
+                    config.copy(isApproved = approved)
+                } else {
+                    config
+                }
+            }
             state.copy(
-                sensorConfigs = state.sensorConfigs.map { config ->
-                    if (config.sensorType == sensorType) {
-                        config.copy(isApproved = approved)
-                    } else {
-                        config
-                    }
+                sensorConfigs = updatedConfigs,
+                collectionSelection = state.collectionSelection.toMutableMap().apply {
+                    this[sensorType] = approved
                 }
             )
         }
     }
 
-    /**
-     * Persists the current sensor config list to the Room database.
-     */
+    fun setAllSensorApproval(approved: Boolean) {
+        _uiState.update { state ->
+            val updatedConfigs = state.sensorConfigs.map { it.copy(isApproved = approved) }
+            state.copy(
+                sensorConfigs = updatedConfigs,
+                collectionSelection = updatedConfigs.associate { it.sensorType to approved }
+            )
+        }
+    }
+
+    fun updateSensorInterval(sensorType: Int, intervalMs: Int) {
+        _uiState.update { state ->
+            val updatedConfigs = state.sensorConfigs.map { config ->
+                if (config.sensorType == sensorType) {
+                    config.copy(collectionIntervalMs = intervalMs)
+                } else {
+                    config
+                }
+            }
+            state.copy(
+                sensorConfigs = updatedConfigs,
+                collectionIntervals = state.collectionIntervals.toMutableMap().apply {
+                    this[sensorType] = intervalMs
+                }
+            )
+        }
+    }
+
+    fun toggleCollectionSensorSelection(sensorType: Int, selected: Boolean) {
+        _uiState.update { state ->
+            state.copy(
+                collectionSelection = state.collectionSelection.toMutableMap().apply {
+                    this[sensorType] = selected
+                }
+            )
+        }
+    }
+
+    fun setAllCollectionSensorsSelected(selected: Boolean) {
+        _uiState.update { state ->
+            val approvedSensors = state.sensorConfigs.filter { it.isApproved }
+            state.copy(
+                collectionSelection = state.collectionSelection.toMutableMap().apply {
+                    approvedSensors.forEach { cfg -> this[cfg.sensorType] = selected }
+                }
+            )
+        }
+    }
+
+    fun setCollectionInterval(sensorType: Int, intervalMs: Int) {
+        updateSensorInterval(sensorType, intervalMs)
+    }
+
+    fun markCollectionRunning(running: Boolean) {
+        _uiState.update { it.copy(isCollecting = running) }
+    }
+
+    fun getActiveCollectionConfig(): List<Pair<Int, Int>> {
+        val state = _uiState.value
+        val approved = state.sensorConfigs.filter { it.isApproved }
+        return approved
+            .filter { state.collectionSelection[it.sensorType] == true }
+            .map { cfg ->
+                cfg.sensorType to (state.collectionIntervals[cfg.sensorType] ?: cfg.collectionIntervalMs)
+            }
+    }
+
     fun saveConfiguration() {
         viewModelScope.launch {
             saveSensorConfigUseCase(_uiState.value.sensorConfigs)
@@ -124,30 +180,25 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /**
-     * Loads existing sensor configuration from the database.
-     * Used on app restart (Home screen) and when entering Settings → SensorConfig.
-     */
     private fun loadExistingConfig() {
         viewModelScope.launch {
             val hasConfig = getSensorConfigUseCase.hasExistingConfig()
-            if (hasConfig) {
-                val configs = getSensorConfigUseCase().first()
-                _uiState.update {
-                    it.copy(
-                        sensorConfigs = configs,
-                        configSaved = true
-                    )
-                }
+            if (!hasConfig) return@launch
+
+            val configs = getSensorConfigUseCase().first()
+            _uiState.update { state ->
+                state.copy(
+                    sensorConfigs = configs,
+                    collectionSelection = configs.associate { cfg -> cfg.sensorType to cfg.isApproved },
+                    collectionIntervals = configs.associate { cfg ->
+                        cfg.sensorType to cfg.collectionIntervalMs
+                    },
+                    configSaved = true
+                )
             }
         }
     }
 
-    /**
-     * Prepares the ViewModel state for reconfiguration from Settings.
-     * Re-enumerates sensors and merges with existing DB config to preserve
-     * the user's previous toggle states.
-     */
     fun prepareForReconfiguration() {
         viewModelScope.launch {
             _uiState.update { it.copy(isEnumerating = true) }
@@ -157,7 +208,6 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
             val available = allSensors.filter { it.isAvailable }
             val unavailable = allSensors.filter { !it.isAvailable }
 
-            // Load existing config to preserve previous toggle states
             val existingConfigs = try {
                 getSensorConfigUseCase().first()
             } catch (_: Exception) {
@@ -169,8 +219,9 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
                 SensorConfigModel(
                     sensorType = sensor.type,
                     sensorName = sensor.name,
-                    isApproved = existing?.isApproved ?: false,
-                    healthDataDescription = sensor.healthDataCapabilities.joinToString(", ")
+                    isApproved = existing?.isApproved ?: true,
+                    healthDataDescription = sensor.healthDataCapabilities.joinToString(", "),
+                    collectionIntervalMs = existing?.collectionIntervalMs ?: DEFAULT_COLLECTION_INTERVAL_MS
                 )
             }
 
@@ -179,6 +230,10 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
                     availableSensors = available,
                     unavailableSensors = unavailable,
                     sensorConfigs = configs,
+                    collectionSelection = configs.associate { cfg -> cfg.sensorType to cfg.isApproved },
+                    collectionIntervals = configs.associate { cfg ->
+                        cfg.sensorType to cfg.collectionIntervalMs
+                    },
                     isEnumerating = false,
                     enumerationComplete = true
                 )

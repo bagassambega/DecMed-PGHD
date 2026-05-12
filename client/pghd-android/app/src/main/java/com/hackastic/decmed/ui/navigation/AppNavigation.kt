@@ -21,11 +21,13 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.hackastic.decmed.di.dataStore
+import com.hackastic.decmed.ui.screen.DataScreen
 import com.hackastic.decmed.ui.screen.HomeScreen
 import com.hackastic.decmed.ui.screen.SensorConfigScreen
 import com.hackastic.decmed.ui.screen.SensorListScreen
 import com.hackastic.decmed.ui.screen.SettingsScreen
 import com.hackastic.decmed.ui.screen.TermsOfServiceScreen
+import com.hackastic.decmed.viewmodel.DataViewModel
 import com.hackastic.decmed.viewmodel.SensorViewModel
 import com.hackastic.decmed.viewmodel.ThemeViewModel
 import kotlinx.coroutines.flow.first
@@ -45,7 +47,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun AppNavigation(
     sensorViewModel: SensorViewModel,
-    themeViewModel: ThemeViewModel
+    themeViewModel: ThemeViewModel,
+    dataViewModel: DataViewModel
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -130,6 +133,18 @@ fun AppNavigation(
                 viewModel = sensorViewModel,
                 onNavigateToSettings = {
                     navController.navigate(Screen.Settings.route)
+                },
+                onNavigateToData = {
+                    navController.navigate(Screen.Data.route)
+                }
+            )
+        }
+
+        composable(Screen.Data.route) {
+            DataScreen(
+                viewModel = dataViewModel,
+                onNavigateBack = {
+                    navController.popBackStack()
                 }
             )
         }

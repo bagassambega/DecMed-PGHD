@@ -33,6 +33,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val themeViewModel: ThemeViewModel = viewModel()
             val sensorViewModel: SensorViewModel = viewModel()
+            val dataViewModel: com.hackastic.decmed.viewmodel.DataViewModel = viewModel()
             val themeMode by themeViewModel.themeMode.collectAsState()
 
             DecMedTheme(themeMode = themeMode) {
@@ -42,7 +43,8 @@ class MainActivity : ComponentActivity() {
                 ) {
                     AppNavigation(
                         sensorViewModel = sensorViewModel,
-                        themeViewModel = themeViewModel
+                        themeViewModel = themeViewModel,
+                        dataViewModel = dataViewModel
                     )
                 }
             }

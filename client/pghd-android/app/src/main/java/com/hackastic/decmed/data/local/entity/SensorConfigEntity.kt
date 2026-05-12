@@ -18,5 +18,6 @@ data class SensorConfigEntity(
     val sensorName: String,
     val isApproved: Boolean,
     val healthDataDescription: String,
+    val collectionIntervalMs: Int,
     val lastModified: Long
 )

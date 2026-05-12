@@ -13,27 +13,55 @@ import android.hardware.SensorManager
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import com.hackastic.decmed.data.local.entity.SensorData
 import com.hackastic.decmed.data.local.database.SensorDatabase
+import com.hackastic.decmed.data.local.entity.SensorData
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 /**
- * Foreground Service responsible for continuous PGHD collection.
- * Architecture Note:
- * This service runs decoupled from the UI layer to survive activity destruction.
+ * Foreground service that collects data from selected Android sensors and
+ * writes batched records to the encrypted Room database.
+ *
+ * Data model follows the Google Health Connect record schema:
+ *   https://developers.google.com/health/reference/rest/v1/users.dataSources.datasets
+ *
+ * Each [SensorData] row stored here maps 1:1 to a Health Connect DataPoint:
+ *   - [SensorData.dataType]  → DataSource.dataType.name
+ *   - start/endTimeEpochMillis → DataPoint.startTimeNanos / endTimeNanos (ms precision)
+ *   - value / valueX/Y/Z     → DataPoint.value[] fpVal
+ *   - [SensorData.accuracy]  → DataPoint accuracy qualifier
+ *   - [SensorData.dataOrigin]→ DataSource.application.packageName
  */
 class SensorCollectionService : Service(), SensorEventListener {
 
+    companion object {
+        const val ACTION_START_COLLECTION = "com.hackastic.decmed.action.START_COLLECTION"
+        const val ACTION_STOP_COLLECTION  = "com.hackastic.decmed.action.STOP_COLLECTION"
+        const val EXTRA_SENSOR_TYPES      = "extra_sensor_types"
+        const val EXTRA_SENSOR_INTERVALS_MS = "extra_sensor_intervals_ms"
+
+        private const val TAG = "SensorCollection"
+        private const val CHANNEL_ID = "PGHD_Sensor_Channel"
+        private const val NOTIFICATION_ID = 1
+        private const val BATCH_SIZE = 100
+        private const val DATA_ORIGIN = "com.hackastic.decmed"
+    }
+
     private lateinit var sensorManager: SensorManager
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var database: SensorDatabase
+
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     private val sensorDataBuffer = mutableListOf<SensorData>()
-    
-    private val CHANNEL_ID = "PGHD_Sensor_Channel"
-    private val BATCH_SIZE = 100 // Memory implication: flush to disk after 100 events
+    private val sensorIntervalsMs  = mutableMapOf<Int, Int>()
+    private val sensorLastEmitMs   = mutableMapOf<Int, Long>()
+
+    // Track the last-known accuracy per sensor type for annotating records.
+    private val sensorAccuracy = mutableMapOf<Int, Int>()
+
+    // ── Lifecycle ──────────────────────────────────────────────────────────────
 
     override fun onCreate() {
         super.onCreate()
@@ -43,97 +71,247 @@ class SensorCollectionService : Service(), SensorEventListener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val notification = createNotification()
-        // Start Foreground Service with 'health' type to comply with Android 14+ rules
-        startForeground(1, notification)
-        
-        registerSensors()
-        
-        // Sticky means if the system kills the service, it will recreate it automatically.
-        return START_STICKY 
-    }
-
-    private fun registerSensors() {
-        val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-        val gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
-
-        // Hardware batching consideration: 
-        // 50000 microseconds (50ms) = 20Hz.
-        // maxReportLatencyUs = 10000000 (10 seconds). The AP will sleep and wake every 10s to process 200 events.
-        accelerometer?.let {
-            sensorManager.registerListener(this, it, 50000, 10000000)
-        }
-        gyroscope?.let {
-            sensorManager.registerListener(this, it, 50000, 10000000)
+        return when (intent?.action) {
+            ACTION_STOP_COLLECTION -> {
+                stopSelf()
+                START_NOT_STICKY
+            }
+            ACTION_START_COLLECTION, null -> {
+                startForeground(NOTIFICATION_ID, createNotification())
+                val sensorTypes = intent?.getIntArrayExtra(EXTRA_SENSOR_TYPES)?.toList().orEmpty()
+                val intervals   = intent?.getIntArrayExtra(EXTRA_SENSOR_INTERVALS_MS)?.toList().orEmpty()
+                registerSensors(sensorTypes, intervals)
+                START_STICKY
+            }
+            else -> START_NOT_STICKY
         }
     }
+
+    override fun onDestroy() {
+        sensorManager.unregisterListener(this)
+        flushBufferToDatabase()
+        super.onDestroy()
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    // ── Sensor registration ────────────────────────────────────────────────────
+
+    private fun registerSensors(sensorTypes: List<Int>, intervals: List<Int>) {
+        sensorManager.unregisterListener(this)
+        sensorIntervalsMs.clear()
+        sensorLastEmitMs.clear()
+        sensorAccuracy.clear()
+
+        if (sensorTypes.isEmpty()) {
+            Log.w(TAG, "No sensor types provided. Stopping service.")
+            stopSelf()
+            return
+        }
+
+        sensorTypes.forEachIndexed { index, sensorType ->
+            val intervalMs = intervals.getOrNull(index) ?: 5000
+            val sensor = sensorManager.getDefaultSensor(sensorType)
+            if (sensor == null) {
+                Log.w(TAG, "Sensor type $sensorType unavailable on this device — skipped.")
+                return@forEachIndexed
+            }
+
+            sensorIntervalsMs[sensorType] = intervalMs
+            sensorLastEmitMs[sensorType]  = 0L
+            sensorAccuracy[sensorType]    = SensorManager.SENSOR_STATUS_ACCURACY_HIGH
+
+            // Request sampling at the configured interval; clamp to Android minimum (20ms).
+            val samplingPeriodUs = (intervalMs * 1000).coerceAtLeast(20_000)
+            sensorManager.registerListener(this, sensor, samplingPeriodUs)
+        }
+
+        if (sensorIntervalsMs.isEmpty()) {
+            Log.w(TAG, "No sensors were registered successfully. Stopping service.")
+            stopSelf()
+        }
+    }
+
+    // ── SensorEventListener ────────────────────────────────────────────────────
 
     override fun onSensorChanged(event: SensorEvent?) {
-        event?.let {
-            val data = SensorData(
-                sensorType = it.sensor.type,
-                timestamp = System.currentTimeMillis(),
-                value0 = it.values[0],
-                value1 = it.values[1],
-                value2 = it.values[2]
-            )
-            
-            synchronized(sensorDataBuffer) {
-                sensorDataBuffer.add(data)
-                if (sensorDataBuffer.size >= BATCH_SIZE) {
-                    flushBufferToDatabase()
-                }
-            }
-        }
-    }
+        val ev = event ?: return
+        val now = System.currentTimeMillis()
+        val sensorType = ev.sensor.type
+        val intervalMs = sensorIntervalsMs[sensorType] ?: return
+        val lastEmit   = sensorLastEmitMs[sensorType]  ?: 0L
 
-    private fun flushBufferToDatabase() {
-        val batchToSave = synchronized(sensorDataBuffer) {
-            val copy = sensorDataBuffer.toList()
-            sensorDataBuffer.clear()
-            copy
-        }
-        
-        serviceScope.launch {
-            try {
-                database.sensorDao().insertAll(batchToSave)
-                Log.d("SensorCollection", "Inserted ${batchToSave.size} records to encrypted DB")
-            } catch (e: Exception) {
-                Log.e("SensorCollection", "Error inserting records: ${e.message}")
+        // Rate-limit: emit at most once per configured interval.
+        if (now - lastEmit < intervalMs) return
+        sensorLastEmitMs[sensorType] = now
+
+        val (dataType, unit) = dataTypeAndUnit(sensorType)
+        val values = ev.values
+
+        // Scalar sensors (heart rate, step counter, proximity, light, pressure…)
+        // populate [value]; vector sensors populate [valueX/Y/Z] and also [value]
+        // as the primary magnitude for convenience.
+        val record = SensorData(
+            dataType              = dataType,
+            sensorType            = sensorType,
+            startTimeEpochMillis  = now,
+            endTimeEpochMillis    = now,
+            unit                  = unit,
+            value                 = values.getOrNull(0),
+            valueX                = values.getOrNull(0),
+            valueY                = values.getOrNull(1),
+            valueZ                = values.getOrNull(2),
+            accuracy              = sensorAccuracy[sensorType] ?: 3,
+            dataOrigin            = DATA_ORIGIN
+        )
+
+        synchronized(sensorDataBuffer) {
+            sensorDataBuffer.add(record)
+            if (sensorDataBuffer.size >= BATCH_SIZE) {
+                flushBufferToDatabase()
             }
         }
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
-        // Unused but required by interface
+        sensor?.let { sensorAccuracy[it.type] = accuracy }
     }
+
+    // ── Database flush ─────────────────────────────────────────────────────────
+
+    private fun flushBufferToDatabase() {
+        val batch = synchronized(sensorDataBuffer) {
+            val copy = sensorDataBuffer.toList()
+            sensorDataBuffer.clear()
+            copy
+        }
+        if (batch.isEmpty()) return
+
+        serviceScope.launch {
+            try {
+                database.sensorDao().insertAll(batch)
+                Log.d(TAG, "Wrote ${batch.size} PGHD records to encrypted DB.")
+            } catch (e: Exception) {
+                Log.e(TAG, "DB write error: ${e.message}", e)
+            }
+        }
+    }
+
+    // ── Health Connect data-type mapping ───────────────────────────────────────
+
+    /**
+     * Maps Android sensor type constants to Health Connect–style data type strings and units.
+     *
+     * Naming convention follows com.google.* namespace used by Health Connect:
+     *   https://developers.google.com/health/reference/rest/v1/DataType
+     */
+    private fun dataTypeAndUnit(sensorType: Int): Pair<String, String> = when (sensorType) {
+
+        // ── Vital / clinical ──────────────────────────────────────────────────
+        Sensor.TYPE_HEART_RATE ->
+            "com.google.heart_rate.bpm"            to "bpm"
+
+        Sensor.TYPE_HEART_BEAT ->
+            "com.google.heart_rate.variability"    to "ms"
+
+        // ── Activity / motion ─────────────────────────────────────────────────
+        Sensor.TYPE_STEP_COUNTER ->
+            "com.google.step_count.cumulative"     to "count"
+
+        Sensor.TYPE_STEP_DETECTOR ->
+            "com.google.step_count.delta"          to "count"
+
+        Sensor.TYPE_SIGNIFICANT_MOTION ->
+            "com.google.activity.segment"          to "event"
+
+        Sensor.TYPE_STATIONARY_DETECT ->
+            "com.google.activity.stationary"       to "event"
+
+        Sensor.TYPE_MOTION_DETECT ->
+            "com.google.activity.motion"           to "event"
+
+        // ── Kinematics ────────────────────────────────────────────────────────
+        Sensor.TYPE_ACCELEROMETER ->
+            "com.google.acceleration.vector"       to "m/s^2"
+
+        Sensor.TYPE_ACCELEROMETER_UNCALIBRATED ->
+            "com.google.acceleration.vector.raw"   to "m/s^2"
+
+        Sensor.TYPE_LINEAR_ACCELERATION ->
+            "com.google.acceleration.linear"       to "m/s^2"
+
+        Sensor.TYPE_GRAVITY ->
+            "com.google.acceleration.gravity"      to "m/s^2"
+
+        Sensor.TYPE_GYROSCOPE ->
+            "com.google.gyroscope.vector"          to "rad/s"
+
+        Sensor.TYPE_GYROSCOPE_UNCALIBRATED ->
+            "com.google.gyroscope.vector.raw"      to "rad/s"
+
+        Sensor.TYPE_ROTATION_VECTOR ->
+            "com.google.rotation.vector"           to "unitless"
+
+        Sensor.TYPE_GAME_ROTATION_VECTOR ->
+            "com.google.rotation.game_vector"      to "unitless"
+
+        Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR ->
+            "com.google.rotation.geo_vector"       to "unitless"
+
+        // ── Magnetic field ────────────────────────────────────────────────────
+        Sensor.TYPE_MAGNETIC_FIELD ->
+            "com.google.magnetic_field.vector"     to "μT"
+
+        Sensor.TYPE_MAGNETIC_FIELD_UNCALIBRATED ->
+            "com.google.magnetic_field.vector.raw" to "μT"
+
+        // ── Environmental ─────────────────────────────────────────────────────
+        Sensor.TYPE_LIGHT ->
+            "com.google.ambient_light.lux"         to "lux"
+
+        Sensor.TYPE_PRESSURE ->
+            "com.google.pressure.hPa"              to "hPa"
+
+        Sensor.TYPE_AMBIENT_TEMPERATURE ->
+            "com.google.body.temperature.ambient"  to "°C"
+
+        Sensor.TYPE_RELATIVE_HUMIDITY ->
+            "com.google.humidity.percent"          to "%"
+
+        // ── Proximity / wear ──────────────────────────────────────────────────
+        Sensor.TYPE_PROXIMITY ->
+            "com.google.proximity.cm"              to "cm"
+
+        Sensor.TYPE_LOW_LATENCY_OFFBODY_DETECT ->
+            "com.google.device.on_body"            to "boolean"
+
+        // ── Device form factor ────────────────────────────────────────────────
+        Sensor.TYPE_HINGE_ANGLE ->
+            "com.google.device.hinge_angle"        to "degrees"
+
+        else ->
+            "com.google.sensor.raw"                to "raw"
+    }
+
+    // ── Notification helpers ───────────────────────────────────────────────────
 
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID,
             "PGHD Sensor Collection",
-            NotificationManager.IMPORTANCE_LOW // Low priority to avoid ringing/vibrating
-        )
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(channel)
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "Ongoing sensor data collection for DecMed PGHD."
+        }
+        getSystemService(NotificationManager::class.java)
+            .createNotificationChannel(channel)
     }
 
-    private fun createNotification(): Notification {
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("DecMed PGHD Collection")
-            .setContentText("Actively collecting health sensor data securely.")
-            // Requires an icon in a real app, using system default here for compilation
-            .setSmallIcon(android.R.drawable.ic_menu_compass) 
+    private fun createNotification(): Notification =
+        NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("DecMed PGHD Collection Active")
+            .setContentText("Collecting approved health sensor data.")
+            .setSmallIcon(android.R.drawable.ic_menu_compass)
+            .setOngoing(true)
             .build()
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        sensorManager.unregisterListener(this)
-        flushBufferToDatabase() // flush any remaining data
-    }
-
-    override fun onBind(intent: Intent?): IBinder? {
-        return null // We don't support binding in this service, only start/stop
-    }
 }

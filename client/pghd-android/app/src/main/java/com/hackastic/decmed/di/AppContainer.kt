@@ -36,4 +36,8 @@ class AppContainer(context: Context) {
     val sensorConfigRepository: SensorConfigRepository by lazy {
         SensorConfigRepositoryImpl(database.sensorConfigDao())
     }
+
+    val sensorRepository: com.hackastic.decmed.domain.repository.SensorRepository by lazy {
+        com.hackastic.decmed.data.repository.SensorRepositoryImpl(database.sensorDao())
+    }
 }

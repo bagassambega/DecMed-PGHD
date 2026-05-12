@@ -2,6 +2,7 @@ package com.hackastic.decmed.ui.screen
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,32 +11,36 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.hackastic.decmed.ui.components.SensorCard
 import com.hackastic.decmed.viewmodel.SensorViewModel
 
-/**
- * Sensor configuration screen — step 3 of the onboarding flow.
- * Also accessible from Settings for reconfiguration.
- *
- * Displays only AVAILABLE sensors with toggle switches.
- * Each sensor can be expanded to view health data capabilities and clinical relevance.
- * The "Save Configuration" button persists selections to the Room database.
- */
 @Composable
 fun SensorConfigScreen(
     viewModel: SensorViewModel,
     onConfigSaved: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val allEnabled = uiState.sensorConfigs.isNotEmpty() && uiState.sensorConfigs.all { it.isApproved }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -54,15 +59,30 @@ fun SensorConfigScreen(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Select which sensors the app may use to collect health data. " +
-                    "Tap a sensor to see what data it provides. " +
-                    "You can change these settings at any time.",
+                text = "Select sensors to enable for PGHD collection. Default is all enabled. You can set per-sensor collection interval now or later.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // Sensor list with toggle switches
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Enable all sensors",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Checkbox(
+                    checked = allEnabled,
+                    onCheckedChange = { checked -> viewModel.setAllSensorApproval(checked) }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -71,31 +91,43 @@ fun SensorConfigScreen(
                     items = uiState.sensorConfigs,
                     key = { it.sensorType }
                 ) { config ->
-                    // Look up the full sensor info for health data details
                     val sensorInfo = uiState.availableSensors.find { it.type == config.sensorType }
 
-                    SensorCard(
-                        sensorName = config.sensorName,
-                        isAvailable = true,
-                        healthDataCapabilities = sensorInfo?.healthDataCapabilities ?: emptyList(),
-                        clinicalRelevance = sensorInfo?.clinicalRelevance ?: "",
-                        showToggle = true,
-                        isApproved = config.isApproved,
-                        onToggle = { approved ->
-                            viewModel.toggleSensorApproval(config.sensorType, approved)
-                        }
-                    )
+                    Column {
+                        SensorCard(
+                            sensorName = config.sensorName,
+                            isAvailable = true,
+                            healthDataCapabilities = sensorInfo?.healthDataCapabilities ?: emptyList(),
+                            clinicalRelevance = sensorInfo?.clinicalRelevance ?: "",
+                            showToggle = true,
+                            isApproved = config.isApproved,
+                            onToggle = { approved ->
+                                viewModel.toggleSensorApproval(config.sensorType, approved)
+                            }
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        IntervalDropdown(
+                            label = "Collection interval",
+                            selectedIntervalMs = config.collectionIntervalMs,
+                            options = SensorViewModel.INTERVAL_OPTIONS_MS,
+                            onIntervalSelected = { interval ->
+                                viewModel.updateSensorInterval(config.sensorType, interval)
+                            }
+                        )
+                    }
                 }
             }
 
-            // Summary + Save button
             val approvedCount = uiState.sensorConfigs.count { it.isApproved }
             Text(
-                text = "$approvedCount of ${uiState.sensorConfigs.size} sensors approved",
+                text = "$approvedCount of ${uiState.sensorConfigs.size} sensors enabled",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp)
             )
+
             Button(
                 onClick = {
                     viewModel.saveConfiguration()
@@ -106,6 +138,48 @@ fun SensorConfigScreen(
                     .padding(top = 8.dp)
             ) {
                 Text("Save Configuration")
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun IntervalDropdown(
+    label: String,
+    selectedIntervalMs: Int,
+    options: List<Int>,
+    onIntervalSelected: (Int) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = !expanded }
+    ) {
+        OutlinedTextField(
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor(),
+            value = "${selectedIntervalMs / 1000}s",
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) }
+        )
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            options.forEach { interval ->
+                DropdownMenuItem(
+                    text = { Text("${interval / 1000}s") },
+                    onClick = {
+                        onIntervalSelected(interval)
+                        expanded = false
+                    }
+                )
             }
         }
     }

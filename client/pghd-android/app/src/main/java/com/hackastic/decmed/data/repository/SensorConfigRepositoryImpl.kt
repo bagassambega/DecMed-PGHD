@@ -55,7 +55,8 @@ class SensorConfigRepositoryImpl(
             sensorType = sensorType,
             sensorName = sensorName,
             isApproved = isApproved,
-            healthDataDescription = healthDataDescription
+            healthDataDescription = healthDataDescription,
+            collectionIntervalMs = collectionIntervalMs
         )
     }
 
@@ -65,6 +66,7 @@ class SensorConfigRepositoryImpl(
             sensorName = sensorName,
             isApproved = isApproved,
             healthDataDescription = healthDataDescription,
+            collectionIntervalMs = collectionIntervalMs,
             lastModified = System.currentTimeMillis()
         )
     }

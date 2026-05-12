@@ -11,4 +11,5 @@ sealed class Screen(val route: String) {
     object SensorConfig : Screen("sensor_config")
     object Home : Screen("home")
     object Settings : Screen("settings")
+    object Data : Screen("data")
 }
