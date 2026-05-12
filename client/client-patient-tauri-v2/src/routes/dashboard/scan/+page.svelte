@@ -29,7 +29,8 @@
 		delayMs: 100,
 		onUpdate: async ({ form, result }) => {
 			if (result.type === 'success') {
-				let qrBytes = await form.data.qr.bytes();
+				const buf = await form.data.qr.arrayBuffer();
+				const qrBytes = new Uint8Array(buf);
 				let resInvokeProcessQr = await tryCatchAsVal(async () => {
 					return (await invoke('process_qr', {
 						qrBytes

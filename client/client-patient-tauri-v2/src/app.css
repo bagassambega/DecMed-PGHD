@@ -4,6 +4,10 @@
 	--font-sans: 'Inter Variable', sans-serif;
 	--font-montserrat: 'Montserrat Variable', sans-serif;
 
+	/* Custom breakpoint for wearable devices (smartwatches, very small screens).
+	   Usage: @media (width >= 320px) or via Tailwind's `wearable:` prefix. */
+	--breakpoint-wearable: 320px;
+
 	--color-foreground-light: var(--color-zinc-100);
 	--color-foreground-dark: var(--color-zinc-800);
 }
