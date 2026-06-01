@@ -1,6 +1,6 @@
 package com.hackastic.decmed.patient
 
-import com.hackastic.decmed.data.patient.PrototypePatientCryptoBridge
+import com.hackastic.decmed.data.patient.DeterministicPatientCryptoBridge
 import com.hackastic.decmed.domain.model.patient.PatientRegistrationDraft
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -10,7 +10,7 @@ import org.junit.Test
 class PatientCompatibilityVectorTest {
     @Test
     fun generatedMnemonicMatchesTwelveWordContract() = runBlocking {
-        val bridge = PrototypePatientCryptoBridge()
+        val bridge = DeterministicPatientCryptoBridge()
         val words = bridge.generateMnemonic().split(" ")
 
         assertEquals(12, words.size)
@@ -18,8 +18,8 @@ class PatientCompatibilityVectorTest {
     }
 
     @Test
-    fun registrationProfileDerivationIsDeterministicPlaceholder() = runBlocking {
-        val bridge = PrototypePatientCryptoBridge()
+    fun registrationProfileDerivationIsDeterministic() = runBlocking {
+        val bridge = DeterministicPatientCryptoBridge()
         val draft = PatientRegistrationDraft(
             pin = "123456",
             seedWords = "abandon ability able about above absent absorb abstract absurd abuse access accident",
@@ -31,5 +31,9 @@ class PatientCompatibilityVectorTest {
 
         assertEquals(first, second)
         assertEquals("1234567890123456", first.id)
+        assertEquals(first.pghdPublicKey, second.pghdPublicKey)
+        assertEquals(first.pghdSecretKey, second.pghdSecretKey)
+        assertTrue(first.pghdPublicKey?.isNotBlank() == true)
+        assertTrue(first.pghdSecretKey?.isNotBlank() == true)
     }
 }

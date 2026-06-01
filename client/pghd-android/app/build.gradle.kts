@@ -20,6 +20,8 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "PRE_BASE_URL", "\"\"")
+        buildConfigField("String", "IOTA_RPC_URL", "\"\"")
     }
 
     buildTypes {
@@ -37,7 +39,9 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
+
 }
 
 dependencies {

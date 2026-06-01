@@ -4,6 +4,9 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.hackastic.decmed.data.local.security.PatientSecureStorage
+import com.hackastic.decmed.data.remote.IotaPatientGateway
+import com.hackastic.decmed.data.remote.PrePghdClient
 import com.hackastic.decmed.domain.model.patient.PatientAuthState
 import com.hackastic.decmed.domain.model.patient.PatientProfile
 import com.hackastic.decmed.domain.model.patient.PatientRegistrationDraft
@@ -14,12 +17,15 @@ import kotlinx.coroutines.flow.map
 
 class PatientAuthRepositoryImpl(
     private val dataStore: DataStore<Preferences>,
-    private val cryptoBridge: PatientCryptoBridge
+    private val cryptoBridge: PatientCryptoBridge,
+    private val secureStorage: PatientSecureStorage,
+    private val prePghdClient: PrePghdClient,
+    private val iotaPatientGateway: IotaPatientGateway
 ) : PatientAuthRepository {
 
     override val authState: Flow<PatientAuthState> = dataStore.data.map { prefs ->
-        val patientId = prefs[Keys.patientId]
-        val profileName = prefs[Keys.profileName]
+        val patientId = secureStorage.decrypt(prefs[Keys.patientId])
+        val profileName = secureStorage.decrypt(prefs[Keys.profileName])
         val sessionState = prefs[Keys.sessionState]
 
         when {
@@ -28,7 +34,7 @@ class PatientAuthRepositoryImpl(
             sessionState != SESSION_UNLOCKED -> PatientAuthState.NeedsPin(patientId)
             else -> PatientAuthState.Authenticated(
                 patientId = patientId,
-                iotaAddress = prefs[Keys.iotaAddress],
+                iotaAddress = secureStorage.decrypt(prefs[Keys.iotaAddress]),
                 displayName = profileName
             )
         }
@@ -44,31 +50,53 @@ class PatientAuthRepositoryImpl(
         }
 
         val profile = cryptoBridge.deriveRegistrationProfile(draft)
+        iotaPatientGateway.registerPatient(profile)
+        prePghdClient.pushRegistration(profile)
         dataStore.edit { prefs ->
-            prefs[Keys.patientId] = profile.id
-            profile.idHash?.let { prefs[Keys.patientIdHash] = it }
-            profile.iotaAddress?.let { prefs[Keys.iotaAddress] = it }
-            profile.prePublicKey?.let { prefs[Keys.prePublicKey] = it }
+            prefs[Keys.patientId] = secureStorage.encrypt(profile.id).orEmpty()
+            profile.idHash?.let { prefs[Keys.patientIdHash] = secureStorage.encrypt(it).orEmpty() }
+            profile.iotaAddress?.let { prefs[Keys.iotaAddress] = secureStorage.encrypt(it).orEmpty() }
+            profile.prePublicKey?.let { prefs[Keys.prePublicKey] = secureStorage.encrypt(it).orEmpty() }
+            profile.pghdPublicKey?.let { prefs[Keys.pghdPublicKey] = secureStorage.encrypt(it).orEmpty() }
+            profile.pghdSecretKey?.let { prefs[Keys.pghdSecretKey] = secureStorage.encrypt(it).orEmpty() }
             prefs[Keys.sessionState] = SESSION_UNLOCKED
         }
     }
 
     override suspend fun signIn(seedWords: String, nik: String, pin: String) {
-        signUp(PatientRegistrationDraft(pin = pin, seedWords = seedWords, nik = nik))
+        val draft = PatientRegistrationDraft(pin = pin, seedWords = seedWords, nik = nik)
+        require(draft.pin.matches(Regex("^\\d{6}$"))) { "PIN must contain exactly 6 digits." }
+        require(draft.nik.matches(Regex("^\\d{16}$"))) { "NIK must contain exactly 16 digits." }
+        require(draft.seedWords.trim().split(Regex("\\s+")).size == 12) {
+            "Seed words must contain exactly 12 words."
+        }
+
+        val profile = cryptoBridge.deriveRegistrationProfile(draft)
+        iotaPatientGateway.ensureRegistered(profile)
+        prePghdClient.pushRegistration(profile)
+        dataStore.edit { prefs ->
+            prefs[Keys.patientId] = secureStorage.encrypt(profile.id).orEmpty()
+            profile.idHash?.let { prefs[Keys.patientIdHash] = secureStorage.encrypt(it).orEmpty() }
+            profile.iotaAddress?.let { prefs[Keys.iotaAddress] = secureStorage.encrypt(it).orEmpty() }
+            profile.prePublicKey?.let { prefs[Keys.prePublicKey] = secureStorage.encrypt(it).orEmpty() }
+            profile.pghdPublicKey?.let { prefs[Keys.pghdPublicKey] = secureStorage.encrypt(it).orEmpty() }
+            profile.pghdSecretKey?.let { prefs[Keys.pghdSecretKey] = secureStorage.encrypt(it).orEmpty() }
+            prefs[Keys.sessionState] = SESSION_UNLOCKED
+        }
     }
 
     override suspend fun saveProfile(profile: PatientProfile) {
         require(!profile.name.isNullOrBlank()) { "Name is required." }
         dataStore.edit { prefs ->
-            prefs[Keys.patientId] = profile.id
-            prefs[Keys.profileName] = profile.name.orEmpty()
-            profile.birthPlace?.let { prefs[Keys.birthPlace] = it }
-            profile.dateOfBirth?.let { prefs[Keys.dateOfBirth] = it }
-            profile.gender?.let { prefs[Keys.gender] = it }
-            profile.religion?.let { prefs[Keys.religion] = it }
-            profile.education?.let { prefs[Keys.education] = it }
-            profile.occupation?.let { prefs[Keys.occupation] = it }
-            profile.maritalStatus?.let { prefs[Keys.maritalStatus] = it }
+            prefs[Keys.patientId] = secureStorage.encrypt(profile.id).orEmpty()
+            prefs[Keys.profileName] = secureStorage.encrypt(profile.name.orEmpty()).orEmpty()
+            profile.birthPlace?.let { prefs[Keys.birthPlace] = secureStorage.encrypt(it).orEmpty() }
+            profile.dateOfBirth?.let { prefs[Keys.dateOfBirth] = secureStorage.encrypt(it).orEmpty() }
+            profile.gender?.let { prefs[Keys.gender] = secureStorage.encrypt(it).orEmpty() }
+            profile.religion?.let { prefs[Keys.religion] = secureStorage.encrypt(it).orEmpty() }
+            profile.education?.let { prefs[Keys.education] = secureStorage.encrypt(it).orEmpty() }
+            profile.occupation?.let { prefs[Keys.occupation] = secureStorage.encrypt(it).orEmpty() }
+            profile.maritalStatus?.let { prefs[Keys.maritalStatus] = secureStorage.encrypt(it).orEmpty() }
             prefs[Keys.sessionState] = SESSION_UNLOCKED
         }
     }
@@ -91,6 +119,8 @@ class PatientAuthRepositoryImpl(
         val patientIdHash = stringPreferencesKey("patient_id_hash")
         val iotaAddress = stringPreferencesKey("patient_iota_address")
         val prePublicKey = stringPreferencesKey("patient_pre_public_key")
+        val pghdPublicKey = stringPreferencesKey("patient_pghd_public_key")
+        val pghdSecretKey = stringPreferencesKey("patient_pghd_secret_key")
         val profileName = stringPreferencesKey("patient_profile_name")
         val birthPlace = stringPreferencesKey("patient_birth_place")
         val dateOfBirth = stringPreferencesKey("patient_date_of_birth")

@@ -5,6 +5,8 @@ data class PatientProfile(
     val idHash: String? = null,
     val iotaAddress: String? = null,
     val prePublicKey: String? = null,
+    val pghdPublicKey: String? = null,
+    val pghdSecretKey: String? = null,
     val name: String? = null,
     val birthPlace: String? = null,
     val dateOfBirth: String? = null,
