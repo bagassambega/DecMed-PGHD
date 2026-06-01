@@ -7,6 +7,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -21,13 +22,20 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.hackastic.decmed.di.dataStore
+import com.hackastic.decmed.domain.model.patient.PatientAuthState
 import com.hackastic.decmed.ui.screen.DataScreen
 import com.hackastic.decmed.ui.screen.HomeScreen
+import com.hackastic.decmed.ui.screen.PatientAuthChoiceScreen
+import com.hackastic.decmed.ui.screen.PatientCompleteProfileScreen
+import com.hackastic.decmed.ui.screen.PatientSigninScreen
+import com.hackastic.decmed.ui.screen.PatientSignupScreen
+import com.hackastic.decmed.ui.screen.PatientUnlockScreen
 import com.hackastic.decmed.ui.screen.SensorConfigScreen
 import com.hackastic.decmed.ui.screen.SensorListScreen
 import com.hackastic.decmed.ui.screen.SettingsScreen
 import com.hackastic.decmed.ui.screen.TermsOfServiceScreen
 import com.hackastic.decmed.viewmodel.DataViewModel
+import com.hackastic.decmed.viewmodel.PatientAuthViewModel
 import com.hackastic.decmed.viewmodel.SensorViewModel
 import com.hackastic.decmed.viewmodel.ThemeViewModel
 import kotlinx.coroutines.flow.first
@@ -48,21 +56,33 @@ import kotlinx.coroutines.launch
 fun AppNavigation(
     sensorViewModel: SensorViewModel,
     themeViewModel: ThemeViewModel,
-    dataViewModel: DataViewModel
+    dataViewModel: DataViewModel,
+    patientAuthViewModel: PatientAuthViewModel
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val patientAuthState by patientAuthViewModel.authState.collectAsState()
 
     // Determine start destination asynchronously
+    var tosAccepted by remember { mutableStateOf<Boolean?>(null) }
     var startDestination by remember { mutableStateOf<String?>(null) }
+    var setupComplete by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         val prefs = context.dataStore.data.first()
-        val tosAccepted = prefs[booleanPreferencesKey("tos_accepted")] ?: false
-        val setupComplete = prefs[booleanPreferencesKey("setup_complete")] ?: false
+        tosAccepted = prefs[booleanPreferencesKey("tos_accepted")] ?: false
+        setupComplete = prefs[booleanPreferencesKey("setup_complete")] ?: false
+    }
+
+    LaunchedEffect(tosAccepted, setupComplete, patientAuthState) {
+        val accepted = tosAccepted ?: return@LaunchedEffect
+        if (patientAuthState is PatientAuthState.Loading) return@LaunchedEffect
 
         startDestination = when {
-            !tosAccepted -> Screen.TermsOfService.route
+            !accepted -> Screen.TermsOfService.route
+            patientAuthState is PatientAuthState.NeedsSignupOrSignin -> Screen.PatientAuth.route
+            patientAuthState is PatientAuthState.NeedsProfile -> Screen.PatientCompleteProfile.route
+            patientAuthState is PatientAuthState.NeedsPin -> Screen.PatientUnlock.route
             !setupComplete -> Screen.SensorList.route
             else -> Screen.Home.route
         }
@@ -79,6 +99,11 @@ fun AppNavigation(
     }
 
     val navController = rememberNavController()
+    fun navigateAfterPatientReady() {
+        navController.navigate(if (setupComplete) Screen.Home.route else Screen.SensorList.route) {
+            popUpTo(0) { inclusive = true }
+        }
+    }
 
     NavHost(
         navController = navController,
@@ -93,13 +118,66 @@ fun AppNavigation(
                             prefs[booleanPreferencesKey("tos_accepted")] = true
                         }
                     }
-                    navController.navigate(Screen.SensorList.route) {
+                    navController.navigate(Screen.PatientAuth.route) {
                         popUpTo(Screen.TermsOfService.route) { inclusive = true }
                     }
                 },
                 onDecline = {
                     activity.finishAffinity()
                 }
+            )
+        }
+
+        composable(Screen.PatientAuth.route) {
+            PatientAuthChoiceScreen(
+                onSignUp = { navController.navigate(Screen.PatientSignup.route) },
+                onSignIn = { navController.navigate(Screen.PatientSignin.route) }
+            )
+        }
+
+        composable(Screen.PatientSignup.route) {
+            PatientSignupScreen(
+                viewModel = patientAuthViewModel,
+                onCompleted = {
+                    navController.navigate(Screen.PatientCompleteProfile.route) {
+                        popUpTo(Screen.PatientAuth.route)
+                    }
+                },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.PatientSignin.route) {
+            PatientSigninScreen(
+                viewModel = patientAuthViewModel,
+                onCompleted = {
+                    navController.navigate(Screen.PatientCompleteProfile.route) {
+                        popUpTo(Screen.PatientAuth.route)
+                    }
+                },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.PatientCompleteProfile.route) {
+            val patientId = when (val state = patientAuthState) {
+                is PatientAuthState.Authenticated -> state.patientId
+                PatientAuthState.Loading -> ""
+                is PatientAuthState.NeedsPin -> state.patientId
+                is PatientAuthState.NeedsProfile -> state.patientId
+                PatientAuthState.NeedsSignupOrSignin -> ""
+            }
+            PatientCompleteProfileScreen(
+                patientId = patientId,
+                viewModel = patientAuthViewModel,
+                onCompleted = { navigateAfterPatientReady() }
+            )
+        }
+
+        composable(Screen.PatientUnlock.route) {
+            PatientUnlockScreen(
+                viewModel = patientAuthViewModel,
+                onUnlocked = { navigateAfterPatientReady() }
             )
         }
 

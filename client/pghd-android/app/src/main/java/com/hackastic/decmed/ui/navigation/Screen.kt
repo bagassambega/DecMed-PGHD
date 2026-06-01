@@ -7,6 +7,11 @@ package com.hackastic.decmed.ui.navigation
  */
 sealed class Screen(val route: String) {
     object TermsOfService : Screen("terms_of_service")
+    object PatientAuth : Screen("patient_auth")
+    object PatientSignup : Screen("patient_signup")
+    object PatientSignin : Screen("patient_signin")
+    object PatientCompleteProfile : Screen("patient_complete_profile")
+    object PatientUnlock : Screen("patient_unlock")
     object SensorList : Screen("sensor_list")
     object SensorConfig : Screen("sensor_config")
     object Home : Screen("home")

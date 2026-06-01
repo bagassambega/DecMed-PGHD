@@ -5,7 +5,11 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
 import com.hackastic.decmed.data.local.database.SensorDatabase
+import com.hackastic.decmed.data.patient.PrototypePatientCryptoBridge
+import com.hackastic.decmed.data.repository.PatientAuthRepositoryImpl
 import com.hackastic.decmed.data.repository.SensorConfigRepositoryImpl
+import com.hackastic.decmed.domain.repository.PatientAuthRepository
+import com.hackastic.decmed.domain.repository.PatientCryptoBridge
 import com.hackastic.decmed.domain.repository.SensorConfigRepository
 
 /**
@@ -28,9 +32,18 @@ val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "de
  * All dependencies are lazily initialized to avoid startup cost.
  */
 class AppContainer(context: Context) {
+    private val appContext = context.applicationContext
 
     private val database: SensorDatabase by lazy {
-        SensorDatabase.getDatabase(context)
+        SensorDatabase.getDatabase(appContext)
+    }
+
+    private val patientCryptoBridge: PatientCryptoBridge by lazy {
+        PrototypePatientCryptoBridge()
+    }
+
+    val patientAuthRepository: PatientAuthRepository by lazy {
+        PatientAuthRepositoryImpl(appContext.dataStore, patientCryptoBridge)
     }
 
     val sensorConfigRepository: SensorConfigRepository by lazy {
