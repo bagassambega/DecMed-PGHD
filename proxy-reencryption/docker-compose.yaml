@@ -1,11 +1,11 @@
-# services:
-#   proxy_reencryption1:
-#     build: .
-#     mem_limit: 4g
-#     ports:
-#       - "4100:4100"
-#     environment:
-#       - PORT=4100
+services:
+  proxy_reencryption1:
+    build: .
+    mem_limit: 4g
+    ports:
+      - "4100:4100"
+    environment:
+      - PORT=4100
 
 #   proxy_reencryption2:
 #     build: .
@@ -23,7 +23,7 @@
 #     environment:
 #       - PORT=4102
 
-services:
+# services:
   nginx:
     image: nginx:alpine
     ports:

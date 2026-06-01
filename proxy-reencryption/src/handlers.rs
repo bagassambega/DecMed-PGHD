@@ -12,7 +12,6 @@ use iota_types::crypto::{
 };
 use jwt_simple::claims::Claims;
 use jwt_simple::prelude::{Duration, ECDSAP256KeyPairLike};
-use redis::{Commands, SetExpiry, SetOptions};
 use serde_json::json;
 use shared_crypto::intent::{Intent, IntentMessage};
 use umbral_pre::{reencrypt, Capsule, KeyFrag, PublicKey};
@@ -227,10 +226,9 @@ impl Handlers {
             enc_patient_private_adm_data_key_nonce,
             patient_private_adm_data_capsule,
         ) = {
-            let mut conn = state.redis_pool.get().context(current_fn!())?;
-
-            let access_keys: String = conn
-                .get(format!(
+            let access_keys: String = state
+                .cache_store
+                .get(&format!(
                     "keys:{}@{}",
                     current_user.iota_address, query.patient_iota_address,
                 ))
@@ -359,10 +357,9 @@ impl Handlers {
             enc_administrative_data_key_nonce,
             administrative_data_capsule,
         ) = {
-            let mut conn = state.redis_pool.get().context(current_fn!())?;
-
-            let access_keys: String = conn
-                .get(format!(
+            let access_keys: String = state
+                .cache_store
+                .get(&format!(
                     "keys:{}@{}",
                     current_user.iota_address, query.patient_iota_address,
                 ))
@@ -519,10 +516,9 @@ impl Handlers {
             enc_administrative_data_key_nonce,
             administrative_data_capsule,
         ) = {
-            let mut conn = state.redis_pool.get().context(current_fn!())?;
-
-            let access_keys: String = conn
-                .get(format!(
+            let access_keys: String = state
+                .cache_store
+                .get(&format!(
                     "keys:{}@{}",
                     current_user.iota_address, query.patient_iota_address,
                 ))
@@ -643,13 +639,12 @@ impl Handlers {
         let nonce = Utils::generate_64_bytes_seed();
         let nonce = hex::encode(&nonce);
 
-        let mut conn = state.redis_pool.get().context(current_fn!())?;
-
-        let _: () = conn
-            .set_options(
-                format!("nonce:{}", patient_iota_address.to_string()),
+        state
+            .cache_store
+            .set_ex(
+                format!("nonce:{}", patient_iota_address),
                 nonce.clone(),
-                SetOptions::default().with_expiration(SetExpiry::EX(NONCE_EXP_DUR)),
+                NONCE_EXP_DUR,
             )
             .context(current_fn!())?;
 
@@ -673,10 +668,9 @@ impl Handlers {
         let proxy_iota_address =
             IotaAddress::from_str(&state.proxy_iota_address).context(current_fn!())?;
 
-        let mut conn = state.redis_pool.get().context(current_fn!())?;
-
-        let nonce: String = conn
-            .get(format!("nonce:{}", patient_iota_address.to_string()))
+        let nonce: String = state
+            .cache_store
+            .get(&format!("nonce:{}", patient_iota_address))
             .map_err(|_| anyhow!("Nonce not found"))
             .code(StatusCode::BAD_REQUEST)?;
 
@@ -691,8 +685,9 @@ impl Handlers {
             .map_err(|_| anyhow!("Failed to verify signature"))
             .code(StatusCode::UNAUTHORIZED)?;
 
-        let _: () = conn
-            .del(patient_iota_address.to_string())
+        state
+            .cache_store
+            .del(&format!("nonce:{}", patient_iota_address))
             .map_err(|_| anyhow!("Nonce expired"))
             .code(StatusCode::UNAUTHORIZED)?;
 
@@ -765,17 +760,15 @@ impl Handlers {
             signer_pre_public_key: payload.signer_pre_public_key,
         };
 
-        let _: () = conn
-            .set_options(
+        state
+            .cache_store
+            .set_ex(
                 format!(
                     "keys:{}@{}",
-                    hospital_personnel_iota_address.to_string(),
-                    patient_iota_address.to_string()
+                    hospital_personnel_iota_address, patient_iota_address
                 ),
                 Utils::serde_serialize_to_base64(&access_keys).context(current_fn!())?,
-                SetOptions::default().with_expiration(SetExpiry::EX(
-                    update_keys_duration.unwrap_or(read_keys_duration),
-                )),
+                update_keys_duration.unwrap_or(read_keys_duration),
             )
             .context(current_fn!())?;
 

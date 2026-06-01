@@ -8,8 +8,9 @@ mod tes_error;
 mod types;
 mod utils;
 
-use std::{env, error::Error, str::FromStr, sync::Arc};
+use std::{env, str::FromStr, sync::Arc, time::Duration};
 
+use anyhow::{Context, Result};
 use axum::{
     middleware,
     routing::{get, post, put},
@@ -27,26 +28,51 @@ use handlers::Handlers;
 use iota_types::{base_types::ObjectID, Identifier};
 use move_call::MoveCall;
 use tower::ServiceBuilder;
-use types::{AppState, DecmedPackage};
+use types::{AppState, CacheStore, DecmedPackage};
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> Result<()> {
     // Load envs from .env file
-    dotenvy::dotenv()?;
+    dotenvy::dotenv().context("failed to load .env file")?;
 
     // Envs
-    let redis_connection_url = env::var("REDIS_CONNECTION_URL_DEV")?;
-    let port = env::var("PORT")?;
-    let global_admin_iota_address = env::var("GLOBAL_ADMIN_IOTA_ADDRESS")?;
-    let global_admin_iota_key_pair = env::var("GLOBAL_ADMIN_IOTA_KEY_PAIR")?;
-    let proxy_iota_address = env::var("PROXY_IOTA_ADDRESS")?;
-    let proxy_iota_key_pair = env::var("PROXY_IOTA_KEY_PAIR")?;
-    let jwt_ecdsa_key_pair = env::var("JWT_ECDSA_KEY_PAIR")?;
-    let jwt_ecdsa_pub_key = env::var("JWT_ECDSA_PUB_KEY")?;
+    let cache_backend = env::var("CACHE_BACKEND").unwrap_or_else(|_| "redis".to_string());
+    let port = env::var("PORT").context("missing PORT")?;
+    let global_admin_iota_address =
+        env::var("GLOBAL_ADMIN_IOTA_ADDRESS").context("missing GLOBAL_ADMIN_IOTA_ADDRESS")?;
+    let global_admin_iota_key_pair =
+        env::var("GLOBAL_ADMIN_IOTA_KEY_PAIR").context("missing GLOBAL_ADMIN_IOTA_KEY_PAIR")?;
+    let proxy_iota_address =
+        env::var("PROXY_IOTA_ADDRESS").context("missing PROXY_IOTA_ADDRESS")?;
+    let proxy_iota_key_pair =
+        env::var("PROXY_IOTA_KEY_PAIR").context("missing PROXY_IOTA_KEY_PAIR")?;
+    let jwt_ecdsa_key_pair =
+        env::var("JWT_ECDSA_KEY_PAIR").context("missing JWT_ECDSA_KEY_PAIR")?;
+    let jwt_ecdsa_pub_key = env::var("JWT_ECDSA_PUB_KEY").context("missing JWT_ECDSA_PUB_KEY")?;
 
-    // Redis pool
-    let redis_client = redis::Client::open(redis_connection_url.as_str())?;
-    let redis_pool = r2d2::Pool::builder().build(redis_client)?;
+    // Cache store for nonce and temporary access-key material.
+    let cache_store = if cache_backend.eq_ignore_ascii_case("memory") {
+        eprintln!(
+            "using in-memory cache store; use CACHE_BACKEND=redis for multi-process deployments"
+        );
+        CacheStore::memory()
+    } else {
+        let redis_connection_url =
+            env::var("REDIS_CONNECTION_URL_DEV").context("missing REDIS_CONNECTION_URL_DEV")?;
+        let redis_client =
+            redis::Client::open(redis_connection_url.as_str()).with_context(|| {
+                format!("invalid Redis URL in REDIS_CONNECTION_URL_DEV: {redis_connection_url}")
+            })?;
+        let redis_pool = r2d2::Pool::builder()
+            .connection_timeout(Duration::from_secs(3))
+            .build(redis_client)
+            .with_context(|| {
+                format!(
+                    "failed to connect to Redis at {redis_connection_url}; start local Redis, set CACHE_BACKEND=memory for local single-process development, or update REDIS_CONNECTION_URL_DEV"
+                )
+            })?;
+        CacheStore::redis(redis_pool)
+    };
 
     // App state
     let decmed_package = DecmedPackage {
@@ -77,7 +103,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         move_call,
         proxy_iota_address,
         proxy_iota_key_pair,
-        redis_pool,
+        cache_store,
     });
 
     let protected_routes = Router::new()
@@ -118,10 +144,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // App
     let app = Router::new().merge(api_v1_routes).with_state(shared_state);
 
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
+    let bind_addr = format!("0.0.0.0:{}", port);
+    let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
-        .unwrap();
-    axum::serve(listener, app).await.unwrap();
+        .with_context(|| format!("failed to bind backend listener at {bind_addr}"))?;
+    println!("proxy-reencryption backend listening on {bind_addr}");
+    axum::serve(listener, app)
+        .await
+        .context("backend server stopped unexpectedly")?;
 
     Ok(())
 }

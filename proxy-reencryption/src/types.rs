@@ -1,16 +1,109 @@
-use std::fmt::Debug;
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
+use anyhow::{anyhow, Context};
 use iota_json_rpc_types::{IotaObjectRef, IotaTransactionBlockEffects};
 use iota_types::{
     base_types::{IotaAddress, ObjectID},
     Identifier,
 };
 use r2d2::Pool;
-use redis::Client;
+use redis::{Client, Commands, SetExpiry, SetOptions};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::move_call::MoveCall;
+
+#[derive(Clone)]
+pub enum CacheStore {
+    Redis(Pool<Client>),
+    Memory(Arc<Mutex<HashMap<String, CacheEntry>>>),
+}
+
+#[derive(Clone)]
+pub struct CacheEntry {
+    value: String,
+    expires_at: Instant,
+}
+
+impl CacheStore {
+    pub fn memory() -> Self {
+        Self::Memory(Arc::new(Mutex::new(HashMap::new())))
+    }
+
+    pub fn redis(pool: Pool<Client>) -> Self {
+        Self::Redis(pool)
+    }
+
+    pub fn get(&self, key: &str) -> anyhow::Result<String> {
+        match self {
+            Self::Redis(pool) => {
+                let mut conn = pool
+                    .get()
+                    .context("failed to get Redis connection from pool")?;
+                conn.get(key).context("cache key not found")
+            }
+            Self::Memory(cache) => {
+                let mut cache = cache.lock().map_err(|_| anyhow!("cache lock poisoned"))?;
+                match cache.get(key) {
+                    Some(entry) if entry.expires_at > Instant::now() => Ok(entry.value.clone()),
+                    Some(_) => {
+                        cache.remove(key);
+                        Err(anyhow!("cache key expired"))
+                    }
+                    None => Err(anyhow!("cache key not found")),
+                }
+            }
+        }
+    }
+
+    pub fn set_ex(&self, key: String, value: String, ttl_secs: u64) -> anyhow::Result<()> {
+        match self {
+            Self::Redis(pool) => {
+                let mut conn = pool
+                    .get()
+                    .context("failed to get Redis connection from pool")?;
+                conn.set_options(
+                    key,
+                    value,
+                    SetOptions::default().with_expiration(SetExpiry::EX(ttl_secs)),
+                )
+                .context("failed to write cache key")
+            }
+            Self::Memory(cache) => {
+                let mut cache = cache.lock().map_err(|_| anyhow!("cache lock poisoned"))?;
+                cache.insert(
+                    key,
+                    CacheEntry {
+                        value,
+                        expires_at: Instant::now() + Duration::from_secs(ttl_secs),
+                    },
+                );
+                Ok(())
+            }
+        }
+    }
+
+    pub fn del(&self, key: &str) -> anyhow::Result<()> {
+        match self {
+            Self::Redis(pool) => {
+                let mut conn = pool
+                    .get()
+                    .context("failed to get Redis connection from pool")?;
+                conn.del(key).context("failed to delete cache key")
+            }
+            Self::Memory(cache) => {
+                let mut cache = cache.lock().map_err(|_| anyhow!("cache lock poisoned"))?;
+                cache.remove(key);
+                Ok(())
+            }
+        }
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum AuthRole {
@@ -50,7 +143,7 @@ pub struct AppState {
     pub move_call: MoveCall,
     pub proxy_iota_address: String,
     pub proxy_iota_key_pair: String,
-    pub redis_pool: Pool<Client>,
+    pub cache_store: CacheStore,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

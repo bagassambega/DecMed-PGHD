@@ -1,24 +1,45 @@
 # Build stage
-FROM rust:1.87-alpine AS build
+FROM rust:1.87-slim AS build
 
 ARG APP_NAME=proxy_reencryption
 
 WORKDIR /build
 
-RUN apk add openssl-dev musl-dev
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
 
+# Copy only Cargo files first (for better caching)
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir src \
-    && echo "// dummy file" > src/lib.rs \
-    && cargo build --release
 
+# Create dummy src to cache dependencies
+RUN mkdir src && \
+    echo "fn main() {}" > src/main.rs && \
+    cargo build --release --locked 2>&1 | grep -v "warning:" || true
+
+# Copy actual source code
 COPY src src
-RUN cargo build --locked --release
+
+# Build actual application
+RUN cargo build --release --locked
+
+# Copy binary to /bin
 RUN cp ./target/release/$APP_NAME /bin/server
 
-# Runtime stage
+# Runtime stage - use debian not alpine for better compatibility
 FROM debian:bullseye-slim AS final
 
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /bin/server /bin/
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD /bin/server --health-check || exit 1
 
 CMD ["/bin/server"]
