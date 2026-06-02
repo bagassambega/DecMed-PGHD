@@ -4,9 +4,12 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import com.hackastic.decmed.data.local.dao.PghdBatchDao
 import com.hackastic.decmed.data.local.dao.SensorConfigDao
 import com.hackastic.decmed.data.local.dao.PghdRecordDao
 import com.hackastic.decmed.data.local.dao.SensorDao
+import com.hackastic.decmed.data.local.entity.PghdBatchDataPointEntity
+import com.hackastic.decmed.data.local.entity.PghdBatchEntity
 import com.hackastic.decmed.data.local.entity.PghdRecordEntity
 import com.hackastic.decmed.data.local.entity.SensorConfigEntity
 import com.hackastic.decmed.data.local.entity.SensorData
@@ -25,6 +28,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
  *          • Added dataOrigin TEXT   (package-name source identifier)
  *          • Added index on (dataType, endTimeEpochMillis)
  *   v5 — Added pghd_records table for encrypted Health Connect and manual PGHD.
+ *   v6 — Added prepared PGHD batch and data point tables for IPFS payloads.
  *
  * Security note:
  *   In production the passphrase MUST be randomly generated, wrapped with an
@@ -32,8 +36,14 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
  *   The static string below is a prototype placeholder only.
  */
 @Database(
-    entities = [SensorData::class, SensorConfigEntity::class, PghdRecordEntity::class],
-    version = 5,
+    entities = [
+        SensorData::class,
+        SensorConfigEntity::class,
+        PghdRecordEntity::class,
+        PghdBatchEntity::class,
+        PghdBatchDataPointEntity::class
+    ],
+    version = 6,
     exportSchema = false
 )
 abstract class SensorDatabase : RoomDatabase() {
@@ -41,6 +51,7 @@ abstract class SensorDatabase : RoomDatabase() {
     abstract fun sensorDao(): SensorDao
     abstract fun sensorConfigDao(): SensorConfigDao
     abstract fun pghdRecordDao(): PghdRecordDao
+    abstract fun pghdBatchDao(): PghdBatchDao
 
     companion object {
         @Volatile

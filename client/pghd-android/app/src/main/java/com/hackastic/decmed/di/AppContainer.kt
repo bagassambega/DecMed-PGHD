@@ -12,10 +12,12 @@ import com.hackastic.decmed.data.patient.DeterministicPatientCryptoBridge
 import com.hackastic.decmed.data.remote.IotaPatientGateway
 import com.hackastic.decmed.data.remote.PrePghdClient
 import com.hackastic.decmed.data.repository.PatientAuthRepositoryImpl
+import com.hackastic.decmed.data.repository.PghdBatchRepositoryImpl
 import com.hackastic.decmed.data.repository.PghdRepositoryImpl
 import com.hackastic.decmed.data.repository.SensorConfigRepositoryImpl
 import com.hackastic.decmed.domain.repository.PatientAuthRepository
 import com.hackastic.decmed.domain.repository.PatientCryptoBridge
+import com.hackastic.decmed.domain.repository.PghdBatchRepository
 import com.hackastic.decmed.domain.repository.PghdRepository
 import com.hackastic.decmed.domain.repository.SensorConfigRepository
 
@@ -81,6 +83,10 @@ class AppContainer(context: Context) {
 
     val pghdRepository: PghdRepository by lazy {
         PghdRepositoryImpl(database.pghdRecordDao())
+    }
+
+    val pghdBatchRepository: PghdBatchRepository by lazy {
+        PghdBatchRepositoryImpl(database.pghdBatchDao())
     }
 
     val healthConnectPghdClient: HealthConnectPghdClient by lazy {
