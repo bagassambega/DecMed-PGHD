@@ -13,6 +13,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hackastic.decmed.ui.navigation.AppNavigation
 import com.hackastic.decmed.ui.theme.DecMedTheme
 import com.hackastic.decmed.viewmodel.PatientAuthViewModel
+import com.hackastic.decmed.viewmodel.PghdCollectionViewModel
 import com.hackastic.decmed.viewmodel.SensorViewModel
 import com.hackastic.decmed.viewmodel.ThemeViewModel
 
@@ -35,6 +36,7 @@ class MainActivity : ComponentActivity() {
             val themeViewModel: ThemeViewModel = viewModel()
             val sensorViewModel: SensorViewModel = viewModel()
             val patientAuthViewModel: PatientAuthViewModel = viewModel()
+            val pghdCollectionViewModel: PghdCollectionViewModel = viewModel()
             val dataViewModel: com.hackastic.decmed.viewmodel.DataViewModel = viewModel()
             val themeMode by themeViewModel.themeMode.collectAsState()
 
@@ -47,7 +49,8 @@ class MainActivity : ComponentActivity() {
                         sensorViewModel = sensorViewModel,
                         themeViewModel = themeViewModel,
                         dataViewModel = dataViewModel,
-                        patientAuthViewModel = patientAuthViewModel
+                        patientAuthViewModel = patientAuthViewModel,
+                        pghdCollectionViewModel = pghdCollectionViewModel
                     )
                 }
             }

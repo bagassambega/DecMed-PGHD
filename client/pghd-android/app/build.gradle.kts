@@ -74,4 +74,7 @@ dependencies {
     ksp(libs.room.compiler)
     implementation(libs.sqlcipher)
     implementation(libs.androidx.sqlite)
+
+    // Health Connect
+    implementation(libs.health.connect.client)
 }

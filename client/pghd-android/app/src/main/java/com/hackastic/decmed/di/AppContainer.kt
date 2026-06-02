@@ -5,15 +5,18 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
 import com.hackastic.decmed.BuildConfig
+import com.hackastic.decmed.data.health.HealthConnectPghdClient
 import com.hackastic.decmed.data.local.security.PatientSecureStorage
 import com.hackastic.decmed.data.local.database.SensorDatabase
 import com.hackastic.decmed.data.patient.DeterministicPatientCryptoBridge
 import com.hackastic.decmed.data.remote.IotaPatientGateway
 import com.hackastic.decmed.data.remote.PrePghdClient
 import com.hackastic.decmed.data.repository.PatientAuthRepositoryImpl
+import com.hackastic.decmed.data.repository.PghdRepositoryImpl
 import com.hackastic.decmed.data.repository.SensorConfigRepositoryImpl
 import com.hackastic.decmed.domain.repository.PatientAuthRepository
 import com.hackastic.decmed.domain.repository.PatientCryptoBridge
+import com.hackastic.decmed.domain.repository.PghdRepository
 import com.hackastic.decmed.domain.repository.SensorConfigRepository
 
 /**
@@ -74,5 +77,13 @@ class AppContainer(context: Context) {
 
     val sensorRepository: com.hackastic.decmed.domain.repository.SensorRepository by lazy {
         com.hackastic.decmed.data.repository.SensorRepositoryImpl(database.sensorDao())
+    }
+
+    val pghdRepository: PghdRepository by lazy {
+        PghdRepositoryImpl(database.pghdRecordDao())
+    }
+
+    val healthConnectPghdClient: HealthConnectPghdClient by lazy {
+        HealthConnectPghdClient(appContext)
     }
 }

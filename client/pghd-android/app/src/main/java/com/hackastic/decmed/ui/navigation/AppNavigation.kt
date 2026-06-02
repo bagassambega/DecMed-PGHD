@@ -1,6 +1,7 @@
 package com.hackastic.decmed.ui.navigation
 
 import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
@@ -23,6 +24,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.hackastic.decmed.di.dataStore
 import com.hackastic.decmed.domain.model.patient.PatientAuthState
+import androidx.health.connect.client.PermissionController
 import com.hackastic.decmed.ui.screen.DataScreen
 import com.hackastic.decmed.ui.screen.HomeScreen
 import com.hackastic.decmed.ui.screen.PatientAuthChoiceScreen
@@ -30,12 +32,14 @@ import com.hackastic.decmed.ui.screen.PatientCompleteProfileScreen
 import com.hackastic.decmed.ui.screen.PatientSigninScreen
 import com.hackastic.decmed.ui.screen.PatientSignupScreen
 import com.hackastic.decmed.ui.screen.PatientUnlockScreen
+import com.hackastic.decmed.ui.screen.PghdCollectionScreen
 import com.hackastic.decmed.ui.screen.SensorConfigScreen
 import com.hackastic.decmed.ui.screen.SensorListScreen
 import com.hackastic.decmed.ui.screen.SettingsScreen
 import com.hackastic.decmed.ui.screen.TermsOfServiceScreen
 import com.hackastic.decmed.viewmodel.DataViewModel
 import com.hackastic.decmed.viewmodel.PatientAuthViewModel
+import com.hackastic.decmed.viewmodel.PghdCollectionViewModel
 import com.hackastic.decmed.viewmodel.SensorViewModel
 import com.hackastic.decmed.viewmodel.ThemeViewModel
 import kotlinx.coroutines.flow.first
@@ -57,11 +61,17 @@ fun AppNavigation(
     sensorViewModel: SensorViewModel,
     themeViewModel: ThemeViewModel,
     dataViewModel: DataViewModel,
-    patientAuthViewModel: PatientAuthViewModel
+    patientAuthViewModel: PatientAuthViewModel,
+    pghdCollectionViewModel: PghdCollectionViewModel
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val patientAuthState by patientAuthViewModel.authState.collectAsState()
+    val healthConnectPermissionLauncher = rememberLauncherForActivityResult(
+        PermissionController.createRequestPermissionResultContract()
+    ) { grantedPermissions ->
+        pghdCollectionViewModel.onPermissionsResult(grantedPermissions)
+    }
 
     // Determine start destination asynchronously
     var tosAccepted by remember { mutableStateOf<Boolean?>(null) }
@@ -99,10 +109,15 @@ fun AppNavigation(
     }
 
     val navController = rememberNavController()
+    fun requestHealthConnectApproval() {
+        healthConnectPermissionLauncher.launch(pghdCollectionViewModel.requestedPermissions)
+    }
+
     fun navigateAfterPatientReady() {
         navController.navigate(if (setupComplete) Screen.Home.route else Screen.SensorList.route) {
             popUpTo(0) { inclusive = true }
         }
+        requestHealthConnectApproval()
     }
 
     NavHost(
@@ -139,6 +154,7 @@ fun AppNavigation(
             PatientSignupScreen(
                 viewModel = patientAuthViewModel,
                 onCompleted = {
+                    requestHealthConnectApproval()
                     navController.navigate(Screen.PatientCompleteProfile.route) {
                         popUpTo(Screen.PatientAuth.route)
                     }
@@ -151,6 +167,7 @@ fun AppNavigation(
             PatientSigninScreen(
                 viewModel = patientAuthViewModel,
                 onCompleted = {
+                    requestHealthConnectApproval()
                     navController.navigate(Screen.PatientCompleteProfile.route) {
                         popUpTo(Screen.PatientAuth.route)
                     }
@@ -214,6 +231,9 @@ fun AppNavigation(
                 },
                 onNavigateToData = {
                     navController.navigate(Screen.Data.route)
+                },
+                onNavigateToPghdCollection = {
+                    navController.navigate(Screen.PghdCollection.route)
                 }
             )
         }
@@ -221,6 +241,15 @@ fun AppNavigation(
         composable(Screen.Data.route) {
             DataScreen(
                 viewModel = dataViewModel,
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable(Screen.PghdCollection.route) {
+            PghdCollectionScreen(
+                viewModel = pghdCollectionViewModel,
                 onNavigateBack = {
                     navController.popBackStack()
                 }

@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
@@ -57,7 +58,8 @@ import com.hackastic.decmed.viewmodel.SensorViewModel
 fun HomeScreen(
     viewModel: SensorViewModel,
     onNavigateToSettings: () -> Unit,
-    onNavigateToData: () -> Unit
+    onNavigateToData: () -> Unit,
+    onNavigateToPghdCollection: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -71,6 +73,12 @@ fun HomeScreen(
             TopAppBar(
                 title = { Text("DecMed PGHD") },
                 actions = {
+                    IconButton(onClick = onNavigateToPghdCollection) {
+                        Icon(
+                            imageVector = Icons.Default.HealthAndSafety,
+                            contentDescription = "PGHD Collection"
+                        )
+                    }
                     IconButton(onClick = onNavigateToData) {
                         Icon(
                             imageVector = Icons.Default.Analytics,

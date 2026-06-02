@@ -103,7 +103,7 @@ class DeterministicPatientCryptoBridge : PatientCryptoBridge {
 
         val lambda = if (x1 == x2 && y1 == y2) {
             x1.pow(2).multiply(BigInteger.valueOf(3)).add(P256_A)
-                .multiply(y1.multiply(BigInteger.TWO).modInverse(P256_P))
+                .multiply(y1.multiply(BigInteger.valueOf(2L)).modInverse(P256_P))
         } else {
             y2.subtract(y1).multiply(x2.subtract(x1).mod(P256_P).modInverse(P256_P))
         }.mod(P256_P)
