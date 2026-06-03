@@ -3,6 +3,7 @@ package com.hackastic.decmed.data.pghd
 import com.hackastic.decmed.domain.model.pghd.PghdBatchPayload
 import com.hackastic.decmed.domain.model.pghd.PghdBatchPeriod
 import com.hackastic.decmed.domain.model.pghd.PghdDataPointPayload
+import com.hackastic.decmed.domain.model.pghd.PghdInnerPlaintext
 import com.hackastic.decmed.domain.model.pghd.PghdMeasurementValue
 import com.hackastic.decmed.domain.model.pghd.PghdSourceDevice
 import org.json.JSONArray
@@ -26,6 +27,12 @@ object PghdPayloadSerializer {
             is PghdMeasurementValue.NumberValue -> value.value
             is PghdMeasurementValue.ObjectValue -> JSONObject(value.values)
         }
+
+    fun innerPlaintextToJson(innerPlaintext: PghdInnerPlaintext): String =
+        JSONObject()
+            .put("pghd_data", JSONObject(innerPlaintext.pghdData))
+            .put("inner_signature", innerPlaintext.innerSignature)
+            .toString()
 
     private fun sourceDeviceToJson(sourceDevice: PghdSourceDevice): JSONObject =
         JSONObject()

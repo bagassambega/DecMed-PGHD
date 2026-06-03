@@ -12,6 +12,7 @@ interface PatientAuthRepository {
     suspend fun signUp(draft: PatientRegistrationDraft)
     suspend fun signIn(seedWords: String, nik: String, pin: String)
     suspend fun saveProfile(profile: PatientProfile)
+    suspend fun getUnlockedProfile(): PatientProfile
     suspend fun unlock(pin: String)
     suspend fun signOut()
 }

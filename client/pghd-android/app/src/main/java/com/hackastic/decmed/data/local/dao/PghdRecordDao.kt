@@ -36,6 +36,16 @@ interface PghdRecordDao {
     @Query("SELECT DISTINCT recordType FROM pghd_records ORDER BY recordType ASC")
     fun getRecordTypes(): Flow<List<String>>
 
+    @Query(
+        """
+        SELECT DISTINCT sourcePackageName FROM pghd_records
+        WHERE sourceTag = :sourceTag
+          AND sourcePackageName IS NOT NULL
+        ORDER BY sourcePackageName ASC
+        """
+    )
+    fun getSourcePackages(sourceTag: String = PghdRecordEntity.SOURCE_HEALTH_CONNECT): Flow<List<String>>
+
     @Query("SELECT COUNT(*) FROM pghd_records")
     suspend fun getTotalCount(): Long
 }

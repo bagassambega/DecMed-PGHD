@@ -51,6 +51,12 @@ import java.time.Instant
 import java.time.temporal.ChronoUnit
 import kotlin.reflect.KClass
 
+data class HealthConnectPermissionState(
+    val grantedPermissions: Set<String>,
+    val hasRequiredDataPermissions: Boolean,
+    val hasHistoryPermission: Boolean
+)
+
 class HealthConnectPghdClient(
     private val context: Context
 ) {
@@ -65,12 +71,29 @@ class HealthConnectPghdClient(
         healthConnectClient.permissionController.getGrantedPermissions()
 
     suspend fun hasAllPermissions(): Boolean =
-        getGrantedPermissions().containsAll(READ_PERMISSIONS)
+        getPermissionState().let { it.hasRequiredDataPermissions && it.hasHistoryPermission }
+
+    suspend fun getPermissionState(): HealthConnectPermissionState {
+        val grantedPermissions = getGrantedPermissions()
+        return HealthConnectPermissionState(
+            grantedPermissions = grantedPermissions,
+            hasRequiredDataPermissions = grantedPermissions.containsAll(XIAOMI_BAND_READ_PERMISSIONS),
+            hasHistoryPermission = HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY in grantedPermissions
+        )
+    }
 
     suspend fun readRecentPghd(daysBack: Long = 30): List<PghdRecordEntity> {
         val end = Instant.now()
         val start = end.minus(daysBack, ChronoUnit.DAYS)
         return DESCRIPTORS.flatMap { descriptor ->
+            readRecordsForDescriptor(descriptor, start, end)
+        }
+    }
+
+    suspend fun readXiaomiBandPghd(daysBack: Long): List<PghdRecordEntity> {
+        val end = Instant.now()
+        val start = end.minus(daysBack, ChronoUnit.DAYS)
+        return XIAOMI_BAND_DESCRIPTORS.flatMap { descriptor ->
             readRecordsForDescriptor(descriptor, start, end)
         }
     }
@@ -95,47 +118,89 @@ class HealthConnectPghdClient(
     )
 
     companion object {
-        val READ_PERMISSIONS: Set<String> = setOf(
+        const val DEFAULT_SYNC_DAYS = 30L
+        const val HISTORY_SYNC_DAYS = 365L
+
+        val XIAOMI_BAND_READ_PERMISSIONS: Set<String> = setOf(
             HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class),
-            HealthPermission.getReadPermission(BasalBodyTemperatureRecord::class),
-            HealthPermission.getReadPermission(BasalMetabolicRateRecord::class),
-            HealthPermission.getReadPermission(BloodGlucoseRecord::class),
-            HealthPermission.getReadPermission(BloodPressureRecord::class),
-            HealthPermission.getReadPermission(BodyFatRecord::class),
-            HealthPermission.getReadPermission(BodyTemperatureRecord::class),
-            HealthPermission.getReadPermission(BodyWaterMassRecord::class),
-            HealthPermission.getReadPermission(BoneMassRecord::class),
-            HealthPermission.getReadPermission(CervicalMucusRecord::class),
             HealthPermission.getReadPermission(CyclingPedalingCadenceRecord::class),
             HealthPermission.getReadPermission(DistanceRecord::class),
-            HealthPermission.getReadPermission(ElevationGainedRecord::class),
             HealthPermission.getReadPermission(ExerciseSessionRecord::class),
-            HealthPermission.getReadPermission(FloorsClimbedRecord::class),
             HealthPermission.getReadPermission(HeartRateRecord::class),
             HealthPermission.getReadPermission(HeartRateVariabilityRmssdRecord::class),
-            HealthPermission.getReadPermission(HeightRecord::class),
-            HealthPermission.getReadPermission(HydrationRecord::class),
-            HealthPermission.getReadPermission(IntermenstrualBleedingRecord::class),
-            HealthPermission.getReadPermission(LeanBodyMassRecord::class),
-            HealthPermission.getReadPermission(MenstruationFlowRecord::class),
-            HealthPermission.getReadPermission(MenstruationPeriodRecord::class),
-            HealthPermission.getReadPermission(NutritionRecord::class),
-            HealthPermission.getReadPermission(OvulationTestRecord::class),
             HealthPermission.getReadPermission(OxygenSaturationRecord::class),
-            HealthPermission.getReadPermission(PlannedExerciseSessionRecord::class),
-            HealthPermission.getReadPermission(PowerRecord::class),
             HealthPermission.getReadPermission(RespiratoryRateRecord::class),
             HealthPermission.getReadPermission(RestingHeartRateRecord::class),
-            HealthPermission.getReadPermission(SexualActivityRecord::class),
             HealthPermission.getReadPermission(SkinTemperatureRecord::class),
             HealthPermission.getReadPermission(SleepSessionRecord::class),
             HealthPermission.getReadPermission(SpeedRecord::class),
             HealthPermission.getReadPermission(StepsCadenceRecord::class),
             HealthPermission.getReadPermission(StepsRecord::class),
             HealthPermission.getReadPermission(TotalCaloriesBurnedRecord::class),
-            HealthPermission.getReadPermission(Vo2MaxRecord::class),
-            HealthPermission.getReadPermission(WeightRecord::class),
-            HealthPermission.getReadPermission(WheelchairPushesRecord::class)
+            HealthPermission.getReadPermission(Vo2MaxRecord::class)
+        )
+
+        val READ_PERMISSIONS: Set<String> = XIAOMI_BAND_READ_PERMISSIONS + setOf(
+            HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY
+        )
+
+        private val XIAOMI_BAND_DESCRIPTORS: List<HealthRecordDescriptor<out Record>> = listOf(
+            HealthRecordDescriptor(ActiveCaloriesBurnedRecord::class) { record ->
+                listOf(record.toPghd("active_calories", "Active calories burned", record.energy.inKilocalories, "kcal", record.startTime, record.endTime))
+            },
+            HealthRecordDescriptor(CyclingPedalingCadenceRecord::class) { record ->
+                record.samples.mapIndexed { index, sample ->
+                    record.toPghd("cycling_pedaling_cadence", "Cycling cadence", sample.revolutionsPerMinute, "rpm", sample.time, sample.time, suffix = "sample:$index")
+                }
+            },
+            HealthRecordDescriptor(DistanceRecord::class) { record ->
+                listOf(record.toPghd("distance", "Distance", record.distance.inMeters, "m", record.startTime, record.endTime))
+            },
+            HealthRecordDescriptor(ExerciseSessionRecord::class) { record ->
+                listOf(record.toPghd("exercise_session", "Exercise session", "Exercise type ${record.exerciseType}", "session", null, record.startTime, record.endTime))
+            },
+            HealthRecordDescriptor(HeartRateRecord::class) { record ->
+                record.samples.mapIndexed { index, sample ->
+                    record.toPghd("heart_rate", "Heart rate", sample.beatsPerMinute.toDouble(), "bpm", sample.time, sample.time, suffix = "sample:$index")
+                }
+            },
+            HealthRecordDescriptor(HeartRateVariabilityRmssdRecord::class) { record ->
+                listOf(record.toPghd("heart_rate_variability_rmssd", "Heart rate variability", record.heartRateVariabilityMillis, "ms", record.time, record.time))
+            },
+            HealthRecordDescriptor(OxygenSaturationRecord::class) { record ->
+                listOf(record.toPghd("oxygen_saturation", "Oxygen saturation", record.percentage.value, "%", record.time, record.time))
+            },
+            HealthRecordDescriptor(RespiratoryRateRecord::class) { record ->
+                listOf(record.toPghd("respiratory_rate", "Respiratory rate", record.rate, "breaths/min", record.time, record.time))
+            },
+            HealthRecordDescriptor(RestingHeartRateRecord::class) { record ->
+                listOf(record.toPghd("resting_heart_rate", "Resting heart rate", record.beatsPerMinute.toDouble(), "bpm", record.time, record.time))
+            },
+            summaryDescriptor(SkinTemperatureRecord::class, "skin_temperature", "Skin temperature") { record ->
+                record.startTime to record.endTime
+            },
+            HealthRecordDescriptor(SleepSessionRecord::class) { record ->
+                listOf(record.toPghd("sleep_session", "Sleep session", "Sleep session", "session", null, record.startTime, record.endTime))
+            },
+            HealthRecordDescriptor(SpeedRecord::class) { record ->
+                record.samples.mapIndexed { index, sample ->
+                    record.toPghd("speed", "Speed", sample.speed.inMetersPerSecond, "m/s", sample.time, sample.time, suffix = "sample:$index")
+                }
+            },
+            HealthRecordDescriptor(StepsCadenceRecord::class) { record ->
+                record.samples.mapIndexed { index, sample ->
+                    record.toPghd("steps_cadence", "Steps cadence", sample.rate, "steps/min", sample.time, sample.time, suffix = "sample:$index")
+                }
+            },
+            HealthRecordDescriptor(StepsRecord::class) { record ->
+                listOf(record.toPghd("steps", "Steps", record.count.toDouble(), "count", record.startTime, record.endTime))
+            },
+            HealthRecordDescriptor(TotalCaloriesBurnedRecord::class) { record ->
+                listOf(record.toPghd("total_calories", "Total calories burned", record.energy.inKilocalories, "kcal", record.startTime, record.endTime))
+            },
+            HealthRecordDescriptor(Vo2MaxRecord::class) { record ->
+                listOf(record.toPghd("vo2_max", "VO2 max", record.vo2MillilitersPerMinuteKilogram, "mL/min/kg", record.time, record.time))
+            }
         )
 
         private val DESCRIPTORS: List<HealthRecordDescriptor<out Record>> = listOf(

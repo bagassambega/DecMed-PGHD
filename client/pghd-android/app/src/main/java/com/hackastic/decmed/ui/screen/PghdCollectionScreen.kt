@@ -17,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
@@ -120,11 +121,16 @@ fun PghdCollectionScreen(
                 totalCount = uiState.totalCount,
                 available = uiState.isHealthConnectAvailable,
                 hasPermissions = uiState.hasHealthConnectPermissions,
+                hasHistoryPermission = uiState.hasHealthConnectHistoryPermission,
                 isSyncing = uiState.isSyncing,
+                isSubmitting = uiState.isSubmitting,
                 message = uiState.lastSyncMessage,
                 error = uiState.errorMessage,
+                sourcePackages = uiState.healthConnectSourcePackages,
+                hasDetectedXiaomiSource = uiState.hasDetectedXiaomiSource,
                 onRequestPermission = { permissionLauncher.launch(viewModel.requestedPermissions) },
-                onSync = viewModel::syncFromHealthConnect
+                onSync = viewModel::syncFromHealthConnect,
+                onSubmit = viewModel::submitDisplayedPghd
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -184,11 +190,16 @@ private fun HealthConnectSummaryCard(
     totalCount: Long,
     available: Boolean,
     hasPermissions: Boolean,
+    hasHistoryPermission: Boolean,
     isSyncing: Boolean,
+    isSubmitting: Boolean,
     message: String?,
     error: String?,
+    sourcePackages: List<String>,
+    hasDetectedXiaomiSource: Boolean,
     onRequestPermission: () -> Unit,
-    onSync: () -> Unit
+    onSync: () -> Unit,
+    onSubmit: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -214,8 +225,9 @@ private fun HealthConnectSummaryCard(
                     Text(
                         text = when {
                             !available -> "Health Connect unavailable on this device"
-                            hasPermissions -> "Health Connect permission approved"
-                            else -> "Health Connect permission required"
+                            hasPermissions && hasHistoryPermission -> "Xiaomi Smart Band sync ready, including health history"
+                            hasPermissions -> "Xiaomi Smart Band sync ready for recent Health Connect data"
+                            else -> "Connect Health Connect to read Xiaomi Smart Band PGHD"
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
@@ -223,18 +235,50 @@ private fun HealthConnectSummaryCard(
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
-                    enabled = available && !hasPermissions,
+                    enabled = available && (!hasPermissions || !hasHistoryPermission),
                     onClick = onRequestPermission
                 ) {
-                    Text("Approve Health Connect")
+                    Text(if (hasPermissions) "Approve Health History" else "Connect Health Connect")
                 }
                 Button(
-                    enabled = available && hasPermissions && !isSyncing,
+                    enabled = available && hasPermissions && !isSyncing && !isSubmitting,
                     onClick = onSync
                 ) {
                     Text(if (isSyncing) "Syncing" else "Sync Now")
+                }
+                Button(
+                    enabled = !isSyncing && !isSubmitting && totalCount > 0,
+                    onClick = onSubmit
+                ) {
+                    Icon(Icons.Default.CloudUpload, contentDescription = null)
+                    Text(if (isSubmitting) "Submitting" else "Submit PGHD")
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "Mi Fitness -> Health Connect -> DecMed",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Text(
+                    text = when {
+                        !hasPermissions -> "Grant DecMed read access for steps, heart, sleep, activity, SpO2, and history."
+                        sourcePackages.isEmpty() -> "No Health Connect source packages detected yet. Sync Mi Fitness with Health Connect, then sync here."
+                        hasDetectedXiaomiSource -> "Detected Xiaomi/Mi Fitness compatible Health Connect source."
+                        else -> "Detected Health Connect sources, but none look like Xiaomi/Mi Fitness yet."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                )
+                if (sourcePackages.isNotEmpty()) {
+                    Text(
+                        text = sourcePackages.joinToString(prefix = "Sources: "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                    )
                 }
             }
 

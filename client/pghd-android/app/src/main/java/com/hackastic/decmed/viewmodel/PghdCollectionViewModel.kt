@@ -24,14 +24,20 @@ data class PghdCollectionUiState(
     val totalCount: Long = 0,
     val isHealthConnectAvailable: Boolean = false,
     val hasHealthConnectPermissions: Boolean = false,
+    val hasHealthConnectHistoryPermission: Boolean = false,
     val isSyncing: Boolean = false,
+    val isSubmitting: Boolean = false,
     val lastSyncMessage: String? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val healthConnectSourcePackages: List<String> = emptyList(),
+    val hasDetectedXiaomiSource: Boolean = false
 )
 
 class PghdCollectionViewModel(application: Application) : AndroidViewModel(application) {
     private val container = (application as MainApplication).container
     private val pghdRepository = container.pghdRepository
+    private val pghdBatchRepository = container.pghdBatchRepository
+    private val patientAuthRepository = container.patientAuthRepository
     private val healthConnectPghdClient = container.healthConnectPghdClient
 
     private val selectedSourceTag = MutableStateFlow<String?>(null)
@@ -45,6 +51,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
     init {
         observeRecords()
         observeRecordTypes()
+        observeHealthConnectSourcePackages()
         refreshHealthConnectState()
         refreshTotalCount()
     }
@@ -52,24 +59,34 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
     fun refreshHealthConnectState() {
         viewModelScope.launch {
             val available = healthConnectPghdClient.isAvailable()
-            val hasPermissions = available && healthConnectPghdClient.hasAllPermissions()
+            val permissionState = if (available) healthConnectPghdClient.getPermissionState() else null
             _uiState.update {
                 it.copy(
                     isHealthConnectAvailable = available,
-                    hasHealthConnectPermissions = hasPermissions
+                    hasHealthConnectPermissions = permissionState?.hasRequiredDataPermissions == true,
+                    hasHealthConnectHistoryPermission = permissionState?.hasHistoryPermission == true
                 )
             }
         }
     }
 
     fun onPermissionsResult(grantedPermissions: Set<String>) {
+        val hasDataPermissions = grantedPermissions.containsAll(HealthConnectPghdClient.XIAOMI_BAND_READ_PERMISSIONS)
+        val hasHistoryPermission = HealthConnectPghdClient.READ_PERMISSIONS
+            .minus(HealthConnectPghdClient.XIAOMI_BAND_READ_PERMISSIONS)
+            .all { it in grantedPermissions }
         _uiState.update {
             it.copy(
-                hasHealthConnectPermissions = grantedPermissions.containsAll(requestedPermissions),
-                errorMessage = null
+                hasHealthConnectPermissions = hasDataPermissions,
+                hasHealthConnectHistoryPermission = hasHistoryPermission,
+                errorMessage = if (hasDataPermissions) {
+                    null
+                } else {
+                    "Health Connect data permissions are required before syncing PGHD."
+                }
             )
         }
-        if (grantedPermissions.containsAll(requestedPermissions)) {
+        if (hasDataPermissions) {
             syncFromHealthConnect()
         }
     }
@@ -88,7 +105,8 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                     return@launch
                 }
 
-                if (!healthConnectPghdClient.hasAllPermissions()) {
+                val permissionState = healthConnectPghdClient.getPermissionState()
+                if (!permissionState.hasRequiredDataPermissions) {
                     _uiState.update {
                         it.copy(
                             hasHealthConnectPermissions = false,
@@ -98,13 +116,24 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                     return@launch
                 }
 
-                val records = healthConnectPghdClient.readRecentPghd()
+                val daysBack = if (permissionState.hasHistoryPermission) {
+                    HealthConnectPghdClient.HISTORY_SYNC_DAYS
+                } else {
+                    HealthConnectPghdClient.DEFAULT_SYNC_DAYS
+                }
+                val records = healthConnectPghdClient.readXiaomiBandPghd(daysBack)
                 pghdRepository.saveHealthConnectRecords(records)
                 refreshTotalCount()
                 _uiState.update {
                     it.copy(
                         hasHealthConnectPermissions = true,
-                        lastSyncMessage = "Synced ${records.size} Health Connect records."
+                        hasHealthConnectHistoryPermission = permissionState.hasHistoryPermission,
+                        lastSyncMessage = buildString {
+                            append("Synced ${records.size} Xiaomi-band Health Connect records from the last $daysBack days.")
+                            if (!permissionState.hasHistoryPermission) {
+                                append(" Grant health history permission to include older records.")
+                            }
+                        }
                     )
                 }
             } catch (err: Exception) {
@@ -147,6 +176,37 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    fun submitDisplayedPghd() {
+        viewModelScope.launch {
+            val recordsToSubmit = uiState.value.records
+            if (recordsToSubmit.isEmpty()) {
+                _uiState.update { it.copy(errorMessage = "No PGHD records are available to submit.") }
+                return@launch
+            }
+
+            _uiState.update { it.copy(isSubmitting = true, errorMessage = null, lastSyncMessage = null) }
+            try {
+                val patientProfile = patientAuthRepository.getUnlockedProfile()
+                val result = pghdBatchRepository.createEncryptAndSubmitBatch(
+                    records = recordsToSubmit,
+                    patientProfile = patientProfile
+                )
+                _uiState.update {
+                    it.copy(
+                        lastSyncMessage = result.message ?: "Submitted encrypted PGHD batch ${result.batchId}.",
+                        errorMessage = null
+                    )
+                }
+            } catch (err: Exception) {
+                _uiState.update {
+                    it.copy(errorMessage = err.message ?: "Unable to submit encrypted PGHD batch.")
+                }
+            } finally {
+                _uiState.update { it.copy(isSubmitting = false) }
+            }
+        }
+    }
+
     fun selectSourceTag(sourceTag: String?) {
         selectedSourceTag.value = sourceTag
     }
@@ -182,6 +242,24 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                 _uiState.update { it.copy(recordTypes = types) }
             }
         }
+    }
+
+    private fun observeHealthConnectSourcePackages() {
+        viewModelScope.launch {
+            pghdRepository.getHealthConnectSourcePackages().collect { sourcePackages ->
+                _uiState.update {
+                    it.copy(
+                        healthConnectSourcePackages = sourcePackages,
+                        hasDetectedXiaomiSource = sourcePackages.any(::isLikelyXiaomiPackage)
+                    )
+                }
+            }
+        }
+    }
+
+    private fun isLikelyXiaomiPackage(packageName: String): Boolean {
+        val normalized = packageName.lowercase()
+        return listOf("xiaomi", "mihealth", "mifitness", "huami", "zepp").any(normalized::contains)
     }
 
     private fun refreshTotalCount() {

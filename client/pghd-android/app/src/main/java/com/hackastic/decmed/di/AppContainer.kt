@@ -86,7 +86,7 @@ class AppContainer(context: Context) {
     }
 
     val pghdBatchRepository: PghdBatchRepository by lazy {
-        PghdBatchRepositoryImpl(database.pghdBatchDao())
+        PghdBatchRepositoryImpl(database.pghdBatchDao(), prePghdClient)
     }
 
     val healthConnectPghdClient: HealthConnectPghdClient by lazy {

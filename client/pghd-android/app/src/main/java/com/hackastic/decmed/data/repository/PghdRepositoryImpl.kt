@@ -19,6 +19,9 @@ class PghdRepositoryImpl(
     override fun getRecordTypes(): Flow<List<String>> =
         pghdRecordDao.getRecordTypes()
 
+    override fun getHealthConnectSourcePackages(): Flow<List<String>> =
+        pghdRecordDao.getSourcePackages()
+
     override suspend fun getTotalCount(): Long =
         pghdRecordDao.getTotalCount()
 

@@ -11,6 +11,7 @@ interface PghdRepository {
     ): Flow<List<PghdRecordEntity>>
 
     fun getRecordTypes(): Flow<List<String>>
+    fun getHealthConnectSourcePackages(): Flow<List<String>>
     suspend fun getTotalCount(): Long
     suspend fun saveManualRecord(
         recordType: String,

@@ -13,6 +13,7 @@ import com.hackastic.decmed.domain.model.patient.PatientRegistrationDraft
 import com.hackastic.decmed.domain.repository.PatientAuthRepository
 import com.hackastic.decmed.domain.repository.PatientCryptoBridge
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 class PatientAuthRepositoryImpl(
@@ -99,6 +100,31 @@ class PatientAuthRepositoryImpl(
             profile.maritalStatus?.let { prefs[Keys.maritalStatus] = secureStorage.encrypt(it).orEmpty() }
             prefs[Keys.sessionState] = SESSION_UNLOCKED
         }
+    }
+
+    override suspend fun getUnlockedProfile(): PatientProfile {
+        val prefs = dataStore.data.first()
+        require(prefs[Keys.sessionState] == SESSION_UNLOCKED) { "Patient session is locked." }
+
+        val patientId = secureStorage.decrypt(prefs[Keys.patientId])
+        require(!patientId.isNullOrBlank()) { "Patient identity is not available." }
+
+        return PatientProfile(
+            id = patientId,
+            idHash = secureStorage.decrypt(prefs[Keys.patientIdHash]),
+            iotaAddress = secureStorage.decrypt(prefs[Keys.iotaAddress]),
+            prePublicKey = secureStorage.decrypt(prefs[Keys.prePublicKey]),
+            pghdPublicKey = secureStorage.decrypt(prefs[Keys.pghdPublicKey]),
+            pghdSecretKey = secureStorage.decrypt(prefs[Keys.pghdSecretKey]),
+            name = secureStorage.decrypt(prefs[Keys.profileName]),
+            birthPlace = secureStorage.decrypt(prefs[Keys.birthPlace]),
+            dateOfBirth = secureStorage.decrypt(prefs[Keys.dateOfBirth]),
+            gender = secureStorage.decrypt(prefs[Keys.gender]),
+            religion = secureStorage.decrypt(prefs[Keys.religion]),
+            education = secureStorage.decrypt(prefs[Keys.education]),
+            occupation = secureStorage.decrypt(prefs[Keys.occupation]),
+            maritalStatus = secureStorage.decrypt(prefs[Keys.maritalStatus])
+        )
     }
 
     override suspend fun unlock(pin: String) {
