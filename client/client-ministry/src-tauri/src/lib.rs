@@ -7,7 +7,7 @@ mod move_call;
 mod types;
 mod utils;
 
-use std::str::FromStr;
+use std::{env, process::Command, str::FromStr};
 
 use iota_types::{base_types::ObjectID, Identifier};
 use keyring::Entry;
@@ -26,7 +26,53 @@ use crate::{
     types::{AppState, DecmedPackage, KeysEntry},
 };
 
+const DEFAULT_MINISTRY_ADMIN_ADDRESS: &str =
+    "0xa180461e6345380399f36c8b62e5d68e68d71162d3fdc504eb257e04de2942b6";
+const DEFAULT_MINISTRY_ADMIN_ALIAS: &str = "decmed-publisher-testnet";
+const DEFAULT_MINISTRY_PRE_SEED: &str = "sM5LRtjsf30Gsbmw7sWesgkdrAOzA9F6qMP8xrmXl1o=";
+
+fn export_iota_private_key(alias: &str) -> Option<String> {
+    let output = Command::new("iota")
+        .args(["keytool", "export", alias, "--json"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+    value
+        .get("exportedPrivateKey")
+        .or_else(|| value.get("key"))
+        .and_then(|value| value.as_str())
+        .map(String::from)
+}
+
+fn desired_ministry_keys_entry(existing: Option<KeysEntry>) -> KeysEntry {
+    let admin_address = env::var("DECMED_MINISTRY_ADMIN_ADDRESS")
+        .unwrap_or_else(|_| DEFAULT_MINISTRY_ADMIN_ADDRESS.to_string());
+    let admin_secret_key = env::var("DECMED_MINISTRY_ADMIN_SECRET_KEY")
+        .ok()
+        .or_else(|| {
+            let alias = env::var("DECMED_MINISTRY_ADMIN_ALIAS")
+                .unwrap_or_else(|_| DEFAULT_MINISTRY_ADMIN_ALIAS.to_string());
+            export_iota_private_key(&alias)
+        })
+        .or_else(|| existing.as_ref().and_then(|keys| keys.admin_secret_key.clone()));
+
+    KeysEntry {
+        admin_address: Some(admin_address),
+        admin_secret_key,
+        admin_pre_seed: existing
+            .map(|keys| keys.admin_pre_seed)
+            .unwrap_or_else(|| DEFAULT_MINISTRY_PRE_SEED.to_string()),
+    }
+}
+
 fn setup(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let _ = dotenv::dotenv();
+
     let keys_entry = Entry::new("decmed_ministry_keys", "decmed_ministry")?;
     let decmed_package = DecmedPackage {
         package_id: ObjectID::from_str(DECMED_PACKAGE_ID)?,
@@ -47,29 +93,23 @@ fn setup(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std::error::Er
 
         global_admin_cap_id: ObjectID::from_str(DECMED_GLOBAL_ADMIN_CAP_ID)?,
     };
-    let new_keys_entry = KeysEntry {
-        admin_address: Some(String::from(
-            "0x52a65ae806223e49aaff1cf7f670fee87c1767de1d200a661c1fee44a61fc37f",
-        )),
-        admin_secret_key: Some(String::from(
-            "iotaprivkey1qpfc5nqsvs64p40347h0vcdxz3pgfn72uznw4pfvkak59fhpevxs73z6kwn",
-        )),
-        admin_pre_seed: String::from("sM5LRtjsf30Gsbmw7sWesgkdrAOzA9F6qMP8xrmXl1o="),
-    };
     let move_call = MoveCall {
         decmed_package: decmed_package.clone(),
     };
 
     match keys_entry.get_secret() {
-        Ok(_) => {
-            // let new_keys_entry = serde_json::to_vec(&new_keys_entry).unwrap();
-            // keys_entry.set_secret(&new_keys_entry).unwrap();
+        Ok(secret) => {
+            let existing = serde_json::from_slice::<KeysEntry>(&secret).ok();
+            let desired = desired_ministry_keys_entry(existing);
+            let desired_address = desired.admin_address.clone();
+            keys_entry.set_secret(&serde_json::to_vec(&desired)?)?;
+            println!("Ministry admin signer synchronized to {desired_address:?}");
         }
-        Err(err @ keyring::Error::NoEntry) => {
-            let new_keys_entry = serde_json::to_vec(&new_keys_entry).unwrap();
-            keys_entry.set_secret(&new_keys_entry).unwrap();
-
-            println!("{:#?}", err);
+        Err(keyring::Error::NoEntry) => {
+            let desired = desired_ministry_keys_entry(None);
+            let desired_address = desired.admin_address.clone();
+            keys_entry.set_secret(&serde_json::to_vec(&desired)?)?;
+            println!("Ministry admin signer initialized to {desired_address:?}");
         }
         Err(err) => {
             println!("{:#?}", err);

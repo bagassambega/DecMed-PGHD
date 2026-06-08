@@ -308,9 +308,20 @@ pub fn decode_hospital_personnel_id(id: String) -> Result<(String, String), Clie
 }
 
 pub fn handle_error_execute_tx(response: ExecuteTxResponse) -> Result<u64, ClientError> {
-    if response.error.is_some() {
+    if let Some(error) = response.error {
+        if error.contains("Transaction was not signed by the correct sender")
+            && error.contains("GlobalAdminCap")
+        {
+            return Err(ClientError::Anyhow(
+                anyhow!(
+                    "GlobalAdminCap owner mismatch. Transfer the GlobalAdminCap object to the ministry signer address or run the ministry client with the key that owns GlobalAdminCap."
+                )
+                .context(current_fn!()),
+            ));
+        }
+
         return Err(ClientError::Anyhow(
-            anyhow!(response.error.unwrap()).context(current_fn!()),
+            anyhow!(error).context(current_fn!()),
         ));
     }
 

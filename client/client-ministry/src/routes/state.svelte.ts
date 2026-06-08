@@ -42,6 +42,7 @@ export class HomeState {
 
 					await waitMs(2000);
 					this.isAddHospitalDialogOpen = false;
+					await invalidateAll();
 
 					toast.success('Hospital successfully registered');
 				}

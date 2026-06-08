@@ -81,37 +81,43 @@
 	{#await data.hospitals}
 		Loading...
 	{:then hospitals}
-		<div class="border-light my-3 flex flex-col">
-			{#each hospitals as hospital (hospital.hospitalAdminCid)}
-				<div class="flex flex-col border-zinc-200 bg-zinc-50 p-2 [&:not(:last-child)]:border-b">
-					<h2 class="mb-1 font-medium">{hospital.hospitalName}</h2>
-					<div class="flex items-center gap-2">
-						<button onclick={() => copyToClipboard(hospital.hospitalAdminCid)}
-							><Copy size={14} /></button
-						>
-						<p>{hospital.hospitalAdminCid}</p>
+		{#if hospitals.length === 0}
+			<div class="my-4 flex items-center justify-center">
+				<p class="text-zinc-400">No hospital registered yet.</p>
+			</div>
+		{:else}
+			<div class="border-light my-3 flex flex-col">
+				{#each hospitals as hospital (hospital.hospitalAdminCid)}
+					<div class="flex flex-col border-zinc-200 bg-zinc-50 p-2 [&:not(:last-child)]:border-b">
+						<h2 class="mb-1 font-medium">{hospital.hospitalName}</h2>
+						<div class="flex items-center gap-2">
+							<button onclick={() => copyToClipboard(hospital.hospitalAdminCid)}
+								><Copy size={14} /></button
+							>
+							<p>{hospital.hospitalAdminCid}</p>
+						</div>
+						<div class="flex items-center gap-2">
+							<button onclick={() => copyToClipboard(hospital.activationKey)}
+								><Copy size={14} /></button
+							>
+							<p class="text-sm text-zinc-500">{hospital.activationKey}</p>
+							<button
+								onclick={() => {
+									homeState.isLoadingUpdateActivationKey = true;
+									homeState.updateActivationKey({ hospitalAdminCid: hospital.hospitalAdminCid });
+								}}
+							>
+								{#if homeState.isLoadingUpdateActivationKey}
+									<RefreshCcw size={14} class="animate-spin" />
+								{:else}
+									<RefreshCcw size={14} />
+								{/if}
+							</button>
+						</div>
 					</div>
-					<div class="flex items-center gap-2">
-						<button onclick={() => copyToClipboard(hospital.activationKey)}
-							><Copy size={14} /></button
-						>
-						<p class="text-sm text-zinc-500">{hospital.activationKey}</p>
-						<button
-							onclick={() => {
-								homeState.isLoadingUpdateActivationKey = true;
-								homeState.updateActivationKey({ hospitalAdminCid: hospital.hospitalAdminCid });
-							}}
-						>
-							{#if homeState.isLoadingUpdateActivationKey}
-								<RefreshCcw size={14} class="animate-spin" />
-							{:else}
-								<RefreshCcw size={14} />
-							{/if}
-						</button>
-					</div>
-				</div>
-			{/each}
-		</div>
+				{/each}
+			</div>
+		{/if}
 	{:catch e}
 		<div class="my-4 flex items-center justify-center">
 			<p class="text-zinc-400">{e}.</p>

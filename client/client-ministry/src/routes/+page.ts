@@ -4,7 +4,6 @@ import { invoke } from '@tauri-apps/api/core';
 import type { PageLoad } from './$types';
 import { superValidate } from 'sveltekit-superforms';
 import { zod } from 'sveltekit-superforms/adapters';
-import { toast } from 'svelte-sonner';
 import { type InvokeGetHospitalsResponseData, type SuccessResponse } from '$lib/types';
 
 export const load: PageLoad = async () => {
@@ -20,14 +19,7 @@ export const load: PageLoad = async () => {
 			})) as SuccessResponse<InvokeGetHospitalsResponseData[]>;
 		});
 
-		if (!resInvokeGetHospitals.success) {
-			toast.error(resInvokeGetHospitals.error);
-			throw 'No hospital registered';
-		}
-
-		if (resInvokeGetHospitals.data.data.length === 0) {
-			throw 'No hospital registered';
-		}
+		if (!resInvokeGetHospitals.success) return [];
 
 		return resInvokeGetHospitals.data.data;
 	};
