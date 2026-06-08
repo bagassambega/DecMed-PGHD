@@ -13,8 +13,10 @@ import android.hardware.SensorManager
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.hackastic.decmed.config.Env
 import com.hackastic.decmed.data.local.database.SensorDatabase
 import com.hackastic.decmed.data.local.entity.SensorData
+import com.hackastic.decmed.data.pghd.AndroidSensorPghdMapper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -45,7 +47,6 @@ class SensorCollectionService : Service(), SensorEventListener {
         private const val TAG = "SensorCollection"
         private const val CHANNEL_ID = "PGHD_Sensor_Channel"
         private const val NOTIFICATION_ID = 1
-        private const val BATCH_SIZE = 100
         private const val DATA_ORIGIN = "com.hackastic.decmed"
     }
 
@@ -110,7 +111,7 @@ class SensorCollectionService : Service(), SensorEventListener {
         }
 
         sensorTypes.forEachIndexed { index, sensorType ->
-            val intervalMs = intervals.getOrNull(index) ?: 5000
+            val intervalMs = intervals.getOrNull(index) ?: Env.pghdDefaultSensorIntervalMs
             val sensor = sensorManager.getDefaultSensor(sensorType)
             if (sensor == null) {
                 Log.w(TAG, "Sensor type $sensorType unavailable on this device — skipped.")
@@ -167,7 +168,7 @@ class SensorCollectionService : Service(), SensorEventListener {
 
         synchronized(sensorDataBuffer) {
             sensorDataBuffer.add(record)
-            if (sensorDataBuffer.size >= BATCH_SIZE) {
+            if (sensorDataBuffer.size >= Env.pghdSensorBatchSize) {
                 flushBufferToDatabase()
             }
         }
@@ -190,7 +191,8 @@ class SensorCollectionService : Service(), SensorEventListener {
         serviceScope.launch {
             try {
                 database.sensorDao().insertAll(batch)
-                Log.d(TAG, "Wrote ${batch.size} PGHD records to encrypted DB.")
+                database.pghdRecordDao().upsertAll(batch.map(AndroidSensorPghdMapper::toPghdRecord))
+                Log.d(TAG, "Wrote ${batch.size} Android sensor PGHD records to local DB.")
             } catch (e: Exception) {
                 Log.e(TAG, "DB write error: ${e.message}", e)
             }

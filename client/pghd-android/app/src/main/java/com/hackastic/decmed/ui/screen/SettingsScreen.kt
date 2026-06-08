@@ -47,7 +47,8 @@ import com.hackastic.decmed.viewmodel.ThemeViewModel
 fun SettingsScreen(
     themeViewModel: ThemeViewModel,
     onNavigateToSensorConfig: () -> Unit,
-    onBack: () -> Unit
+    onBack: (() -> Unit)? = null,
+    bottomBar: @Composable () -> Unit = {}
 ) {
     val currentTheme by themeViewModel.themeMode.collectAsState()
 
@@ -56,18 +57,21 @@ fun SettingsScreen(
             TopAppBar(
                 title = { Text("Settings") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
-                        )
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back"
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 )
             )
-        }
+        },
+        bottomBar = bottomBar
     ) { paddingValues ->
         Column(
             modifier = Modifier

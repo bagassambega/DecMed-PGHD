@@ -6,6 +6,7 @@ import android.hardware.SensorManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.hackastic.decmed.MainApplication
+import com.hackastic.decmed.config.Env
 import com.hackastic.decmed.domain.model.SensorConfigModel
 import com.hackastic.decmed.domain.model.SensorInfo
 import com.hackastic.decmed.domain.usecase.GetAvailableSensorsUseCase
@@ -34,8 +35,8 @@ data class SensorUiState(
 class SensorViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
-        const val DEFAULT_COLLECTION_INTERVAL_MS = 5000
-        val INTERVAL_OPTIONS_MS = listOf(1000, 5000, 10000, 15000, 30000, 60000)
+        val DEFAULT_COLLECTION_INTERVAL_MS: Int get() = Env.pghdDefaultSensorIntervalMs
+        val INTERVAL_OPTIONS_MS: List<Int> get() = Env.pghdSensorIntervalOptionsMs
     }
 
     private val container = (application as MainApplication).container
@@ -45,12 +46,14 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
     private val getAvailableSensorsUseCase = GetAvailableSensorsUseCase()
     private val saveSensorConfigUseCase = SaveSensorConfigUseCase(container.sensorConfigRepository)
     private val getSensorConfigUseCase = GetSensorConfigUseCase(container.sensorConfigRepository)
+    private val collectionStateRepository = container.pghdCollectionStateRepository
 
     private val _uiState = MutableStateFlow(SensorUiState())
     val uiState: StateFlow<SensorUiState> = _uiState.asStateFlow()
 
     init {
         loadExistingConfig()
+        observeCollectionState()
     }
 
     fun enumerateSensors() {
@@ -160,7 +163,14 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun markCollectionRunning(running: Boolean) {
-        _uiState.update { it.copy(isCollecting = running) }
+        viewModelScope.launch {
+            if (running) {
+                collectionStateRepository.start()
+            } else {
+                collectionStateRepository.stop()
+            }
+            _uiState.update { it.copy(isCollecting = running) }
+        }
     }
 
     fun getActiveCollectionConfig(): List<Pair<Int, Int>> {
@@ -195,6 +205,14 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
                     },
                     configSaved = true
                 )
+            }
+        }
+    }
+
+    private fun observeCollectionState() {
+        viewModelScope.launch {
+            collectionStateRepository.state.collect { state ->
+                _uiState.update { it.copy(isCollecting = state.enabled) }
             }
         }
     }

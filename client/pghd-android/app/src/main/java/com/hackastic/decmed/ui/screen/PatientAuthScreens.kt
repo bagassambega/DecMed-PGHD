@@ -1,6 +1,8 @@
 package com.hackastic.decmed.ui.screen
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -10,13 +12,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.VpnKey
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -37,10 +39,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.RoundedCornerShape
+import android.widget.Toast
 import com.hackastic.decmed.domain.model.patient.PatientProfile
 import com.hackastic.decmed.viewmodel.PatientAuthViewModel
 
@@ -100,6 +107,7 @@ fun PatientSignupScreen(
     onBack: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
     var pin by rememberSaveable { mutableStateOf("") }
     var confirmPin by rememberSaveable { mutableStateOf("") }
     var seedWords by rememberSaveable { mutableStateOf("") }
@@ -129,9 +137,11 @@ fun PatientSignupScreen(
         OutlinedTextField(
             modifier = Modifier.fillMaxWidth(),
             value = seedWords,
-            onValueChange = { seedWords = it },
+            onValueChange = {},
             label = { Text("Seed words") },
-            minLines = 3
+            minLines = 3,
+            readOnly = true,
+            supportingText = { Text("Use Generate Seed Words to create a mnemonic.") }
         )
         Spacer(modifier = Modifier.height(8.dp))
         OutlinedButton(
@@ -148,11 +158,16 @@ fun PatientSignupScreen(
         Spacer(modifier = Modifier.height(20.dp))
         Button(
             modifier = Modifier.fillMaxWidth(),
-            enabled = !uiState.isBusy,
+            enabled = !uiState.isBusy && pin.length == PIN_LENGTH && confirmPin.length == PIN_LENGTH,
             onClick = {
                 formError = validateMatchingPin(pin, confirmPin)
                 if (formError == null) {
-                    viewModel.signUp(pin, seedWords, nik, onCompleted)
+                    viewModel.signUp(pin, seedWords, nik) {
+                        Toast.makeText(context, "Patient registration successful.", Toast.LENGTH_SHORT).show()
+                        onCompleted()
+                    }
+                } else {
+                    Toast.makeText(context, formError, Toast.LENGTH_LONG).show()
                 }
             }
         ) {
@@ -168,6 +183,7 @@ fun PatientSigninScreen(
     onBack: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
     var pin by rememberSaveable { mutableStateOf("") }
     var confirmPin by rememberSaveable { mutableStateOf("") }
     var seedWords by rememberSaveable { mutableStateOf("") }
@@ -201,11 +217,16 @@ fun PatientSigninScreen(
         Spacer(modifier = Modifier.height(20.dp))
         Button(
             modifier = Modifier.fillMaxWidth(),
-            enabled = !uiState.isBusy,
+            enabled = !uiState.isBusy && pin.length == PIN_LENGTH && confirmPin.length == PIN_LENGTH,
             onClick = {
                 formError = validateMatchingPin(pin, confirmPin)
                 if (formError == null) {
-                    viewModel.signIn(pin, seedWords, nik, onCompleted)
+                    viewModel.signIn(pin, seedWords, nik) {
+                        Toast.makeText(context, "Patient login successful.", Toast.LENGTH_SHORT).show()
+                        onCompleted()
+                    }
+                } else {
+                    Toast.makeText(context, formError, Toast.LENGTH_LONG).show()
                 }
             }
         ) {
@@ -221,6 +242,7 @@ fun PatientCompleteProfileScreen(
     onCompleted: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
     var name by rememberSaveable { mutableStateOf("") }
     var birthPlace by rememberSaveable { mutableStateOf("") }
     var dateOfBirth by rememberSaveable { mutableStateOf("") }
@@ -262,8 +284,10 @@ fun PatientCompleteProfileScreen(
                         occupation = occupation,
                         maritalStatus = maritalStatus
                     ),
-                    onCompleted
-                )
+                ) {
+                    Toast.makeText(context, "Patient profile saved.", Toast.LENGTH_SHORT).show()
+                    onCompleted()
+                }
             }
         ) {
             Text("Save Profile")
@@ -277,6 +301,7 @@ fun PatientUnlockScreen(
     onUnlocked: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
     var pin by rememberSaveable { mutableStateOf("") }
 
     PatientAuthFormScaffold(
@@ -286,19 +311,21 @@ fun PatientUnlockScreen(
         onDismissError = viewModel::clearError,
         onBack = null
     ) {
-        OutlinedTextField(
-            modifier = Modifier.fillMaxWidth(),
+        SixDigitPinField(
+            label = "PIN",
             value = pin,
-            onValueChange = { if (it.length <= 6) pin = it.filter(Char::isDigit) },
-            label = { Text("PIN") },
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword)
+            onValueChange = { pin = it }
         )
         Spacer(modifier = Modifier.height(20.dp))
         Button(
             modifier = Modifier.fillMaxWidth(),
-            enabled = !uiState.isBusy,
-            onClick = { viewModel.unlock(pin, onUnlocked) }
+            enabled = !uiState.isBusy && pin.length == PIN_LENGTH,
+            onClick = {
+                viewModel.unlock(pin) {
+                    Toast.makeText(context, "Patient session unlocked.", Toast.LENGTH_SHORT).show()
+                    onUnlocked()
+                }
+            }
         ) {
             Text("Unlock")
         }
@@ -337,6 +364,15 @@ private fun PatientAuthFormScaffold(
     onBack: (() -> Unit)?,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val context = LocalContext.current
+
+    LaunchedEffect(errorMessage) {
+        if (errorMessage != null) {
+            Toast.makeText(context, errorMessage, Toast.LENGTH_LONG).show()
+            onDismissError()
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -376,19 +412,6 @@ private fun PatientAuthFormScaffold(
             content()
         }
     }
-
-    if (errorMessage != null) {
-        AlertDialog(
-            onDismissRequest = onDismissError,
-            confirmButton = {
-                Button(onClick = onDismissError) {
-                    Text("OK")
-                }
-            },
-            title = { Text("Patient setup") },
-            text = { Text(errorMessage) }
-        )
-    }
 }
 
 @Composable
@@ -398,22 +421,85 @@ private fun PinFields(
     onPinChange: (String) -> Unit,
     onConfirmPinChange: (String) -> Unit
 ) {
-    OutlinedTextField(
-        modifier = Modifier.fillMaxWidth(),
+    SixDigitPinField(
+        label = "PIN",
         value = pin,
-        onValueChange = { if (it.length <= 6) onPinChange(it.filter(Char::isDigit)) },
-        label = { Text("PIN") },
-        visualTransformation = PasswordVisualTransformation(),
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword)
+        onValueChange = onPinChange
     )
-    OutlinedTextField(
-        modifier = Modifier.fillMaxWidth(),
+    SixDigitPinField(
+        label = "Confirm PIN",
         value = confirmPin,
-        onValueChange = { if (it.length <= 6) onConfirmPinChange(it.filter(Char::isDigit)) },
-        label = { Text("Confirm PIN") },
-        visualTransformation = PasswordVisualTransformation(),
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword)
+        onValueChange = onConfirmPinChange
     )
+}
+
+@Composable
+private fun SixDigitPinField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        BasicTextField(
+            modifier = Modifier.fillMaxWidth(),
+            value = value,
+            onValueChange = { text ->
+                onValueChange(text.filter(Char::isDigit).take(PIN_LENGTH))
+            },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+            cursorBrush = SolidColor(Color.Transparent),
+            textStyle = MaterialTheme.typography.titleLarge.copy(color = Color.Transparent),
+            decorationBox = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    repeat(PIN_LENGTH) { index ->
+                        PinDigitBox(
+                            modifier = Modifier.weight(1f),
+                            digit = value.getOrNull(index)?.let { "•" } ?: "",
+                            isFocused = index == value.length.coerceAtMost(PIN_LENGTH - 1)
+                        )
+                    }
+                }
+            }
+        )
+        Text(
+            text = "${value.length}/$PIN_LENGTH digits",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun PinDigitBox(
+    modifier: Modifier = Modifier,
+    digit: String,
+    isFocused: Boolean
+) {
+    Box(
+        modifier = modifier
+            .height(48.dp)
+            .border(
+                width = if (isFocused) 2.dp else 1.dp,
+                color = if (isFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                shape = RoundedCornerShape(8.dp)
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = digit,
+            style = MaterialTheme.typography.titleLarge,
+            textAlign = TextAlign.Center
+        )
+    }
 }
 
 @Composable
@@ -453,7 +539,9 @@ private fun FormErrorText(message: String?) {
 }
 
 private fun validateMatchingPin(pin: String, confirmPin: String): String? {
-    if (pin.length != 6) return "PIN must contain exactly 6 digits."
+    if (pin.length != PIN_LENGTH) return "PIN must contain exactly 6 digits."
     if (pin != confirmPin) return "PIN and confirmation must match."
     return null
 }
+
+private const val PIN_LENGTH = 6

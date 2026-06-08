@@ -33,7 +33,15 @@ class PatientCompatibilityVectorTest {
         assertEquals("1234567890123456", first.id)
         assertEquals(first.pghdPublicKey, second.pghdPublicKey)
         assertEquals(first.pghdSecretKey, second.pghdSecretKey)
+        assertEquals(first.medicalPrePublicKey, second.medicalPrePublicKey)
+        assertEquals(first.pghdPrePublicKey, second.pghdPrePublicKey)
         assertTrue(first.pghdPublicKey?.isNotBlank() == true)
         assertTrue(first.pghdSecretKey?.isNotBlank() == true)
+        assertTrue(first.medicalPrePublicKey?.isNotBlank() == true)
+        assertTrue(first.medicalPreSecretKey?.isNotBlank() == true)
+        assertTrue(first.pghdPrePublicKey?.isNotBlank() == true)
+        assertTrue(first.pghdPreSecretKey?.isNotBlank() == true)
+        assertTrue(first.medicalPrePublicKey != first.pghdPrePublicKey)
+        assertTrue(first.medicalPreSecretKey != first.pghdPreSecretKey)
     }
 }

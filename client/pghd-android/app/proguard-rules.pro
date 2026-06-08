@@ -19,3 +19,6 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Required by rustls-platform-verifier: Rust JNI calls this package by name.
+-keep, includedescriptorclasses class org.rustls.platformverifier.** { *; }

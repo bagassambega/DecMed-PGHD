@@ -7,11 +7,11 @@ import com.hackastic.decmed.data.local.entity.PghdBatchEntity
 import com.hackastic.decmed.data.local.entity.PghdRecordEntity
 import com.hackastic.decmed.domain.model.pghd.PghdBatchPayload
 import com.hackastic.decmed.domain.model.pghd.PghdBatchPeriod
+import com.hackastic.decmed.domain.model.pghd.PghdDataGroupPayload
 import com.hackastic.decmed.domain.model.pghd.PghdDataPointPayload
 import com.hackastic.decmed.domain.model.pghd.PghdMeasurementValue
 import com.hackastic.decmed.domain.model.pghd.PghdSourceDevice
-import java.time.Instant
-import java.time.format.DateTimeFormatter
+import org.json.JSONObject
 import java.util.UUID
 
 object PghdPayloadConverter {
@@ -19,7 +19,8 @@ object PghdPayloadConverter {
         records: List<PghdRecordEntity>,
         patientId: String,
         batchId: String = UUID.randomUUID().toString(),
-        sourceDevice: PghdSourceDevice = currentAndroidDevice()
+        sourceDevice: PghdSourceDevice = currentAndroidDevice(),
+        triggerReason: String? = PghdBatchPayload.TRIGGER_TIME_BASED
     ): PghdBatchPayload {
         require(records.isNotEmpty()) { "PGHD batch must contain at least one data point." }
 
@@ -29,61 +30,72 @@ object PghdPayloadConverter {
             patientId = patientId,
             sourceDevice = sourceDevice,
             batchPeriod = PghdBatchPeriod(
-                startTimestamp = epochMillisToIsoUtc(sortedRecords.first().startTimeEpochMillis),
-                endTimestamp = epochMillisToIsoUtc(sortedRecords.last().endTimeEpochMillis)
+                startTimestamp = epochMillisToUnixSeconds(sortedRecords.first().startTimeEpochMillis),
+                endTimestamp = epochMillisToUnixSeconds(sortedRecords.last().endTimeEpochMillis)
             ),
-            dataPoints = sortedRecords.map(::recordToDataPoint)
+            triggerReason = triggerReason,
+            dataGroup = recordsToDataGroups(sortedRecords)
         )
     }
 
+    fun recordsToDataGroups(records: List<PghdRecordEntity>): List<PghdDataGroupPayload> =
+        records
+            .groupBy { record ->
+                PghdDataGroupKey(
+                    measurementType = record.recordType.toSnakeCase(),
+                    deviceType = record.toPghdDeviceType(),
+                    recordingMethod = record.toRecordingMethod(),
+                    source = record.toPghdSource()
+                )
+            }
+            .map { (key, groupRecords) ->
+                PghdDataGroupPayload(
+                    measurementType = key.measurementType,
+                    deviceType = key.deviceType,
+                    recordingMethod = key.recordingMethod,
+                    source = key.source,
+                    dataPoints = groupRecords.sortedBy { it.endTimeEpochMillis }.map(::recordToDataPoint)
+                )
+            }
+            .sortedWith(compareBy<PghdDataGroupPayload> { it.measurementType }.thenBy { it.source })
+
     fun recordToDataPoint(record: PghdRecordEntity): PghdDataPointPayload =
         PghdDataPointPayload(
-            measurementType = record.recordType.toSnakeCase(),
-            timestamp = epochMillisToIsoUtc(record.endTimeEpochMillis),
+            timestamp = epochMillisToUnixSeconds(record.endTimeEpochMillis),
             value = record.toMeasurementValue(),
-            unit = record.unit.toPghdUnit(record.recordType),
-            source = record.toPghdSource(),
-            deviceType = record.toPghdDeviceType(),
-            recordingMethod = record.toRecordingMethod()
+            unit = record.unit.toPghdUnit(record.recordType)
         )
 
     fun payloadToBatchEntity(payload: PghdBatchPayload): PghdBatchEntity =
         PghdBatchEntity(
             batchId = payload.batchId,
-            schemaVersion = payload.schemaVersion,
             patientId = payload.patientId,
-            sourceDeviceType = payload.sourceDevice.type,
-            sourceDevicePlatform = payload.sourceDevice.platform,
-            sourceDeviceAppVersion = payload.sourceDevice.appVersion,
-            sourceDeviceManufacturer = payload.sourceDevice.deviceManufacturer,
-            sourceDeviceModel = payload.sourceDevice.deviceModel,
             startTimestamp = payload.batchPeriod.startTimestamp,
-            endTimestamp = payload.batchPeriod.endTimestamp,
-            startTimeEpochMillis = isoUtcToEpochMillis(payload.batchPeriod.startTimestamp),
-            endTimeEpochMillis = isoUtcToEpochMillis(payload.batchPeriod.endTimestamp),
-            payloadJson = PghdPayloadSerializer.toJson(payload)
+            endTimestamp = payload.batchPeriod.endTimestamp
         )
 
     fun payloadToDataPointEntities(payload: PghdBatchPayload): List<PghdBatchDataPointEntity> =
-        payload.dataPoints.map { dataPoint ->
-            PghdBatchDataPointEntity(
-                batchId = payload.batchId,
-                measurementType = dataPoint.measurementType,
-                timestamp = dataPoint.timestamp,
-                timestampEpochMillis = isoUtcToEpochMillis(dataPoint.timestamp),
-                valueJson = PghdPayloadSerializer.dataPointValueToJson(dataPoint.value).toString(),
-                unit = dataPoint.unit,
-                source = dataPoint.source,
-                deviceType = dataPoint.deviceType,
-                recordingMethod = dataPoint.recordingMethod
-            )
+        payload.dataGroup.flatMap { dataGroup ->
+            dataGroup.dataPoints.map { dataPoint ->
+                PghdBatchDataPointEntity(
+                    batchId = payload.batchId,
+                    measurementType = dataGroup.measurementType,
+                    timestamp = dataPoint.timestamp.toString(),
+                    timestampEpochMillis = unixSecondsToEpochMillis(dataPoint.timestamp),
+                    valueJson = PghdPayloadSerializer.dataPointValueToJson(dataPoint.value).toString(),
+                    unit = dataPoint.unit,
+                    source = dataGroup.source,
+                    deviceType = dataGroup.deviceType,
+                    recordingMethod = dataGroup.recordingMethod
+                )
+            }
         }
 
-    fun epochMillisToIsoUtc(epochMillis: Long): String =
-        DateTimeFormatter.ISO_INSTANT.format(Instant.ofEpochMilli(epochMillis))
+    fun epochMillisToUnixSeconds(epochMillis: Long): Long =
+        epochMillis / 1000L
 
-    fun isoUtcToEpochMillis(timestamp: String): Long =
-        Instant.parse(timestamp).toEpochMilli()
+    fun unixSecondsToEpochMillis(timestamp: Long): Long =
+        timestamp * 1000L
 
     private fun currentAndroidDevice(): PghdSourceDevice =
         PghdSourceDevice(
@@ -97,6 +109,8 @@ object PghdPayloadConverter {
     private fun PghdRecordEntity.toMeasurementValue(): PghdMeasurementValue {
         val numeric = numericValue
         if (numeric != null) return PghdMeasurementValue.NumberValue(numeric)
+
+        valueText.toJsonObjectValue()?.let { return it }
 
         if (recordType == "blood_pressure" && valueText.contains("/")) {
             val parts = valueText.split("/")
@@ -119,13 +133,16 @@ object PghdPayloadConverter {
         when (sourceTag) {
             PghdRecordEntity.SOURCE_HEALTH_CONNECT -> "android_health_connect"
             PghdRecordEntity.SOURCE_MANUAL -> "android_manual_input"
+            PghdRecordEntity.SOURCE_ANDROID_SENSOR -> "android_internal_sensor"
             else -> sourcePackageName ?: "android_sensor"
         }
 
     private fun PghdRecordEntity.toPghdDeviceType(): String =
-        when (sourceTag) {
-            PghdRecordEntity.SOURCE_HEALTH_CONNECT,
-            PghdRecordEntity.SOURCE_MANUAL -> "smartphone"
+        when {
+            sourceTag == PghdRecordEntity.SOURCE_HEALTH_CONNECT && sourcePackageName?.isLikelyWearablePackage() == true -> "wearable"
+            sourceTag == PghdRecordEntity.SOURCE_HEALTH_CONNECT -> "wearable"
+            sourceTag == PghdRecordEntity.SOURCE_MANUAL -> "smartphone"
+            sourceTag == PghdRecordEntity.SOURCE_ANDROID_SENSOR -> "smartphone"
             else -> "smartphone"
         }
 
@@ -134,6 +151,21 @@ object PghdPayloadConverter {
             PghdRecordEntity.SOURCE_MANUAL -> "manual"
             else -> "auto"
         }
+
+    private fun String.toJsonObjectValue(): PghdMeasurementValue.ObjectValue? {
+        if (!trimStart().startsWith("{")) return null
+        return runCatching {
+            val json = JSONObject(this)
+            val map = json.keys().asSequence().associateWith { key ->
+                when (val value = json.get(key)) {
+                    is Number -> value.toDouble()
+                    is Boolean -> value
+                    else -> value.toString()
+                }
+            }
+            PghdMeasurementValue.ObjectValue(map)
+        }.getOrNull()
+    }
 
     private fun String.toPghdUnit(recordType: String): String =
         when {
@@ -154,4 +186,16 @@ object PghdPayloadConverter {
 
     private fun String?.orUnknown(): String =
         this?.takeIf { it.isNotBlank() } ?: "unknown"
+
+    private fun String.isLikelyWearablePackage(): Boolean {
+        val normalized = lowercase()
+        return listOf("xiaomi", "mihealth", "mifitness", "huami", "zepp").any(normalized::contains)
+    }
+
+    private data class PghdDataGroupKey(
+        val measurementType: String,
+        val deviceType: String,
+        val recordingMethod: String?,
+        val source: String
+    )
 }

@@ -64,10 +64,13 @@ import java.util.Locale
 @Composable
 fun PghdCollectionScreen(
     viewModel: PghdCollectionViewModel,
-    onNavigateBack: () -> Unit
+    onNavigateBack: (() -> Unit)? = null,
+    bottomBar: @Composable () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showManualDialog by rememberSaveable { mutableStateOf(false) }
+    var showGrantAccessDialog by rememberSaveable { mutableStateOf(false) }
+    var selectedDetailRecord by remember { mutableStateOf<PghdRecordEntity?>(null) }
     val dateFormatter = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()) }
     val permissionLauncher = rememberLauncherForActivityResult(
         PermissionController.createRequestPermissionResultContract()
@@ -84,8 +87,10 @@ fun PghdCollectionScreen(
             TopAppBar(
                 title = { Text("PGHD Collection") },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    if (onNavigateBack != null) {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
                     }
                 },
                 actions = {
@@ -109,7 +114,8 @@ fun PghdCollectionScreen(
                     containerColor = MaterialTheme.colorScheme.surface
                 )
             )
-        }
+        },
+        bottomBar = bottomBar
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -124,13 +130,22 @@ fun PghdCollectionScreen(
                 hasHistoryPermission = uiState.hasHealthConnectHistoryPermission,
                 isSyncing = uiState.isSyncing,
                 isSubmitting = uiState.isSubmitting,
+                isGrantingAccess = uiState.isGrantingAccess,
                 message = uiState.lastSyncMessage,
                 error = uiState.errorMessage,
                 sourcePackages = uiState.healthConnectSourcePackages,
                 hasDetectedXiaomiSource = uiState.hasDetectedXiaomiSource,
                 onRequestPermission = { permissionLauncher.launch(viewModel.requestedPermissions) },
                 onSync = viewModel::syncFromHealthConnect,
-                onSubmit = viewModel::submitDisplayedPghd
+                onSubmit = viewModel::submitDisplayedPghd,
+                onGrantAccess = { showGrantAccessDialog = true }
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            PghdSummaryDashboard(
+                records = uiState.records,
+                onSelectType = viewModel::selectRecordType
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -167,7 +182,11 @@ fun PghdCollectionScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(uiState.records) { record ->
-                        PghdRecordCard(record, dateFormatter)
+                        PghdRecordCard(
+                            record = record,
+                            dateFormatter = dateFormatter,
+                            onDetail = { selectedDetailRecord = record }
+                        )
                     }
                 }
             }
@@ -183,6 +202,25 @@ fun PghdCollectionScreen(
             }
         )
     }
+
+    if (showGrantAccessDialog) {
+        GrantPghdAccessDialog(
+            isGranting = uiState.isGrantingAccess,
+            onDismiss = { showGrantAccessDialog = false },
+            onGrant = { personnelAddress, personnelPrePublicKey ->
+                viewModel.grantPghdAccess(personnelAddress, personnelPrePublicKey)
+                showGrantAccessDialog = false
+            }
+        )
+    }
+
+    selectedDetailRecord?.let { record ->
+        PghdRecordDetailDialog(
+            record = record,
+            dateFormatter = dateFormatter,
+            onDismiss = { selectedDetailRecord = null }
+        )
+    }
 }
 
 @Composable
@@ -193,13 +231,15 @@ private fun HealthConnectSummaryCard(
     hasHistoryPermission: Boolean,
     isSyncing: Boolean,
     isSubmitting: Boolean,
+    isGrantingAccess: Boolean,
     message: String?,
     error: String?,
     sourcePackages: List<String>,
     hasDetectedXiaomiSource: Boolean,
     onRequestPermission: () -> Unit,
     onSync: () -> Unit,
-    onSubmit: () -> Unit
+    onSubmit: () -> Unit,
+    onGrantAccess: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -249,11 +289,17 @@ private fun HealthConnectSummaryCard(
                     Text(if (isSyncing) "Syncing" else "Sync Now")
                 }
                 Button(
-                    enabled = !isSyncing && !isSubmitting && totalCount > 0,
+                    enabled = !isSyncing && !isSubmitting && !isGrantingAccess && totalCount > 0,
                     onClick = onSubmit
                 ) {
                     Icon(Icons.Default.CloudUpload, contentDescription = null)
                     Text(if (isSubmitting) "Submitting" else "Submit PGHD")
+                }
+                OutlinedButton(
+                    enabled = !isSyncing && !isSubmitting && !isGrantingAccess,
+                    onClick = onGrantAccess
+                ) {
+                    Text(if (isGrantingAccess) "Granting" else "Grant Access")
                 }
             }
 
@@ -299,6 +345,130 @@ private fun HealthConnectSummaryCard(
 }
 
 @Composable
+private fun GrantPghdAccessDialog(
+    isGranting: Boolean,
+    onDismiss: () -> Unit,
+    onGrant: (String, String) -> Unit
+) {
+    var personnelAddress by rememberSaveable { mutableStateOf("") }
+    var personnelPrePublicKey by rememberSaveable { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            Button(
+                enabled = !isGranting && personnelAddress.isNotBlank() && personnelPrePublicKey.isNotBlank(),
+                onClick = { onGrant(personnelAddress, personnelPrePublicKey) }
+            ) {
+                Text(if (isGranting) "Granting" else "Grant")
+            }
+        },
+        dismissButton = {
+            OutlinedButton(enabled = !isGranting, onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+        title = { Text("Grant PGHD Access") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = personnelAddress,
+                    onValueChange = { personnelAddress = it },
+                    label = { Text("Personnel IOTA address") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = personnelPrePublicKey,
+                    onValueChange = { personnelPrePublicKey = it },
+                    label = { Text("Personnel PRE public key") }
+                )
+            }
+        }
+    )
+}
+
+@Composable
+private fun PghdSummaryDashboard(
+    records: List<PghdRecordEntity>,
+    onSelectType: (String?) -> Unit
+) {
+    val summaries = remember(records) {
+        listOf("steps", "heart_rate", "active_calories", "distance", "sleep_session", "oxygen_saturation")
+            .mapNotNull { type ->
+                val matching = records.filter { it.recordType == type }
+                if (matching.isEmpty()) return@mapNotNull null
+                val latest = matching.maxBy { it.endTimeEpochMillis }
+                val numericValues = matching.mapNotNull { it.numericValue }
+                val value = when {
+                    type == "steps" && numericValues.isNotEmpty() -> numericValues.sum()
+                    type == "active_calories" && numericValues.isNotEmpty() -> numericValues.sum()
+                    type == "distance" && numericValues.isNotEmpty() -> numericValues.sum()
+                    else -> latest.numericValue ?: latest.valueText
+                }
+                SummaryItem(
+                    type = type,
+                    label = latest.displayName,
+                    value = when (value) {
+                        is Double -> value.toSmartText()
+                        else -> value.toString()
+                    },
+                    unit = latest.unit,
+                    count = matching.size
+                )
+            }
+    }
+
+    if (summaries.isEmpty()) return
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(156.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(summaries) { item ->
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = item.label,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "${item.value} ${item.unit}".trim(),
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                        Text(
+                            text = "${item.count} local records",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.75f)
+                        )
+                    }
+                    OutlinedButton(onClick = { onSelectType(item.type) }) {
+                        Text("Detail")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun SourceFilters(
     selectedSourceTag: String?,
     onSelected: (String?) -> Unit
@@ -325,7 +495,8 @@ private fun SourceFilters(
 @Composable
 private fun PghdRecordCard(
     record: PghdRecordEntity,
-    dateFormatter: SimpleDateFormat
+    dateFormatter: SimpleDateFormat,
+    onDetail: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -368,9 +539,66 @@ private fun PghdRecordCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            OutlinedButton(onClick = onDetail) {
+                Text("Detail")
+            }
         }
     }
 }
+
+@Composable
+private fun PghdRecordDetailDialog(
+    record: PghdRecordEntity,
+    dateFormatter: SimpleDateFormat,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("Close")
+            }
+        },
+        title = { Text(record.displayName) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                DetailLine("Type", record.recordType)
+                DetailLine("Value", "${record.valueText} ${record.unit}".trim())
+                DetailLine("Source", record.sourceTag)
+                DetailLine("Source package", record.sourcePackageName ?: "-")
+                DetailLine("Start", dateFormatter.format(Date(record.startTimeEpochMillis)))
+                DetailLine("End", dateFormatter.format(Date(record.endTimeEpochMillis)))
+                DetailLine("Sync", record.batchId ?: "local only")
+                if (!record.notes.isNullOrBlank()) {
+                    DetailLine("Notes", record.notes)
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun DetailLine(label: String, value: String) {
+    Column {
+        Text(label, style = MaterialTheme.typography.labelMedium)
+        Text(value, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+private data class SummaryItem(
+    val type: String,
+    val label: String,
+    val value: String,
+    val unit: String,
+    val count: Int
+)
+
+private fun Double.toSmartText(): String =
+    if (this % 1.0 == 0.0) {
+        toLong().toString()
+    } else {
+        "%.2f".format(this)
+    }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

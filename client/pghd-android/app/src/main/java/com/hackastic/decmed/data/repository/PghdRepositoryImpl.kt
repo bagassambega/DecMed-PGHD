@@ -54,4 +54,13 @@ class PghdRepositoryImpl(
     override suspend fun saveHealthConnectRecords(records: List<PghdRecordEntity>) {
         pghdRecordDao.upsertAll(records)
     }
+
+    override suspend fun getUnbatchedRecords(): List<PghdRecordEntity> =
+        pghdRecordDao.getUnbatchedRecords()
+
+    override suspend fun markRecordsBatched(recordIds: List<String>, batchId: String) {
+        if (recordIds.isNotEmpty()) {
+            pghdRecordDao.markRecordsBatched(recordIds, batchId)
+        }
+    }
 }

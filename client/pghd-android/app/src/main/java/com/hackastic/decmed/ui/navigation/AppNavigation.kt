@@ -4,8 +4,17 @@ import android.app.Activity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.HealthAndSafety
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -16,11 +25,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.hackastic.decmed.di.dataStore
 import com.hackastic.decmed.domain.model.patient.PatientAuthState
@@ -32,6 +44,7 @@ import com.hackastic.decmed.ui.screen.PatientCompleteProfileScreen
 import com.hackastic.decmed.ui.screen.PatientSigninScreen
 import com.hackastic.decmed.ui.screen.PatientSignupScreen
 import com.hackastic.decmed.ui.screen.PatientUnlockScreen
+import com.hackastic.decmed.ui.screen.PghdBatchScreen
 import com.hackastic.decmed.ui.screen.PghdCollectionScreen
 import com.hackastic.decmed.ui.screen.SensorConfigScreen
 import com.hackastic.decmed.ui.screen.SensorListScreen
@@ -109,6 +122,9 @@ fun AppNavigation(
     }
 
     val navController = rememberNavController()
+    val bottomBar: @Composable () -> Unit = {
+        MainBottomNavigationBar(navController = navController)
+    }
     fun requestHealthConnectApproval() {
         healthConnectPermissionLauncher.launch(pghdCollectionViewModel.requestedPermissions)
     }
@@ -234,7 +250,8 @@ fun AppNavigation(
                 },
                 onNavigateToPghdCollection = {
                     navController.navigate(Screen.PghdCollection.route)
-                }
+                },
+                bottomBar = bottomBar
             )
         }
 
@@ -250,9 +267,14 @@ fun AppNavigation(
         composable(Screen.PghdCollection.route) {
             PghdCollectionScreen(
                 viewModel = pghdCollectionViewModel,
-                onNavigateBack = {
-                    navController.popBackStack()
-                }
+                bottomBar = bottomBar
+            )
+        }
+
+        composable(Screen.PghdBatches.route) {
+            PghdBatchScreen(
+                viewModel = pghdCollectionViewModel,
+                bottomBar = bottomBar
             )
         }
 
@@ -263,10 +285,52 @@ fun AppNavigation(
                     sensorViewModel.prepareForReconfiguration()
                     navController.navigate(Screen.SensorConfig.route)
                 },
-                onBack = {
-                    navController.popBackStack()
-                }
+                bottomBar = bottomBar
             )
         }
     }
 }
+
+@Composable
+private fun MainBottomNavigationBar(navController: NavHostController) {
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
+    val items = listOf(
+        BottomNavItem("Home", Screen.Home.route, Icons.Default.Home),
+        BottomNavItem("PGHD", Screen.PghdCollection.route, Icons.Default.HealthAndSafety),
+        BottomNavItem("Batches", Screen.PghdBatches.route, Icons.Default.CloudUpload),
+        BottomNavItem("Settings", Screen.Settings.route, Icons.Default.Settings)
+    )
+
+    NavigationBar {
+        items.forEach { item ->
+            NavigationBarItem(
+                selected = currentRoute == item.route,
+                onClick = {
+                    if (currentRoute != item.route) {
+                        navController.navigate(item.route) {
+                            popUpTo(Screen.Home.route) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+                },
+                icon = {
+                    Icon(
+                        imageVector = item.icon,
+                        contentDescription = item.label
+                    )
+                },
+                label = { Text(item.label) }
+            )
+        }
+    }
+}
+
+private data class BottomNavItem(
+    val label: String,
+    val route: String,
+    val icon: ImageVector
+)

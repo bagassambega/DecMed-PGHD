@@ -10,11 +10,16 @@ import kotlinx.coroutines.flow.Flow
 interface PghdBatchRepository {
     fun getBatches(): Flow<List<PghdBatchEntity>>
     suspend fun createAndSaveBatch(records: List<PghdRecordEntity>, patientId: String): PghdBatchPayload
+    suspend fun createEncryptedBatch(
+        records: List<PghdRecordEntity>,
+        patientProfile: PatientProfile,
+        triggerReason: String
+    ): PghdBatchEntity
     suspend fun createEncryptAndSubmitBatch(
         records: List<PghdRecordEntity>,
         patientProfile: PatientProfile
     ): PghdSubmitResult
-    suspend fun savePayload(payload: PghdBatchPayload)
-    suspend fun getPayloadJson(batchId: String): String?
+    suspend fun submitBatch(batchId: String): PghdSubmitResult
+    suspend fun submitPendingBatches(maxRetryCount: Int): List<PghdSubmitResult>
     suspend fun deleteBatch(batchId: String)
 }

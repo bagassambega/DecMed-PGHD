@@ -22,4 +22,6 @@ interface PghdRepository {
         notes: String?
     )
     suspend fun saveHealthConnectRecords(records: List<PghdRecordEntity>)
+    suspend fun getUnbatchedRecords(): List<PghdRecordEntity>
+    suspend fun markRecordsBatched(recordIds: List<String>, batchId: String)
 }

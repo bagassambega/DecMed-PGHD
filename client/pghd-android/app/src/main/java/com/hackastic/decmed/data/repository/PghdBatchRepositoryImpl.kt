@@ -24,29 +24,107 @@ class PghdBatchRepositoryImpl(
         patientId: String
     ): PghdBatchPayload {
         val payload = PghdPayloadConverter.recordsToBatchPayload(records, patientId)
-        savePayload(payload)
         return payload
+    }
+
+    override suspend fun createEncryptedBatch(
+        records: List<PghdRecordEntity>,
+        patientProfile: PatientProfile,
+        triggerReason: String
+    ): PghdBatchEntity {
+        val patientId = patientProfile.iotaAddress ?: patientProfile.idHash ?: patientProfile.id
+        val payload = PghdPayloadConverter.recordsToBatchPayload(
+            records = records,
+            patientId = patientId,
+            triggerReason = triggerReason
+        )
+        val envelope = PghdSecureEnvelopeBuilder.build(payload, patientProfile)
+        pghdBatchDao.saveEnvelope(payload, envelope)
+        return PghdPayloadConverter.payloadToBatchEntity(payload).copy(
+            encPghd = envelope.encPghd,
+            encAesKeyNonce = envelope.encAesKeyNonce,
+            capsule = envelope.capsule,
+            hCipher = envelope.hCipher,
+            pghdOuterSignature = envelope.pghdOuterSignature
+        )
     }
 
     override suspend fun createEncryptAndSubmitBatch(
         records: List<PghdRecordEntity>,
         patientProfile: PatientProfile
     ): PghdSubmitResult {
-        val patientId = patientProfile.idHash ?: patientProfile.id
-        val payload = PghdPayloadConverter.recordsToBatchPayload(records, patientId)
-        savePayload(payload)
-        val envelope = PghdSecureEnvelopeBuilder.build(payload, patientProfile)
-        return prePghdClient.submitPghd(envelope)
+        val batch = createEncryptedBatch(
+            records = records,
+            patientProfile = patientProfile,
+            triggerReason = PghdBatchPayload.TRIGGER_TIME_BASED
+        )
+        return submitBatch(batch)
     }
 
-    override suspend fun savePayload(payload: PghdBatchPayload) {
-        pghdBatchDao.savePayload(payload)
+    override suspend fun submitBatch(batchId: String): PghdSubmitResult {
+        val batch = pghdBatchDao.getBatch(batchId)
+            ?: return PghdSubmitResult(
+                batchId = batchId,
+                accepted = false,
+                message = "PGHD batch was not found."
+            )
+        return submitBatch(batch)
     }
 
-    override suspend fun getPayloadJson(batchId: String): String? =
-        pghdBatchDao.getPayloadJson(batchId)
+    override suspend fun submitPendingBatches(maxRetryCount: Int): List<PghdSubmitResult> {
+        val batches = pghdBatchDao.getBatchesByStatus(
+            listOf(PghdBatchEntity.STATUS_PENDING, PghdBatchEntity.STATUS_FAILED)
+        )
+        return batches.map { submitBatch(it, maxRetryCount) }
+    }
 
     override suspend fun deleteBatch(batchId: String) {
         pghdBatchDao.deleteBatch(batchId)
     }
+
+    private suspend fun submitBatch(
+        batch: PghdBatchEntity,
+        maxRetryCount: Int = 3
+    ): PghdSubmitResult {
+        return try {
+            val result = prePghdClient.submitPghd(batch.toEnvelope())
+            pghdBatchDao.updateDeliveryState(
+                batchId = batch.batchId,
+                status = PghdBatchEntity.STATUS_SENT,
+                retryCount = batch.retryCount,
+                lastAttemptEpochMillis = System.currentTimeMillis()
+            )
+            result
+        } catch (err: Exception) {
+            val retryCount = batch.retryCount + 1
+            val status = if (retryCount >= maxRetryCount) {
+                PghdBatchEntity.STATUS_PERMANENT_FAILURE
+            } else {
+                PghdBatchEntity.STATUS_FAILED
+            }
+            pghdBatchDao.updateDeliveryState(
+                batchId = batch.batchId,
+                status = status,
+                retryCount = retryCount,
+                lastAttemptEpochMillis = System.currentTimeMillis()
+            )
+            PghdSubmitResult(
+                batchId = batch.batchId,
+                accepted = false,
+                message = err.message ?: "Unable to submit PGHD batch."
+            )
+        }
+    }
+
+    private fun PghdBatchEntity.toEnvelope() =
+        com.hackastic.decmed.domain.model.pghd.PghdSecureEnvelope(
+            batchId = batchId,
+            patientIdHash = null,
+            patientIotaAddress = patientId,
+            encPghd = encPghd,
+            hCipher = hCipher,
+            encAesKeyNonce = encAesKeyNonce,
+            capsule = capsule,
+            pghdOuterSignature = pghdOuterSignature
+        )
 }

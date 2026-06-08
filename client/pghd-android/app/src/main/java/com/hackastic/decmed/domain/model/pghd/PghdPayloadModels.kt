@@ -6,10 +6,13 @@ data class PghdBatchPayload(
     val patientId: String,
     val sourceDevice: PghdSourceDevice,
     val batchPeriod: PghdBatchPeriod,
-    val dataPoints: List<PghdDataPointPayload>
+    val triggerReason: String? = null,
+    val dataGroup: List<PghdDataGroupPayload>
 ) {
     companion object {
         const val SCHEMA_VERSION = "1.0"
+        const val TRIGGER_TIME_BASED = "time_based"
+        const val TRIGGER_SIZE_THRESHOLD = "size_threshold"
     }
 }
 
@@ -22,18 +25,22 @@ data class PghdSourceDevice(
 )
 
 data class PghdBatchPeriod(
-    val startTimestamp: String,
-    val endTimestamp: String
+    val startTimestamp: Long,
+    val endTimestamp: Long
+)
+
+data class PghdDataGroupPayload(
+    val measurementType: String,
+    val deviceType: String,
+    val recordingMethod: String? = null,
+    val source: String,
+    val dataPoints: List<PghdDataPointPayload>
 )
 
 data class PghdDataPointPayload(
-    val measurementType: String,
-    val timestamp: String,
+    val timestamp: Long,
     val value: PghdMeasurementValue,
-    val unit: String,
-    val source: String,
-    val deviceType: String,
-    val recordingMethod: String? = null
+    val unit: String
 )
 
 sealed class PghdMeasurementValue {

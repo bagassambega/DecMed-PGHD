@@ -1,52 +1,45 @@
 package com.hackastic.decmed.data.remote
 
 import com.hackastic.decmed.domain.model.patient.PatientProfile
+import com.hackastic.decmed.iota.DecmedIotaNative
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
 import org.json.JSONObject
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
+import java.util.Base64
 
-class IotaPatientGateway(private val rpcUrl: String) {
-    suspend fun registerPatient(profile: PatientProfile) {
-        if (rpcUrl.isBlank()) return
-        val params = JSONArray()
-            .put(profile.idHash)
-            .put(profile.iotaAddress)
-            .put(profile.prePublicKey)
-            .put(profile.pghdPublicKey)
-        call("decmed_registerPghdPatient", params)
+class IotaPatientGateway {
+    suspend fun registerPatient(profile: PatientProfile) = withContext(Dispatchers.IO) {
+        val idHash = profile.idHash.requireField("id_hash")
+        val iotaAddress = profile.iotaAddress.requireField("iota_address")
+        val iotaKeyPair = profile.iotaKeyPair.requireField("iota_key_pair")
+        val pghdPublicKey = profile.pghdPublicKey.requireField("pghd_public_key")
+        profile.pghdPrePublicKey.requireField("pghd_pre_public_key")
+        DecmedIotaNative.signupAndPublishPghdKey(
+            patientIdHash = idHash,
+            privateMetadata = defaultPrivateMetadata(profile),
+            pghdPublicKey = pghdPublicKey,
+            senderAddress = iotaAddress,
+            senderKeyPair = iotaKeyPair
+        )
     }
 
-    suspend fun ensureRegistered(profile: PatientProfile) {
-        if (rpcUrl.isBlank()) return
-        val params = JSONArray().put(profile.iotaAddress)
-        val result = call("decmed_isPghdPatientRegistered", params)
-        if (result.optBoolean("result", true).not()) {
-            error("Account not found on IOTA for ${profile.iotaAddress}")
+    suspend fun ensureRegistered(profile: PatientProfile) = withContext(Dispatchers.IO) {
+        val iotaAddress = profile.iotaAddress.requireField("iota_address")
+        DecmedIotaNative.ensureRegistered(iotaAddress)
+    }
+
+    suspend fun getPghdPublicKey(patientAddress: String, senderAddress: String): String =
+        withContext(Dispatchers.IO) {
+            DecmedIotaNative.getPghdPublicKey(patientAddress, senderAddress)
         }
+
+    private fun defaultPrivateMetadata(profile: PatientProfile): String {
+        val metadata = JSONObject()
+            .put("source", "pghd_android")
+            .put("patient_id_hash", profile.idHash)
+        return Base64.getEncoder().encodeToString(metadata.toString().toByteArray(Charsets.UTF_8))
     }
 
-    private suspend fun call(method: String, params: JSONArray): JSONObject = withContext(Dispatchers.IO) {
-        val body = JSONObject()
-            .put("jsonrpc", "2.0")
-            .put("id", 1)
-            .put("method", method)
-            .put("params", params)
-
-        val connection = URL(rpcUrl).openConnection() as HttpURLConnection
-        connection.requestMethod = "POST"
-        connection.setRequestProperty("Content-Type", "application/json")
-        connection.doOutput = true
-        OutputStreamWriter(connection.outputStream).use { it.write(body.toString()) }
-        val response = if (connection.responseCode in 200..299) {
-            connection.inputStream.bufferedReader().use { it.readText() }
-        } else {
-            val message = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            error("IOTA RPC failed: HTTP ${connection.responseCode} - $message")
-        }
-        JSONObject(response)
-    }
+    private fun String?.requireField(name: String): String =
+        require(!isNullOrBlank()) { "Missing patient $name." }.let { this!! }
 }

@@ -3,6 +3,8 @@ package com.hackastic.decmed.data.patient
 import com.hackastic.decmed.domain.model.patient.PatientProfile
 import com.hackastic.decmed.domain.model.patient.PatientRegistrationDraft
 import com.hackastic.decmed.domain.repository.PatientCryptoBridge
+import com.hackastic.decmed.crypto.DecmedCryptoNative
+import com.hackastic.decmed.iota.DecmedIotaNative
 import java.math.BigInteger
 import java.security.AlgorithmParameters
 import java.security.KeyFactory
@@ -18,24 +20,37 @@ import javax.crypto.spec.PBEKeySpec
 
 class DeterministicPatientCryptoBridge : PatientCryptoBridge {
     override suspend fun generateMnemonic(): String {
-        return DEFAULT_TEST_VECTOR_MNEMONIC
+        return DecmedIotaNative.generateMnemonic()
     }
 
     override suspend fun deriveRegistrationProfile(draft: PatientRegistrationDraft): PatientProfile {
         val seed = bip39Seed(draft.seedWords, draft.nik)
-        val idHash = sha256Hex(draft.nik.toByteArray(Charsets.UTF_8))
+        val iotaIdentity = DecmedIotaNative.derivePatientIdentity(draft.seedWords, draft.nik)
         val pghdKeyPair = deriveP256KeyPair(seed, "decmed-pghd-ecdsa-v1")
-        val iotaKeySeed = sha256(seed + "decmed-iota-ed25519-v1".toByteArray(Charsets.UTF_8))
-        val iotaAddress = iotaAddressFromSeed(iotaKeySeed)
+        val medicalPreSecretSeedBase64 = derivePreSecretSeed(seed, "decmed-pre-medical-record-v1")
+        val medicalPrePublicKey = DecmedCryptoNative.publicKeyFromSeed(medicalPreSecretSeedBase64)
+        val pghdPreSecretSeedBase64 = derivePreSecretSeed(seed, "decmed-pre-pghd-v1")
+        val pghdPrePublicKey = DecmedCryptoNative.publicKeyFromSeed(pghdPreSecretSeedBase64)
 
         return PatientProfile(
             id = draft.nik,
-            idHash = idHash,
-            iotaAddress = iotaAddress,
-            prePublicKey = pghdKeyPair.publicKeyBase64,
+            idHash = iotaIdentity.idHash,
+            iotaAddress = iotaIdentity.iotaAddress,
+            iotaKeyPair = iotaIdentity.iotaKeyPair,
+            medicalPrePublicKey = medicalPrePublicKey,
+            medicalPreSecretKey = medicalPreSecretSeedBase64,
+            pghdPrePublicKey = pghdPrePublicKey,
+            pghdPreSecretKey = pghdPreSecretSeedBase64,
+            prePublicKey = medicalPrePublicKey,
+            preSecretKey = medicalPreSecretSeedBase64,
             pghdPublicKey = pghdKeyPair.publicKeyBase64,
             pghdSecretKey = pghdKeyPair.secretKeyBase64
         )
+    }
+
+    private fun derivePreSecretSeed(seed: ByteArray, label: String): String {
+        val scopedSeed = sha256(seed + label.toByteArray(Charsets.UTF_8))
+        return Base64.getEncoder().encodeToString(scopedSeed)
     }
 
     private fun bip39Seed(words: String, passphrase: String): ByteArray {
@@ -70,13 +85,7 @@ class DeterministicPatientCryptoBridge : PatientCryptoBridge {
         return BigInteger(1, material).mod(order.subtract(BigInteger.ONE)).add(BigInteger.ONE)
     }
 
-    private fun iotaAddressFromSeed(seed: ByteArray): String {
-        return "0x" + sha256(seed).take(32).joinToString("") { "%02x".format(it) }
-    }
-
     private fun sha256(data: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(data)
-
-    private fun sha256Hex(data: ByteArray): String = sha256(data).joinToString("") { "%02x".format(it) }
 
     private fun multiply(point: ECPoint, scalar: BigInteger): ECPoint {
         var result = ECPoint.POINT_INFINITY
@@ -126,8 +135,5 @@ class DeterministicPatientCryptoBridge : PatientCryptoBridge {
             BigInteger("6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296", 16),
             BigInteger("4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5", 16)
         )
-
-        const val DEFAULT_TEST_VECTOR_MNEMONIC =
-            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
     }
 }

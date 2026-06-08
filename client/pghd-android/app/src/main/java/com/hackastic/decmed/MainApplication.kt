@@ -2,6 +2,8 @@ package com.hackastic.decmed
 
 import android.app.Application
 import com.hackastic.decmed.di.AppContainer
+import com.hackastic.decmed.iota.DecmedIotaNative
+import com.hackastic.decmed.worker.PghdWorkScheduler
 
 /**
  * Custom Application subclass for app-wide initialization.
@@ -17,6 +19,8 @@ class MainApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        DecmedIotaNative.initialize(this)
         container = AppContainer(this)
+        PghdWorkScheduler.scheduleAll(this)
     }
 }

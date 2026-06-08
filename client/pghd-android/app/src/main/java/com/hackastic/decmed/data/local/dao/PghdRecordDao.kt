@@ -48,4 +48,16 @@ interface PghdRecordDao {
 
     @Query("SELECT COUNT(*) FROM pghd_records")
     suspend fun getTotalCount(): Long
+
+    @Query(
+        """
+        SELECT * FROM pghd_records
+        WHERE batchId IS NULL
+        ORDER BY endTimeEpochMillis ASC
+        """
+    )
+    suspend fun getUnbatchedRecords(): List<PghdRecordEntity>
+
+    @Query("UPDATE pghd_records SET batchId = :batchId WHERE uid IN (:recordIds)")
+    suspend fun markRecordsBatched(recordIds: List<String>, batchId: String)
 }

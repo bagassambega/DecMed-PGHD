@@ -46,6 +46,7 @@ import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.records.WheelchairPushesRecord
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
+import com.hackastic.decmed.config.Env
 import com.hackastic.decmed.data.local.entity.PghdRecordEntity
 import java.time.Instant
 import java.time.temporal.ChronoUnit
@@ -118,8 +119,8 @@ class HealthConnectPghdClient(
     )
 
     companion object {
-        const val DEFAULT_SYNC_DAYS = 30L
-        const val HISTORY_SYNC_DAYS = 365L
+        val DEFAULT_SYNC_DAYS: Long get() = Env.pghdDefaultSyncDays
+        val HISTORY_SYNC_DAYS: Long get() = Env.pghdHistorySyncDays
 
         val XIAOMI_BAND_READ_PERMISSIONS: Set<String> = setOf(
             HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class),

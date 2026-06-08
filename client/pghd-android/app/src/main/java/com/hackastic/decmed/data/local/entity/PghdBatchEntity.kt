@@ -8,23 +8,30 @@ import androidx.room.PrimaryKey
     tableName = "pghd_batches",
     indices = [
         Index(value = ["patientId", "createdAtEpochMillis"]),
-        Index(value = ["startTimeEpochMillis", "endTimeEpochMillis"])
+        Index(value = ["startTimestamp", "endTimestamp"]),
+        Index(value = ["status", "retryCount"])
     ]
 )
 data class PghdBatchEntity(
     @PrimaryKey
     val batchId: String,
-    val schemaVersion: String,
     val patientId: String,
-    val sourceDeviceType: String,
-    val sourceDevicePlatform: String,
-    val sourceDeviceAppVersion: String,
-    val sourceDeviceManufacturer: String,
-    val sourceDeviceModel: String,
-    val startTimestamp: String,
-    val endTimestamp: String,
-    val startTimeEpochMillis: Long,
-    val endTimeEpochMillis: Long,
-    val payloadJson: String,
-    val createdAtEpochMillis: Long = System.currentTimeMillis()
-)
+    val startTimestamp: Long,
+    val endTimestamp: Long,
+    val encPghd: String = "",
+    val encAesKeyNonce: String = "",
+    val capsule: String = "",
+    val hCipher: String = "",
+    val pghdOuterSignature: String = "",
+    val status: String = STATUS_PENDING,
+    val retryCount: Int = 0,
+    val createdAtEpochMillis: Long = System.currentTimeMillis(),
+    val lastAttemptEpochMillis: Long? = null
+) {
+    companion object {
+        const val STATUS_PENDING = "pending"
+        const val STATUS_SENT = "sent"
+        const val STATUS_FAILED = "failed"
+        const val STATUS_PERMANENT_FAILURE = "permanent_failure"
+    }
+}

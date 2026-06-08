@@ -2,6 +2,7 @@ package com.hackastic.decmed.data.pghd
 
 import com.hackastic.decmed.domain.model.pghd.PghdBatchPayload
 import com.hackastic.decmed.domain.model.pghd.PghdBatchPeriod
+import com.hackastic.decmed.domain.model.pghd.PghdDataGroupPayload
 import com.hackastic.decmed.domain.model.pghd.PghdDataPointPayload
 import com.hackastic.decmed.domain.model.pghd.PghdInnerPlaintext
 import com.hackastic.decmed.domain.model.pghd.PghdMeasurementValue
@@ -20,7 +21,10 @@ object PghdPayloadSerializer {
             .put("patient_id", payload.patientId)
             .put("source_device", sourceDeviceToJson(payload.sourceDevice))
             .put("batch_period", batchPeriodToJson(payload.batchPeriod))
-            .put("data_points", JSONArray(payload.dataPoints.map(::dataPointToJson)))
+            .put("data_group", JSONArray(payload.dataGroup.map(::dataGroupToJson)))
+            .also { json ->
+                payload.triggerReason?.let { json.put("trigger_reason", it) }
+            }
 
     fun dataPointValueToJson(value: PghdMeasurementValue): Any =
         when (value) {
@@ -47,16 +51,21 @@ object PghdPayloadSerializer {
             .put("start_timestamp", batchPeriod.startTimestamp)
             .put("end_timestamp", batchPeriod.endTimestamp)
 
-    private fun dataPointToJson(dataPoint: PghdDataPointPayload): JSONObject {
+    private fun dataGroupToJson(dataGroup: PghdDataGroupPayload): JSONObject {
         val json = JSONObject()
-            .put("measurement_type", dataPoint.measurementType)
+            .put("measurement_type", dataGroup.measurementType)
+            .put("device_type", dataGroup.deviceType)
+            .put("source", dataGroup.source)
+            .put("data_points", JSONArray(dataGroup.dataPoints.map(::dataPointToJson)))
+
+        dataGroup.recordingMethod?.let { json.put("recording_method", it) }
+        return json
+    }
+
+    private fun dataPointToJson(dataPoint: PghdDataPointPayload): JSONObject {
+        return JSONObject()
             .put("timestamp", dataPoint.timestamp)
             .put("value", dataPointValueToJson(dataPoint.value))
             .put("unit", dataPoint.unit)
-            .put("source", dataPoint.source)
-            .put("device_type", dataPoint.deviceType)
-
-        dataPoint.recordingMethod?.let { json.put("recording_method", it) }
-        return json
     }
 }

@@ -50,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.hackastic.decmed.data.remote.service.SensorCollectionService
+import com.hackastic.decmed.worker.PghdWorkScheduler
 import com.hackastic.decmed.ui.theme.AvailableGreen
 import com.hackastic.decmed.viewmodel.SensorViewModel
 
@@ -59,7 +60,8 @@ fun HomeScreen(
     viewModel: SensorViewModel,
     onNavigateToSettings: () -> Unit,
     onNavigateToData: () -> Unit,
-    onNavigateToPghdCollection: () -> Unit
+    onNavigateToPghdCollection: () -> Unit,
+    bottomBar: @Composable () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -96,7 +98,8 @@ fun HomeScreen(
                     containerColor = MaterialTheme.colorScheme.surface
                 )
             )
-        }
+        },
+        bottomBar = bottomBar
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -235,6 +238,7 @@ fun HomeScreen(
                         if (selectedConfig.isNotEmpty()) {
                             startCollection(context, selectedConfig)
                             viewModel.markCollectionRunning(true)
+                            PghdWorkScheduler.scheduleCollectionWork(context)
                         }
                     }
                 ) {
@@ -247,6 +251,7 @@ fun HomeScreen(
                     onClick = {
                         stopCollection(context)
                         viewModel.markCollectionRunning(false)
+                        PghdWorkScheduler.cancelCollectionWork(context)
                     }
                 ) {
                     Text("Stop Collection")

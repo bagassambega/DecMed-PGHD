@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.hackastic.decmed.MainApplication
 import com.hackastic.decmed.data.health.HealthConnectPghdClient
+import com.hackastic.decmed.data.local.entity.PghdBatchEntity
 import com.hackastic.decmed.data.local.entity.PghdRecordEntity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -18,6 +19,7 @@ import kotlinx.coroutines.launch
 
 data class PghdCollectionUiState(
     val records: List<PghdRecordEntity> = emptyList(),
+    val batches: List<PghdBatchEntity> = emptyList(),
     val recordTypes: List<String> = emptyList(),
     val selectedSourceTag: String? = null,
     val selectedRecordType: String? = null,
@@ -27,6 +29,8 @@ data class PghdCollectionUiState(
     val hasHealthConnectHistoryPermission: Boolean = false,
     val isSyncing: Boolean = false,
     val isSubmitting: Boolean = false,
+    val submittingBatchId: String? = null,
+    val isGrantingAccess: Boolean = false,
     val lastSyncMessage: String? = null,
     val errorMessage: String? = null,
     val healthConnectSourcePackages: List<String> = emptyList(),
@@ -37,6 +41,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
     private val container = (application as MainApplication).container
     private val pghdRepository = container.pghdRepository
     private val pghdBatchRepository = container.pghdBatchRepository
+    private val prePghdClient = container.prePghdClient
     private val patientAuthRepository = container.patientAuthRepository
     private val healthConnectPghdClient = container.healthConnectPghdClient
 
@@ -50,6 +55,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
 
     init {
         observeRecords()
+        observeBatches()
         observeRecordTypes()
         observeHealthConnectSourcePackages()
         refreshHealthConnectState()
@@ -207,6 +213,62 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    fun submitBatch(batchId: String) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    submittingBatchId = batchId,
+                    errorMessage = null,
+                    lastSyncMessage = null
+                )
+            }
+            try {
+                val result = pghdBatchRepository.submitBatch(batchId)
+                _uiState.update {
+                    it.copy(
+                        lastSyncMessage = result.message ?: "Submitted PGHD batch $batchId.",
+                        errorMessage = if (result.accepted) null else result.message
+                    )
+                }
+            } catch (err: Exception) {
+                _uiState.update {
+                    it.copy(errorMessage = err.message ?: "Unable to submit PGHD batch.")
+                }
+            } finally {
+                _uiState.update { it.copy(submittingBatchId = null) }
+            }
+        }
+    }
+
+    fun grantPghdAccess(
+        hospitalPersonnelIotaAddress: String,
+        hospitalPersonnelPrePublicKey: String
+    ) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isGrantingAccess = true, errorMessage = null, lastSyncMessage = null) }
+            try {
+                val patientProfile = patientAuthRepository.getUnlockedProfile()
+                val result = prePghdClient.grantPghdReadAccess(
+                    profile = patientProfile,
+                    hospitalPersonnelIotaAddress = hospitalPersonnelIotaAddress,
+                    hospitalPersonnelPrePublicKey = hospitalPersonnelPrePublicKey
+                )
+                _uiState.update {
+                    it.copy(
+                        lastSyncMessage = "Granted PGHD read access to ${result.hospitalPersonnelIotaAddress}.",
+                        errorMessage = null
+                    )
+                }
+            } catch (err: Exception) {
+                _uiState.update {
+                    it.copy(errorMessage = err.message ?: "Unable to grant PGHD access.")
+                }
+            } finally {
+                _uiState.update { it.copy(isGrantingAccess = false) }
+            }
+        }
+    }
+
     fun selectSourceTag(sourceTag: String?) {
         selectedSourceTag.value = sourceTag
     }
@@ -233,6 +295,14 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                         }
                     }
                 }
+        }
+    }
+
+    private fun observeBatches() {
+        viewModelScope.launch {
+            pghdBatchRepository.getBatches().collect { batches ->
+                _uiState.update { it.copy(batches = batches) }
+            }
         }
     }
 

@@ -18,4 +18,5 @@ sealed class Screen(val route: String) {
     object Settings : Screen("settings")
     object Data : Screen("data")
     object PghdCollection : Screen("pghd_collection")
+    object PghdBatches : Screen("pghd_batches")
 }

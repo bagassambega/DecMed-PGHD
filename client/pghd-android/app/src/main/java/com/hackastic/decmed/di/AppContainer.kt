@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
-import com.hackastic.decmed.BuildConfig
+import com.hackastic.decmed.config.Env
 import com.hackastic.decmed.data.health.HealthConnectPghdClient
 import com.hackastic.decmed.data.local.security.PatientSecureStorage
 import com.hackastic.decmed.data.local.database.SensorDatabase
@@ -12,6 +12,7 @@ import com.hackastic.decmed.data.patient.DeterministicPatientCryptoBridge
 import com.hackastic.decmed.data.remote.IotaPatientGateway
 import com.hackastic.decmed.data.remote.PrePghdClient
 import com.hackastic.decmed.data.repository.PatientAuthRepositoryImpl
+import com.hackastic.decmed.data.repository.PghdCollectionStateRepository
 import com.hackastic.decmed.data.repository.PghdBatchRepositoryImpl
 import com.hackastic.decmed.data.repository.PghdRepositoryImpl
 import com.hackastic.decmed.data.repository.SensorConfigRepositoryImpl
@@ -55,12 +56,12 @@ class AppContainer(context: Context) {
         PatientSecureStorage()
     }
 
-    private val prePghdClient: PrePghdClient by lazy {
-        PrePghdClient(BuildConfig.PRE_BASE_URL)
+    val prePghdClient: PrePghdClient by lazy {
+        PrePghdClient(Env.preBaseUrl)
     }
 
     private val iotaPatientGateway: IotaPatientGateway by lazy {
-        IotaPatientGateway(BuildConfig.IOTA_RPC_URL)
+        IotaPatientGateway()
     }
 
     val patientAuthRepository: PatientAuthRepository by lazy {
@@ -87,6 +88,10 @@ class AppContainer(context: Context) {
 
     val pghdBatchRepository: PghdBatchRepository by lazy {
         PghdBatchRepositoryImpl(database.pghdBatchDao(), prePghdClient)
+    }
+
+    val pghdCollectionStateRepository: PghdCollectionStateRepository by lazy {
+        PghdCollectionStateRepository(appContext.dataStore)
     }
 
     val healthConnectPghdClient: HealthConnectPghdClient by lazy {

@@ -13,10 +13,9 @@ import com.hackastic.decmed.data.local.entity.PghdBatchEntity
 import com.hackastic.decmed.data.local.entity.PghdRecordEntity
 import com.hackastic.decmed.data.local.entity.SensorConfigEntity
 import com.hackastic.decmed.data.local.entity.SensorData
-import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 /**
- * Room Database configured with SQLCipher for AES-256 encryption at rest.
+ * Room Database for local PGHD collection and encrypted batch retry state.
  *
  * Version history:
  *   v1 — sensor_data table (initial).
@@ -28,12 +27,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
  *          • Added dataOrigin TEXT   (package-name source identifier)
  *          • Added index on (dataType, endTimeEpochMillis)
  *   v5 — Added pghd_records table for encrypted Health Connect and manual PGHD.
- *   v6 — Added prepared PGHD batch and data point tables for IPFS payloads.
- *
- * Security note:
- *   In production the passphrase MUST be randomly generated, wrapped with an
- *   Android Keystore key, and stored in EncryptedSharedPreferences.
- *   The static string below is a prototype placeholder only.
+ *   v7 — PGHD batch table now stores encrypted envelopes and retry state.
  */
 @Database(
     entities = [
@@ -43,7 +37,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         PghdBatchEntity::class,
         PghdBatchDataPointEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class SensorDatabase : RoomDatabase() {
@@ -59,17 +53,11 @@ abstract class SensorDatabase : RoomDatabase() {
 
         fun getDatabase(context: Context): SensorDatabase {
             return INSTANCE ?: synchronized(this) {
-                System.loadLibrary("sqlcipher")
-
-                val passphrase = "Secure_PGHD_Key_2026".toByteArray()
-                val factory = SupportOpenHelperFactory(passphrase)
-
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     SensorDatabase::class.java,
                     "sensor_pghd.db"
                 )
-                    .openHelperFactory(factory)
                     // Development convenience — replace with proper Migration objects
                     // before shipping to production.
                     .fallbackToDestructiveMigration()

@@ -57,7 +57,13 @@ class PatientAuthRepositoryImpl(
             prefs[Keys.patientId] = secureStorage.encrypt(profile.id).orEmpty()
             profile.idHash?.let { prefs[Keys.patientIdHash] = secureStorage.encrypt(it).orEmpty() }
             profile.iotaAddress?.let { prefs[Keys.iotaAddress] = secureStorage.encrypt(it).orEmpty() }
+            profile.iotaKeyPair?.let { prefs[Keys.iotaKeyPair] = secureStorage.encrypt(it).orEmpty() }
+            profile.medicalPrePublicKey?.let { prefs[Keys.medicalPrePublicKey] = secureStorage.encrypt(it).orEmpty() }
+            profile.medicalPreSecretKey?.let { prefs[Keys.medicalPreSecretKey] = secureStorage.encrypt(it).orEmpty() }
+            profile.pghdPrePublicKey?.let { prefs[Keys.pghdPrePublicKey] = secureStorage.encrypt(it).orEmpty() }
+            profile.pghdPreSecretKey?.let { prefs[Keys.pghdPreSecretKey] = secureStorage.encrypt(it).orEmpty() }
             profile.prePublicKey?.let { prefs[Keys.prePublicKey] = secureStorage.encrypt(it).orEmpty() }
+            profile.preSecretKey?.let { prefs[Keys.preSecretKey] = secureStorage.encrypt(it).orEmpty() }
             profile.pghdPublicKey?.let { prefs[Keys.pghdPublicKey] = secureStorage.encrypt(it).orEmpty() }
             profile.pghdSecretKey?.let { prefs[Keys.pghdSecretKey] = secureStorage.encrypt(it).orEmpty() }
             prefs[Keys.sessionState] = SESSION_UNLOCKED
@@ -79,7 +85,13 @@ class PatientAuthRepositoryImpl(
             prefs[Keys.patientId] = secureStorage.encrypt(profile.id).orEmpty()
             profile.idHash?.let { prefs[Keys.patientIdHash] = secureStorage.encrypt(it).orEmpty() }
             profile.iotaAddress?.let { prefs[Keys.iotaAddress] = secureStorage.encrypt(it).orEmpty() }
+            profile.iotaKeyPair?.let { prefs[Keys.iotaKeyPair] = secureStorage.encrypt(it).orEmpty() }
+            profile.medicalPrePublicKey?.let { prefs[Keys.medicalPrePublicKey] = secureStorage.encrypt(it).orEmpty() }
+            profile.medicalPreSecretKey?.let { prefs[Keys.medicalPreSecretKey] = secureStorage.encrypt(it).orEmpty() }
+            profile.pghdPrePublicKey?.let { prefs[Keys.pghdPrePublicKey] = secureStorage.encrypt(it).orEmpty() }
+            profile.pghdPreSecretKey?.let { prefs[Keys.pghdPreSecretKey] = secureStorage.encrypt(it).orEmpty() }
             profile.prePublicKey?.let { prefs[Keys.prePublicKey] = secureStorage.encrypt(it).orEmpty() }
+            profile.preSecretKey?.let { prefs[Keys.preSecretKey] = secureStorage.encrypt(it).orEmpty() }
             profile.pghdPublicKey?.let { prefs[Keys.pghdPublicKey] = secureStorage.encrypt(it).orEmpty() }
             profile.pghdSecretKey?.let { prefs[Keys.pghdSecretKey] = secureStorage.encrypt(it).orEmpty() }
             prefs[Keys.sessionState] = SESSION_UNLOCKED
@@ -113,7 +125,15 @@ class PatientAuthRepositoryImpl(
             id = patientId,
             idHash = secureStorage.decrypt(prefs[Keys.patientIdHash]),
             iotaAddress = secureStorage.decrypt(prefs[Keys.iotaAddress]),
+            iotaKeyPair = secureStorage.decrypt(prefs[Keys.iotaKeyPair]),
+            medicalPrePublicKey = secureStorage.decrypt(prefs[Keys.medicalPrePublicKey])
+                ?: secureStorage.decrypt(prefs[Keys.prePublicKey]),
+            medicalPreSecretKey = secureStorage.decrypt(prefs[Keys.medicalPreSecretKey])
+                ?: secureStorage.decrypt(prefs[Keys.preSecretKey]),
+            pghdPrePublicKey = secureStorage.decrypt(prefs[Keys.pghdPrePublicKey]),
+            pghdPreSecretKey = secureStorage.decrypt(prefs[Keys.pghdPreSecretKey]),
             prePublicKey = secureStorage.decrypt(prefs[Keys.prePublicKey]),
+            preSecretKey = secureStorage.decrypt(prefs[Keys.preSecretKey]),
             pghdPublicKey = secureStorage.decrypt(prefs[Keys.pghdPublicKey]),
             pghdSecretKey = secureStorage.decrypt(prefs[Keys.pghdSecretKey]),
             name = secureStorage.decrypt(prefs[Keys.profileName]),
@@ -144,7 +164,13 @@ class PatientAuthRepositoryImpl(
         val patientId = stringPreferencesKey("patient_id")
         val patientIdHash = stringPreferencesKey("patient_id_hash")
         val iotaAddress = stringPreferencesKey("patient_iota_address")
+        val iotaKeyPair = stringPreferencesKey("patient_iota_key_pair")
+        val medicalPrePublicKey = stringPreferencesKey("patient_medical_pre_public_key")
+        val medicalPreSecretKey = stringPreferencesKey("patient_medical_pre_secret_key")
+        val pghdPrePublicKey = stringPreferencesKey("patient_pghd_pre_public_key")
+        val pghdPreSecretKey = stringPreferencesKey("patient_pghd_pre_secret_key")
         val prePublicKey = stringPreferencesKey("patient_pre_public_key")
+        val preSecretKey = stringPreferencesKey("patient_pre_secret_key")
         val pghdPublicKey = stringPreferencesKey("patient_pghd_public_key")
         val pghdSecretKey = stringPreferencesKey("patient_pghd_secret_key")
         val profileName = stringPreferencesKey("patient_profile_name")
