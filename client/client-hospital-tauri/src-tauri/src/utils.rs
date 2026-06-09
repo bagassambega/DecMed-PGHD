@@ -322,6 +322,15 @@ pub fn compute_pre_keys(seed: &[u8]) -> Result<(SecretKey, PublicKey), HospitalE
     Ok((secret_key, public_key))
 }
 
+pub fn compute_android_pghd_pre_keys(seed: &[u8]) -> Result<(SecretKey, PublicKey), HospitalError> {
+    let secret_key = SecretKeyFactory::from_secure_randomness(seed)
+        .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?
+        .make_key(b"decmed-pre-v1");
+    let public_key = secret_key.public_key();
+
+    Ok((secret_key, public_key))
+}
+
 pub fn parse_move_read_only_result<T: DeserializeOwned>(
     val: DevInspectResults,
     index: usize,

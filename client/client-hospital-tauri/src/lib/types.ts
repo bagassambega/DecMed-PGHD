@@ -50,7 +50,7 @@ export type TauriAccessData = {
 	patientPrePublicKey: string | null;
 };
 
-export type TauriAccessDataType = 'Administrative' | 'Medical';
+export type TauriAccessDataType = 'Administrative' | 'Medical' | 'Pghd';
 
 export type TauriMedicalData = {
 	anamnesis: string;
@@ -97,6 +97,61 @@ export type InvokeGetMedicalRecordResponseData = {
 	currentIndex: number;
 	nextIndex?: number | null;
 	prevIndex?: number | null;
+};
+
+export type PghdMetadata = {
+	batch_id?: string;
+	cid?: string;
+	created_at?: string;
+	h_cipher?: string;
+	patient_iota_address?: string;
+	[key: string]: unknown;
+};
+
+export type PghdDataPoint = {
+	timestamp: number;
+	value: number | string | Record<string, unknown>;
+	unit: string;
+};
+
+export type PghdDataGroup = {
+	measurement_type: string;
+	device_type: string;
+	recording_method?: string;
+	source: string;
+	data_points: PghdDataPoint[];
+};
+
+export type PghdBatchData = {
+	schema_version: string;
+	batch_id: string;
+	patient_id: string;
+	source_device: Record<string, unknown>;
+	batch_period: {
+		start_timestamp: number;
+		end_timestamp: number;
+	};
+	trigger_reason?: string;
+	data_group: PghdDataGroup[];
+};
+
+export type InvokeGetPghdListItem = {
+	cid: string;
+	failure_reason: string;
+	h_cipher: string;
+	index: number;
+	metadata: PghdMetadata;
+	status: number;
+	timestamp: number;
+};
+
+export type InvokeGetPghdResponseData = {
+	current_index: number;
+	metadata: PghdMetadata;
+	next_index?: number | null;
+	pghd_data: PghdBatchData;
+	prev_index?: number | null;
+	verified: boolean;
 };
 
 export type InvokeGetPatientAdministrativeDataResponseData = {

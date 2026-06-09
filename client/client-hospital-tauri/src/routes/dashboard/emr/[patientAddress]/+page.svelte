@@ -5,9 +5,11 @@
 
 	let emrReadState = new EmrReadState({
 		accessToken: data.accessToken,
+		pghdAccessToken: data.pghdAccessToken,
 		index: data.index,
 		patientIotaAddress: data.patientIotaAddress
 	});
+
 </script>
 
 <h2 class="text-lg font-montserrat font-semibold">EMR of</h2>
@@ -187,6 +189,7 @@
 				</div>
 			{/if}
 		</div>
+
 	{:catch e}
 		<div class="bg-zinc-100 p-4 border border-zinc-200 rounded-md text-zinc-500">
 			<p>No EMR found</p>

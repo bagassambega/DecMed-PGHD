@@ -219,6 +219,8 @@ pub async fn signup(
     // drop SignupState from state
     state.signup_state.seed_words = None;
     state.signup_state.pin = None;
+    state.auth_state.session_pin = Some(pin);
+    state.auth_state.is_signed_up = true;
 
     Ok(SuccessResponse {
         status: ResponseStatus::Success,

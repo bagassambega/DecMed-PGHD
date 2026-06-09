@@ -7,6 +7,7 @@ import { zod } from 'sveltekit-superforms/adapters';
 import { getAuthContext } from '../../(context)/auth-context.svelte';
 import { tryCatchAsVal } from '$lib/utils';
 import { toast } from 'svelte-sonner';
+import { invalidateAll } from '$app/navigation';
 
 type Constructor = {
 	signInForm: SuperValidated<Infer<SignInSchemaStep3>>;
@@ -93,6 +94,8 @@ export class SignInState {
 					if (!resInvokeSignin.success) {
 						cancel();
 						toast.error(resInvokeSignin.error);
+					} else {
+						await invalidateAll();
 					}
 				}
 			}

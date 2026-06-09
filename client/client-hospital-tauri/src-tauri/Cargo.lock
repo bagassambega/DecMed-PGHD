@@ -1525,6 +1525,7 @@ dependencies = [
  "k256",
  "keyring",
  "move-core-types",
+ "p256",
  "rand 0.9.1",
  "regex",
  "schemars",

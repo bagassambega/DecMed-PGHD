@@ -7,6 +7,7 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import { toast } from 'svelte-sonner';
 	import type { InvokeGlobalAdminAddActivationKeyData, SuccessResponse } from '$lib/types.js';
+	import { invalidateAll } from '$app/navigation';
 
 	let { data } = $props();
 
@@ -34,6 +35,8 @@
 					cancel();
 					return;
 				}
+
+				await invalidateAll();
 			}
 		}
 	});

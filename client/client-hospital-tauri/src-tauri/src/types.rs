@@ -34,6 +34,7 @@ pub enum MedicalDataSubCategory {
 pub enum MoveHospitalPersonnelAccessDataType {
     Administrative,
     Medical,
+    Pghd,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -317,6 +318,34 @@ pub struct ProxyReencryptionGetMedicalRecordResponseData {
     pub medical_data_created_at: String,
     pub next_index: Option<u64>,
     pub patient_pre_public_key: String,
+    pub prev_index: Option<u64>,
+    pub signer_pre_public_key: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ProxyReencryptionPghdListItem {
+    pub cid: String,
+    pub failure_reason: String,
+    pub h_cipher: String,
+    pub index: u64,
+    pub metadata: serde_json::Value,
+    pub status: u8,
+    pub timestamp: u64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ProxyReencryptionGetPghdResponseData {
+    pub c_frag: String,
+    pub current_index: u64,
+    pub data_pre_public_key: String,
+    pub data_pre_secret_key_seed_capsule: String,
+    pub enc_aes_key_nonce: String,
+    pub enc_data_pre_secret_key_seed: String,
+    pub enc_pghd: String,
+    pub metadata: serde_json::Value,
+    pub next_index: Option<u64>,
+    pub patient_pre_public_key: String,
+    pub pghd_public_key: String,
     pub prev_index: Option<u64>,
     pub signer_pre_public_key: String,
 }

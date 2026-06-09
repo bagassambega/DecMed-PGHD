@@ -233,17 +233,38 @@ pub async fn activate_app(
         )
     };
 
-    let _ = state
+    let encoded_activation_key =
+        encode_activation_key(activation_key.clone(), id.clone()).context(current_fn!())?;
+
+    let activate_result = state
         .move_call
         .use_activation_key(
-            encode_activation_key(activation_key.clone(), id.clone()).context(current_fn!())?,
-            hospital_personnel_hospital_part_hash,
-            hospital_personnel_id_part_hash,
+            encoded_activation_key.clone(),
+            hospital_personnel_hospital_part_hash.clone(),
+            hospital_personnel_id_part_hash.clone(),
             random_iota_address,
             random_iota_key_pair,
         )
-        .await
-        .context(current_fn!())?;
+        .await;
+
+    if let Err(activate_err) = activate_result {
+        let seed = generate_64_bytes_seed();
+        let (random_iota_address, _) = generate_iota_keys_ed(&seed).context(current_fn!())?;
+        let (account_state, _) = state
+            .move_call
+            .get_account_state(
+                encoded_activation_key,
+                hospital_personnel_hospital_part_hash,
+                hospital_personnel_id_part_hash,
+                random_iota_address,
+            )
+            .await
+            .context(current_fn!())?;
+
+        if account_state == 0 {
+            return Err(activate_err);
+        }
+    }
 
     let mut keys_entry = parse_keys_entry(&state.keys_entry.get_secret().context(current_fn!())?)
         .context(current_fn!())?;

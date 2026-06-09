@@ -24,11 +24,24 @@ use constants::{
 use iota_types::{base_types::ObjectID, Identifier};
 use keyring::Entry;
 use move_call::MoveCall;
-use std::str::FromStr;
+use std::{env, str::FromStr};
 use tauri::{async_runtime::Mutex, Manager};
 use types::{AppState, AuthState, DecmedPackage, KeysEntry, SignInState, SignUpState};
 
+const DEFAULT_GLOBAL_ADMIN_ADDRESS: &str =
+    "0xa180461e6345380399f36c8b62e5d68e68d71162d3fdc504eb257e04de2942b6";
+const DEFAULT_GLOBAL_ADMIN_KEY_PAIR: &str =
+    "iotaprivkey1qqcluvm6e8klj7pwx693sfx9zyk2rw3lshn4qdax8nez87zwcwc3vl475mr";
+
+fn env_or_default(keys: &[&str], default_value: &str) -> String {
+    keys.iter()
+        .find_map(|key| env::var(key).ok())
+        .unwrap_or_else(|| default_value.to_string())
+}
+
 fn setup(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let _ = dotenv::dotenv();
+
     let keys_entry = Entry::new("decmed_service_keys", "decmed_user")?;
     let decmed_package = DecmedPackage {
         package_id: ObjectID::from_str(DECMED_PACKAGE_ID)?,
@@ -51,11 +64,13 @@ fn setup(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std::error::Er
     };
     let new_keys_entry = KeysEntry {
         id: None,
-        admin_address: Some(String::from(
-            "0x52a65ae806223e49aaff1cf7f670fee87c1767de1d200a661c1fee44a61fc37f",
+        admin_address: Some(env_or_default(
+            &["DECMED_GLOBAL_ADMIN_IOTA_ADDRESS", "GLOBAL_ADMIN_IOTA_ADDRESS"],
+            DEFAULT_GLOBAL_ADMIN_ADDRESS,
         )),
-        admin_secret_key: Some(String::from(
-            "iotaprivkey1qpfc5nqsvs64p40347h0vcdxz3pgfn72uznw4pfvkak59fhpevxs73z6kwn",
+        admin_secret_key: Some(env_or_default(
+            &["DECMED_GLOBAL_ADMIN_IOTA_KEY_PAIR", "GLOBAL_ADMIN_IOTA_KEY_PAIR"],
+            DEFAULT_GLOBAL_ADMIN_KEY_PAIR,
         )),
         activation_key: None,
         iota_address: None,
@@ -73,7 +88,7 @@ fn setup(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std::error::Er
     let auth_state = AuthState {
         is_signed_up: false,
         role: None,
-        session_pin: Some("123456".to_string()),
+        session_pin: None,
     };
     let move_call = MoveCall {
         decmed_package: decmed_package.clone(),
@@ -132,6 +147,9 @@ pub fn run() {
             admin::get_hospital_personnels,
             medical_personnel::new_medical_record,
             medical_personnel::get_medical_record,
+            medical_personnel::get_pghd_list,
+            medical_personnel::get_pghd,
+            medical_personnel::invalidate_pghd,
             medical_personnel::get_medical_record_update,
             medical_personnel::get_read_access_medical_personnel,
             medical_personnel::get_update_access_medical_personnel,

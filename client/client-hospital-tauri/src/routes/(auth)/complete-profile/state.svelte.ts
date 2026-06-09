@@ -49,13 +49,15 @@ export class CompleteProfileState {
 					}
 
 					if (this.role === 'Admin') {
-						const adminData = form.data as Infer<CompleteProfileAdminSchema>;
+						const adminData = form.data as Infer<CompleteProfileAdminSchema> & { hospital?: string };
 
-						const resultInvokeUpdateRegisteredHospitalName = await tryCatchAsVal(async () => {
-							return (await invoke('update_registered_hospital_name', {
-								hospitalName: adminData.hospital
-							})) as SuccessResponse<null>;
-						});
+						if (adminData.hospital) {
+							await tryCatchAsVal(async () => {
+								return (await invoke('update_registered_hospital_name', {
+									hospitalName: adminData.hospital
+								})) as SuccessResponse<null>;
+							});
+						}
 					}
 
 					toast.success(resultInvokeUpdateProfile.data.status);

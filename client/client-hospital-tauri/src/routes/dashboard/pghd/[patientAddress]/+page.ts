@@ -6,17 +6,13 @@ export const load: PageLoad = async ({ parent, params, url }) => {
 
 	const patientIotaAddress = params.patientAddress;
 	const accessToken = url.searchParams.get('accessToken');
-	const pghdAccessToken = url.searchParams.get('pghdAccessToken');
-	const index = url.searchParams.get('index');
 
-	if ((!accessToken && !pghdAccessToken) || !index) {
+	if (!accessToken) {
 		return error(404);
 	}
 
 	return {
 		accessToken,
-		pghdAccessToken,
-		patientIotaAddress,
-		index: isNaN(parseInt(index)) ? 0 : parseInt(index)
+		patientIotaAddress
 	};
 };

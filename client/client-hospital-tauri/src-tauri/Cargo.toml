@@ -45,6 +45,7 @@ hex = "0.4.3"
 regex = "1.11.1"
 generic-array = "1.2.0"
 k256 = "0.13.4"
+p256 = { version = "0.13", features = ["ecdsa", "pkcs8"] }
 elliptic-curve = "0.13.8"
 tauri-plugin-fs = "2"
 chrono = "0.4"

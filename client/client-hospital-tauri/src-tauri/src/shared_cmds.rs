@@ -220,8 +220,10 @@ pub async fn update_profile(
     let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().context(current_fn!())?)
         .context(current_fn!())?;
 
+    let name = data.name.trim().to_string();
+
     // Validate data
-    if !validate_by_regex(&data.name, "^[a-zA-Z ]{2,100}$").context(current_fn!())? {
+    if !validate_by_regex(&name, "^[a-zA-Z0-9 ]{2,100}$").context(current_fn!())? {
         return Err(HospitalError::Anyhow(anyhow!(
             "Invalid args: data.name is invalid"
         )));
@@ -302,7 +304,7 @@ pub async fn update_profile(
             .ok_or(anyhow!("Administrative data not found on state").context(current_fn!()))?
             .public
             .clone();
-        public_administrative_data.name = Some(data.name);
+        public_administrative_data.name = Some(name);
 
         public_administrative_data
     };
@@ -417,15 +419,27 @@ pub async fn auth_status(
         _ => {}
     };
 
-    if keys_entry.iota_key_pair.is_none() || keys_entry.pre_secret_key.is_none() {
+    if account_state == 2 {
+        if keys_entry.iota_key_pair.is_none() || keys_entry.pre_secret_key.is_none() {
+            return Err(HospitalError::Anyhow(
+                anyhow!("IOTA Key Pair and PRE Secret Key not found").context("$<1>$"),
+            ));
+        }
+
+        if state.auth_state.session_pin.is_none() {
+            return Err(HospitalError::Anyhow(
+                anyhow!("Session PIN not found").context("$<2>$"),
+            ));
+        }
+
         return Err(HospitalError::Anyhow(
-            anyhow!("IOTA Key Pair and PRE Secret Key not found").context("$<2>$"),
+            anyhow!("Profile completion needed").context("$<3>$"),
         ));
     }
 
-    if account_state == 2 {
+    if keys_entry.iota_key_pair.is_none() || keys_entry.pre_secret_key.is_none() {
         return Err(HospitalError::Anyhow(
-            anyhow!("Profile completion needed").context("$<3>$"),
+            anyhow!("IOTA Key Pair and PRE Secret Key not found").context("$<2>$"),
         ));
     }
 

@@ -108,6 +108,8 @@ export class SignUpState {
 					if (!resInvokeSignup.success) {
 						cancel();
 						toast.error(resInvokeSignup.error);
+					} else {
+						await invalidateAll();
 					}
 				}
 			}

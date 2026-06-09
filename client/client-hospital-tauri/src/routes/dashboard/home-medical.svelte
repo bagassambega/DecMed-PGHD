@@ -36,6 +36,7 @@
 			{:then readAccess}
 				{#if readAccess && readAccess.length > 0}
 					{#each readAccess as access, i (i)}
+						{#if access.accessDataTypes.includes('Medical')}
 						<a
 							href={`/dashboard/emr/${access.patientIotaAddress}?accessToken=${access.accessToken}&index=0`}
 							class="p-2 [&:not(:last-child)]:border-b border-zinc-200 flex items-center gap-2"
@@ -45,11 +46,28 @@
 							>
 								<p class="text-xs font-medium">{i + 1}</p>
 							</div>
-							<p class="flex-1 flex">{access.patientName}</p>
+							<p class="flex-1 flex">{access.patientName} <span class="ml-2 text-xs text-zinc-500">(Medical Record)</span></p>
 							<span class="flex items-center justify-center">
 								<ChevronRight />
 							</span>
 						</a>
+						{/if}
+						{#if access.accessDataTypes.includes('Pghd')}
+						<a
+							href={`/dashboard/pghd/${access.patientIotaAddress}?accessToken=${access.accessToken}`}
+							class="p-2 [&:not(:last-child)]:border-b border-zinc-200 flex items-center gap-2"
+						>
+							<div
+								class="size-8 rounded-full flex items-center justify-center bg-zinc-50 border border-zinc-200 shrink-0"
+							>
+								<p class="text-xs font-medium">{i + 1}</p>
+							</div>
+							<p class="flex-1 flex">{access.patientName} <span class="ml-2 text-xs text-zinc-500">(PGHD)</span></p>
+							<span class="flex items-center justify-center">
+								<ChevronRight />
+							</span>
+						</a>
+						{/if}
 					{/each}
 				{:else}
 					<div class="p-2">

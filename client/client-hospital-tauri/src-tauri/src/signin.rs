@@ -107,6 +107,8 @@ pub async fn signin(
 
     // drop SigninState form state
     state.signin_state.pin = None;
+    state.auth_state.session_pin = Some(pin);
+    state.auth_state.is_signed_up = true;
 
     Ok(SuccessResponse {
         status: ResponseStatus::Success,
