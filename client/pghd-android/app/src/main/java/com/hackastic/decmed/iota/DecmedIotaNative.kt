@@ -2,6 +2,7 @@ package com.hackastic.decmed.iota
 
 import android.content.Context
 import com.hackastic.decmed.config.Env
+import com.hackastic.decmed.utils.DecmedLog
 import org.json.JSONObject
 import java.security.MessageDigest
 
@@ -207,9 +208,12 @@ object DecmedIotaNative {
         MessageDigest.getInstance("SHA-256").digest(data).joinToString("") { "%02x".format(it) }
 
     private fun <T> decodeData(raw: String, mapper: (JSONObject) -> T): T {
+        DecmedLog.i(TAG, "Native IOTA raw response: $raw")
         val wrapper = JSONObject(raw)
         if (!wrapper.optBoolean("ok")) {
-            throw IllegalStateException(wrapper.optString("error", "Native IOTA call failed."))
+            val message = wrapper.optString("error", "Native IOTA call failed.")
+            DecmedLog.e(TAG, "Native IOTA error response: $message\nFull native wrapper: $raw")
+            throw IllegalStateException(message)
         }
         val data = wrapper.opt("data")
         val dataJson = when (data) {
@@ -220,6 +224,8 @@ object DecmedIotaNative {
         }
         return mapper(dataJson)
     }
+
+    private const val TAG = "DecmedIotaNative"
 }
 
 data class IotaIdentity(

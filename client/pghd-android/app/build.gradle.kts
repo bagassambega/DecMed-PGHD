@@ -125,6 +125,9 @@ dependencies {
     // Health Connect
     implementation(libs.health.connect.client)
 
+    // QR decoding for hospital personnel access grants
+    implementation(libs.zxing.core)
+
     // Background work
     implementation(libs.work.runtime.ktx)
 }

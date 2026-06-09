@@ -21,6 +21,8 @@ import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -28,13 +30,16 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -50,6 +55,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import android.widget.Toast
 import com.hackastic.decmed.domain.model.patient.PatientProfile
 import com.hackastic.decmed.viewmodel.PatientAuthViewModel
+import java.time.Instant
+import java.time.ZoneOffset
 
 @Composable
 fun PatientAuthChoiceScreen(
@@ -261,7 +268,7 @@ fun PatientCompleteProfileScreen(
     ) {
         SimpleTextField("Name", name) { name = it }
         SimpleTextField("Birth place", birthPlace) { birthPlace = it }
-        SimpleTextField("Date of birth (YYYY-MM-DD)", dateOfBirth) { dateOfBirth = it }
+        DateOfBirthField(dateOfBirth) { dateOfBirth = it }
         SimpleTextField("Gender", gender) { gender = it }
         SimpleTextField("Religion", religion) { religion = it }
         SimpleTextField("Education", education) { education = it }
@@ -410,6 +417,70 @@ private fun PatientAuthFormScaffold(
                 }
             }
             content()
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DateOfBirthField(
+    value: String,
+    onValueChange: (String) -> Unit
+) {
+    var showPicker by rememberSaveable { mutableStateOf(false) }
+    val selectedMillis = remember(value) {
+        runCatching {
+            if (value.isBlank()) null else {
+                java.time.LocalDate.parse(value)
+                    .atStartOfDay(ZoneOffset.UTC)
+                    .toInstant()
+                    .toEpochMilli()
+            }
+        }.getOrNull()
+    }
+    val datePickerState = rememberDatePickerState(
+        initialSelectedDateMillis = selectedMillis
+    )
+
+    OutlinedTextField(
+        modifier = Modifier.fillMaxWidth(),
+        value = value,
+        onValueChange = {},
+        label = { Text("Date of birth") },
+        readOnly = true,
+        supportingText = { Text("Tap to choose from calendar.") },
+        trailingIcon = {
+            TextButton(onClick = { showPicker = true }) {
+                Text("Choose")
+            }
+        }
+    )
+
+    if (showPicker) {
+        DatePickerDialog(
+            onDismissRequest = { showPicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        datePickerState.selectedDateMillis?.let { millis ->
+                            val date = Instant.ofEpochMilli(millis)
+                                .atZone(ZoneOffset.UTC)
+                                .toLocalDate()
+                            onValueChange(date.toString())
+                        }
+                        showPicker = false
+                    }
+                ) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPicker = false }) {
+                    Text("Cancel")
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
         }
     }
 }

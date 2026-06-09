@@ -2,6 +2,8 @@ package com.hackastic.decmed.ui.screen
 
 import android.content.Context
 import android.content.Intent
+import com.hackastic.decmed.utils.DecmedLog
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -239,6 +241,7 @@ fun HomeScreen(
                             startCollection(context, selectedConfig)
                             viewModel.markCollectionRunning(true)
                             PghdWorkScheduler.scheduleCollectionWork(context)
+                            Toast.makeText(context, "PGHD collection started.", Toast.LENGTH_SHORT).show()
                         }
                     }
                 ) {
@@ -252,6 +255,7 @@ fun HomeScreen(
                         stopCollection(context)
                         viewModel.markCollectionRunning(false)
                         PghdWorkScheduler.cancelCollectionWork(context)
+                        Toast.makeText(context, "PGHD collection stopped.", Toast.LENGTH_SHORT).show()
                     }
                 ) {
                     Text("Stop Collection")
@@ -262,6 +266,7 @@ fun HomeScreen(
 }
 
 private fun startCollection(context: Context, sensorConfigs: List<Pair<Int, Int>>) {
+    DecmedLog.i(HOME_TAG, "Starting sensor collection with config=$sensorConfigs")
     val sensorTypes = sensorConfigs.map { it.first }.toIntArray()
     val intervals = sensorConfigs.map { it.second }.toIntArray()
 
@@ -275,11 +280,14 @@ private fun startCollection(context: Context, sensorConfigs: List<Pair<Int, Int>
 }
 
 private fun stopCollection(context: Context) {
+    DecmedLog.i(HOME_TAG, "Stopping sensor collection")
     val stopIntent = Intent(context, SensorCollectionService::class.java).apply {
         action = SensorCollectionService.ACTION_STOP_COLLECTION
     }
     context.startService(stopIntent)
 }
+
+private const val HOME_TAG = "HomeScreen"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

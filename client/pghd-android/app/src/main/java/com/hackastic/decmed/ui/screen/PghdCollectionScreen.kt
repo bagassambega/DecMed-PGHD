@@ -1,6 +1,14 @@
 package com.hackastic.decmed.ui.screen
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,7 +25,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
@@ -51,11 +61,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.health.connect.client.PermissionController
 import com.hackastic.decmed.data.local.entity.PghdRecordEntity
 import com.hackastic.decmed.viewmodel.PghdCollectionViewModel
+import com.google.zxing.BinaryBitmap
+import com.google.zxing.RGBLuminanceSource
+import com.google.zxing.common.HybridBinarizer
+import com.google.zxing.qrcode.QRCodeReader
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -68,6 +83,7 @@ fun PghdCollectionScreen(
     bottomBar: @Composable () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
     var showManualDialog by rememberSaveable { mutableStateOf(false) }
     var showGrantAccessDialog by rememberSaveable { mutableStateOf(false) }
     var selectedDetailRecord by remember { mutableStateOf<PghdRecordEntity?>(null) }
@@ -80,6 +96,18 @@ fun PghdCollectionScreen(
 
     LaunchedEffect(Unit) {
         viewModel.refreshHealthConnectState()
+    }
+
+    LaunchedEffect(uiState.errorMessage, uiState.lastSyncMessage) {
+        uiState.errorMessage?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            viewModel.clearMessages()
+            return@LaunchedEffect
+        }
+        uiState.lastSyncMessage?.let {
+            Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+            viewModel.clearMessages()
+        }
     }
 
     Scaffold(
@@ -131,11 +159,13 @@ fun PghdCollectionScreen(
                 isSyncing = uiState.isSyncing,
                 isSubmitting = uiState.isSubmitting,
                 isGrantingAccess = uiState.isGrantingAccess,
+                healthConnectStatusMessage = uiState.healthConnectStatusMessage,
                 message = uiState.lastSyncMessage,
                 error = uiState.errorMessage,
                 sourcePackages = uiState.healthConnectSourcePackages,
                 hasDetectedXiaomiSource = uiState.hasDetectedXiaomiSource,
-                onRequestPermission = { permissionLauncher.launch(viewModel.requestedPermissions) },
+                onRequestDataPermission = { permissionLauncher.launch(viewModel.requestedPermissions) },
+                onRequestHistoryPermission = { permissionLauncher.launch(viewModel.requestedHistoryPermissions) },
                 onSync = viewModel::syncFromHealthConnect,
                 onSubmit = viewModel::submitDisplayedPghd,
                 onGrantAccess = { showGrantAccessDialog = true }
@@ -232,11 +262,13 @@ private fun HealthConnectSummaryCard(
     isSyncing: Boolean,
     isSubmitting: Boolean,
     isGrantingAccess: Boolean,
+    healthConnectStatusMessage: String,
     message: String?,
     error: String?,
     sourcePackages: List<String>,
     hasDetectedXiaomiSource: Boolean,
-    onRequestPermission: () -> Unit,
+    onRequestDataPermission: () -> Unit,
+    onRequestHistoryPermission: () -> Unit,
     onSync: () -> Unit,
     onSubmit: () -> Unit,
     onGrantAccess: () -> Unit
@@ -278,7 +310,7 @@ private fun HealthConnectSummaryCard(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
                     enabled = available && (!hasPermissions || !hasHistoryPermission),
-                    onClick = onRequestPermission
+                    onClick = if (hasPermissions) onRequestHistoryPermission else onRequestDataPermission
                 ) {
                     Text(if (hasPermissions) "Approve Health History" else "Connect Health Connect")
                 }
@@ -311,7 +343,9 @@ private fun HealthConnectSummaryCard(
                 )
                 Text(
                     text = when {
-                        !hasPermissions -> "Grant DecMed read access for steps, heart, sleep, activity, SpO2, and history."
+                        !available -> healthConnectStatusMessage
+                        !hasPermissions -> "Grant DecMed read access for steps, heart, sleep, activity, and SpO2."
+                        !hasHistoryPermission -> "Recent data sync is enabled. Approve health history to include older Health Connect records."
                         sourcePackages.isEmpty() -> "No Health Connect source packages detected yet. Sync Mi Fitness with Health Connect, then sync here."
                         hasDetectedXiaomiSource -> "Detected Xiaomi/Mi Fitness compatible Health Connect source."
                         else -> "Detected Health Connect sources, but none look like Xiaomi/Mi Fitness yet."
@@ -350,8 +384,60 @@ private fun GrantPghdAccessDialog(
     onDismiss: () -> Unit,
     onGrant: (String, String) -> Unit
 ) {
+    val context = LocalContext.current
     var personnelAddress by rememberSaveable { mutableStateOf("") }
     var personnelPrePublicKey by rememberSaveable { mutableStateOf("") }
+    var scanError by rememberSaveable { mutableStateOf<String?>(null) }
+    val applyQrContent: (String) -> Unit = { content ->
+        val decoded = decodeHospitalPersonnelQrPayload(content)
+        if (decoded == null) {
+            scanError = "Invalid personnel QR. Expected iotaAddress@prePublicKey."
+        } else {
+            personnelAddress = decoded.first
+            personnelPrePublicKey = decoded.second
+            scanError = null
+        }
+    }
+    val cameraLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        if (bitmap == null) {
+            scanError = "No camera image captured."
+        } else {
+            decodeQrBitmap(bitmap).fold(
+                onSuccess = applyQrContent,
+                onFailure = { scanError = it.message ?: "Unable to read QR image." }
+            )
+        }
+    }
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            cameraLauncher.launch(null)
+        } else {
+            scanError = "Camera permission is required to scan QR directly."
+        }
+    }
+    val imageLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.openInputStream(uri).use { input ->
+                requireNotNull(input) { "Unable to open selected image." }
+                requireNotNull(BitmapFactory.decodeStream(input)) { "Selected file is not a valid image." }
+            }
+        }.fold(
+            onSuccess = { bitmap ->
+                decodeQrBitmap(bitmap).fold(
+                    onSuccess = applyQrContent,
+                    onFailure = { scanError = it.message ?: "Unable to read QR image." }
+                )
+            },
+            onFailure = { scanError = it.message ?: "Unable to open selected image." }
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -374,6 +460,40 @@ private fun GrantPghdAccessDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        enabled = !isGranting,
+                        onClick = {
+                            if (
+                                ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+                                PackageManager.PERMISSION_GRANTED
+                            ) {
+                                cameraLauncher.launch(null)
+                            } else {
+                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                            }
+                        }
+                    ) {
+                        Icon(imageVector = Icons.Default.CameraAlt, contentDescription = null)
+                        Text("Scan")
+                    }
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        enabled = !isGranting,
+                        onClick = { imageLauncher.launch("image/*") }
+                    ) {
+                        Icon(imageVector = Icons.Default.Image, contentDescription = null)
+                        Text("Image")
+                    }
+                }
+                scanError?.let {
+                    Text(
+                        text = it,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
                 OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
                     value = personnelAddress,
@@ -390,6 +510,23 @@ private fun GrantPghdAccessDialog(
             }
         }
     )
+}
+
+private fun decodeHospitalPersonnelQrPayload(content: String): Pair<String, String>? {
+    val parts = content.trim().split("@", limit = 2)
+    if (parts.size != 2) return null
+    val address = parts[0].trim()
+    val prePublicKey = parts[1].trim()
+    if (address.isBlank() || prePublicKey.isBlank()) return null
+    return address to prePublicKey
+}
+
+private fun decodeQrBitmap(bitmap: Bitmap): Result<String> = runCatching {
+    val pixels = IntArray(bitmap.width * bitmap.height)
+    bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+    val source = RGBLuminanceSource(bitmap.width, bitmap.height, pixels)
+    val binaryBitmap = BinaryBitmap(HybridBinarizer(source))
+    QRCodeReader().decode(binaryBitmap).text
 }
 
 @Composable

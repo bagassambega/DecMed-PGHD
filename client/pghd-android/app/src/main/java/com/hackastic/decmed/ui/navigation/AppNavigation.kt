@@ -34,6 +34,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import com.hackastic.decmed.di.dataStore
 import com.hackastic.decmed.domain.model.patient.PatientAuthState
 import androidx.health.connect.client.PermissionController
@@ -129,9 +130,27 @@ fun AppNavigation(
         healthConnectPermissionLauncher.launch(pghdCollectionViewModel.requestedPermissions)
     }
 
+    val pghdUiState by pghdCollectionViewModel.uiState.collectAsState()
+    var hasRequestedHealthConnectOnOpen by remember { mutableStateOf(false) }
+
+    LaunchedEffect(startDestination, patientAuthState, pghdUiState.isHealthConnectAvailable, pghdUiState.hasHealthConnectPermissions) {
+        if (
+            !hasRequestedHealthConnectOnOpen &&
+            patientAuthState is PatientAuthState.Authenticated &&
+            pghdUiState.isHealthConnectAvailable &&
+            !pghdUiState.hasHealthConnectPermissions
+        ) {
+            hasRequestedHealthConnectOnOpen = true
+            requestHealthConnectApproval()
+        }
+    }
+
     fun navigateAfterPatientReady() {
         navController.navigate(if (setupComplete) Screen.Home.route else Screen.SensorList.route) {
-            popUpTo(0) { inclusive = true }
+            popUpTo(navController.graph.findStartDestination().id) {
+                inclusive = true
+            }
+            launchSingleTop = true
         }
         requestHealthConnectApproval()
     }
@@ -233,7 +252,10 @@ fun AppNavigation(
                         }
                     }
                     navController.navigate(Screen.Home.route) {
-                        popUpTo(0) { inclusive = true }
+                        popUpTo(navController.graph.findStartDestination().id) {
+                            inclusive = true
+                        }
+                        launchSingleTop = true
                     }
                 }
             )
@@ -308,12 +330,18 @@ private fun MainBottomNavigationBar(navController: NavHostController) {
                 selected = currentRoute == item.route,
                 onClick = {
                     if (currentRoute != item.route) {
-                        navController.navigate(item.route) {
-                            popUpTo(Screen.Home.route) {
-                                saveState = true
+                        if (item.route == Screen.Home.route) {
+                            val returnedHome = navController.popBackStack(Screen.Home.route, inclusive = false)
+                            if (!returnedHome) {
+                                navController.navigate(Screen.Home.route) {
+                                    launchSingleTop = true
+                                }
                             }
-                            launchSingleTop = true
-                            restoreState = true
+                        } else {
+                            navController.navigate(item.route) {
+                                launchSingleTop = true
+                                restoreState = true
+                            }
                         }
                     }
                 },

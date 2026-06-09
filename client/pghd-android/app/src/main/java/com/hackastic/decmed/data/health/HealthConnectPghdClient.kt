@@ -48,9 +48,16 @@ import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import com.hackastic.decmed.config.Env
 import com.hackastic.decmed.data.local.entity.PghdRecordEntity
+import com.hackastic.decmed.utils.DecmedLog
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import kotlin.reflect.KClass
+
+data class HealthConnectAvailabilityState(
+    val statusCode: Int,
+    val isAvailable: Boolean,
+    val message: String
+)
 
 data class HealthConnectPermissionState(
     val grantedPermissions: Set<String>,
@@ -65,8 +72,36 @@ class HealthConnectPghdClient(
         HealthConnectClient.getOrCreate(context)
     }
 
+    fun getAvailabilityState(): HealthConnectAvailabilityState {
+        val status = HealthConnectClient.getSdkStatus(context)
+        val state = when (status) {
+            HealthConnectClient.SDK_AVAILABLE -> HealthConnectAvailabilityState(
+                statusCode = status,
+                isAvailable = true,
+                message = "Health Connect is available."
+            )
+            HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> HealthConnectAvailabilityState(
+                statusCode = status,
+                isAvailable = false,
+                message = "Health Connect is installed but needs an update before DecMed can request permissions."
+            )
+            HealthConnectClient.SDK_UNAVAILABLE -> HealthConnectAvailabilityState(
+                statusCode = status,
+                isAvailable = false,
+                message = "Health Connect is not available on this device or profile."
+            )
+            else -> HealthConnectAvailabilityState(
+                statusCode = status,
+                isAvailable = false,
+                message = "Health Connect returned unknown SDK status $status."
+            )
+        }
+        DecmedLog.i(TAG, "Health Connect availability: $state")
+        return state
+    }
+
     suspend fun isAvailable(): Boolean =
-        HealthConnectClient.getSdkStatus(context) == HealthConnectClient.SDK_AVAILABLE
+        getAvailabilityState().isAvailable
 
     suspend fun getGrantedPermissions(): Set<String> =
         healthConnectClient.permissionController.getGrantedPermissions()
@@ -141,9 +176,13 @@ class HealthConnectPghdClient(
             HealthPermission.getReadPermission(Vo2MaxRecord::class)
         )
 
-        val READ_PERMISSIONS: Set<String> = XIAOMI_BAND_READ_PERMISSIONS + setOf(
-            HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY
-        )
+        val READ_DATA_PERMISSIONS: Set<String> = XIAOMI_BAND_READ_PERMISSIONS
+
+        val READ_HISTORY_PERMISSIONS: Set<String> = setOf(HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY)
+
+        val READ_PERMISSIONS: Set<String> = READ_DATA_PERMISSIONS + READ_HISTORY_PERMISSIONS
+
+        private const val TAG = "HealthConnectPghdClient"
 
         private val XIAOMI_BAND_DESCRIPTORS: List<HealthRecordDescriptor<out Record>> = listOf(
             HealthRecordDescriptor(ActiveCaloriesBurnedRecord::class) { record ->

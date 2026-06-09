@@ -1,5 +1,6 @@
 package com.hackastic.decmed.ui.screen
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,6 +23,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.hackastic.decmed.ui.components.SensorCard
@@ -40,7 +43,20 @@ fun SensorConfigScreen(
     onConfigSaved: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
     val allEnabled = uiState.sensorConfigs.isNotEmpty() && uiState.sensorConfigs.all { it.isApproved }
+
+    LaunchedEffect(uiState.errorMessage, uiState.lastMessage) {
+        uiState.errorMessage?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            viewModel.clearMessages()
+            return@LaunchedEffect
+        }
+        uiState.lastMessage?.let {
+            Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
+            viewModel.clearMessages()
+        }
+    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -131,6 +147,7 @@ fun SensorConfigScreen(
             Button(
                 onClick = {
                     viewModel.saveConfiguration()
+                    Toast.makeText(context, "Saving sensor configuration.", Toast.LENGTH_SHORT).show()
                     onConfigSaved()
                 },
                 modifier = Modifier

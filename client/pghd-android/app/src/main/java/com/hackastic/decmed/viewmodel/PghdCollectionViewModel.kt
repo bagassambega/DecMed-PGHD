@@ -1,6 +1,7 @@
 package com.hackastic.decmed.viewmodel
 
 import android.app.Application
+import com.hackastic.decmed.utils.DecmedLog
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.hackastic.decmed.MainApplication
@@ -25,6 +26,7 @@ data class PghdCollectionUiState(
     val selectedRecordType: String? = null,
     val totalCount: Long = 0,
     val isHealthConnectAvailable: Boolean = false,
+    val healthConnectStatusMessage: String = "Health Connect status has not been checked yet.",
     val hasHealthConnectPermissions: Boolean = false,
     val hasHealthConnectHistoryPermission: Boolean = false,
     val isSyncing: Boolean = false,
@@ -51,7 +53,8 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
     private val _uiState = MutableStateFlow(PghdCollectionUiState())
     val uiState: StateFlow<PghdCollectionUiState> = _uiState.asStateFlow()
 
-    val requestedPermissions: Set<String> = HealthConnectPghdClient.READ_PERMISSIONS
+    val requestedPermissions: Set<String> = HealthConnectPghdClient.READ_DATA_PERMISSIONS
+    val requestedHistoryPermissions: Set<String> = HealthConnectPghdClient.READ_HISTORY_PERMISSIONS
 
     init {
         observeRecords()
@@ -64,36 +67,65 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
 
     fun refreshHealthConnectState() {
         viewModelScope.launch {
-            val available = healthConnectPghdClient.isAvailable()
-            val permissionState = if (available) healthConnectPghdClient.getPermissionState() else null
-            _uiState.update {
-                it.copy(
-                    isHealthConnectAvailable = available,
-                    hasHealthConnectPermissions = permissionState?.hasRequiredDataPermissions == true,
-                    hasHealthConnectHistoryPermission = permissionState?.hasHistoryPermission == true
-                )
+            try {
+                DecmedLog.i(TAG, "Refreshing Health Connect state")
+                val availabilityState = healthConnectPghdClient.getAvailabilityState()
+                val permissionState = if (availabilityState.isAvailable) healthConnectPghdClient.getPermissionState() else null
+                _uiState.update {
+                    it.copy(
+                        isHealthConnectAvailable = availabilityState.isAvailable,
+                        healthConnectStatusMessage = availabilityState.message,
+                        hasHealthConnectPermissions = permissionState?.hasRequiredDataPermissions == true,
+                        hasHealthConnectHistoryPermission = permissionState?.hasHistoryPermission == true
+                    )
+                }
+                DecmedLog.i(TAG, "Health Connect state refreshed: availability=$availabilityState permissionState=$permissionState")
+            } catch (err: Exception) {
+                DecmedLog.e(TAG, "Failed to refresh Health Connect state", err)
+                _uiState.update {
+                    it.copy(errorMessage = err.message ?: "Unable to refresh Health Connect state.")
+                }
             }
         }
     }
 
     fun onPermissionsResult(grantedPermissions: Set<String>) {
-        val hasDataPermissions = grantedPermissions.containsAll(HealthConnectPghdClient.XIAOMI_BAND_READ_PERMISSIONS)
-        val hasHistoryPermission = HealthConnectPghdClient.READ_PERMISSIONS
-            .minus(HealthConnectPghdClient.XIAOMI_BAND_READ_PERMISSIONS)
-            .all { it in grantedPermissions }
-        _uiState.update {
-            it.copy(
-                hasHealthConnectPermissions = hasDataPermissions,
-                hasHealthConnectHistoryPermission = hasHistoryPermission,
-                errorMessage = if (hasDataPermissions) {
-                    null
-                } else {
-                    "Health Connect data permissions are required before syncing PGHD."
-                }
+        viewModelScope.launch {
+            val availabilityState = healthConnectPghdClient.getAvailabilityState()
+            val permissionState = if (availabilityState.isAvailable) {
+                healthConnectPghdClient.getPermissionState()
+            } else {
+                null
+            }
+            val hasDataPermissions = permissionState?.hasRequiredDataPermissions == true
+            val hasHistoryPermission = permissionState?.hasHistoryPermission == true
+            _uiState.update {
+                it.copy(
+                    isHealthConnectAvailable = availabilityState.isAvailable,
+                    healthConnectStatusMessage = availabilityState.message,
+                    hasHealthConnectPermissions = hasDataPermissions,
+                    hasHealthConnectHistoryPermission = hasHistoryPermission,
+                    errorMessage = if (hasDataPermissions) {
+                        null
+                    } else {
+                        "Health Connect data permissions are required before syncing PGHD."
+                    },
+                    lastSyncMessage = if (hasDataPermissions && hasHistoryPermission) {
+                        "Health Connect data and history permissions granted."
+                    } else if (hasDataPermissions) {
+                        "Health Connect data permissions granted. You can approve health history later for older records."
+                    } else {
+                        null
+                    }
+                )
+            }
+            DecmedLog.i(
+                TAG,
+                "Health Connect permission result: availability=$availabilityState permissionState=$permissionState launcherGranted=$grantedPermissions"
             )
-        }
-        if (hasDataPermissions) {
-            syncFromHealthConnect()
+            if (hasDataPermissions) {
+                syncFromHealthConnect()
+            }
         }
     }
 
@@ -101,11 +133,15 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
         viewModelScope.launch {
             _uiState.update { it.copy(isSyncing = true, errorMessage = null, lastSyncMessage = null) }
             try {
-                if (!healthConnectPghdClient.isAvailable()) {
+                DecmedLog.i(TAG, "Starting Health Connect sync")
+                val availabilityState = healthConnectPghdClient.getAvailabilityState()
+                if (!availabilityState.isAvailable) {
+                    DecmedLog.w(TAG, "Health Connect sync skipped: $availabilityState")
                     _uiState.update {
                         it.copy(
                             isHealthConnectAvailable = false,
-                            errorMessage = "Health Connect is not available on this device."
+                            healthConnectStatusMessage = availabilityState.message,
+                            errorMessage = availabilityState.message
                         )
                     }
                     return@launch
@@ -113,6 +149,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
 
                 val permissionState = healthConnectPghdClient.getPermissionState()
                 if (!permissionState.hasRequiredDataPermissions) {
+                    DecmedLog.w(TAG, "Health Connect sync skipped: missing permissions $permissionState")
                     _uiState.update {
                         it.copy(
                             hasHealthConnectPermissions = false,
@@ -130,6 +167,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                 val records = healthConnectPghdClient.readXiaomiBandPghd(daysBack)
                 pghdRepository.saveHealthConnectRecords(records)
                 refreshTotalCount()
+                DecmedLog.i(TAG, "Health Connect sync succeeded: records=${records.size} daysBack=$daysBack")
                 _uiState.update {
                     it.copy(
                         hasHealthConnectPermissions = true,
@@ -143,6 +181,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                     )
                 }
             } catch (err: Exception) {
+                DecmedLog.e(TAG, "Health Connect sync failed", err)
                 _uiState.update {
                     it.copy(errorMessage = err.message ?: "Unable to sync Health Connect data.")
                 }
@@ -161,6 +200,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
     ) {
         viewModelScope.launch {
             try {
+                DecmedLog.i(TAG, "Saving manual PGHD record: type=$recordType displayName=$displayName unit=$unit")
                 val trimmedValue = valueText.trim()
                 pghdRepository.saveManualRecord(
                     recordType = recordType.ifBlank { "manual_pghd" },
@@ -171,10 +211,12 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                     notes = notes
                 )
                 refreshTotalCount()
+                DecmedLog.i(TAG, "Manual PGHD record saved")
                 _uiState.update {
                     it.copy(lastSyncMessage = "Saved manual PGHD record.", errorMessage = null)
                 }
             } catch (err: Exception) {
+                DecmedLog.e(TAG, "Failed to save manual PGHD record", err)
                 _uiState.update {
                     it.copy(errorMessage = err.message ?: "Unable to save manual PGHD record.")
                 }
@@ -186,17 +228,20 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
         viewModelScope.launch {
             val recordsToSubmit = uiState.value.records
             if (recordsToSubmit.isEmpty()) {
+                DecmedLog.w(TAG, "Submit displayed PGHD skipped: no records")
                 _uiState.update { it.copy(errorMessage = "No PGHD records are available to submit.") }
                 return@launch
             }
 
             _uiState.update { it.copy(isSubmitting = true, errorMessage = null, lastSyncMessage = null) }
             try {
+                DecmedLog.i(TAG, "Submitting displayed PGHD records: count=${recordsToSubmit.size}")
                 val patientProfile = patientAuthRepository.getUnlockedProfile()
                 val result = pghdBatchRepository.createEncryptAndSubmitBatch(
                     records = recordsToSubmit,
                     patientProfile = patientProfile
                 )
+                DecmedLog.i(TAG, "Displayed PGHD submit finished: $result")
                 _uiState.update {
                     it.copy(
                         lastSyncMessage = result.message ?: "Submitted encrypted PGHD batch ${result.batchId}.",
@@ -204,6 +249,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                     )
                 }
             } catch (err: Exception) {
+                DecmedLog.e(TAG, "Failed to submit displayed PGHD", err)
                 _uiState.update {
                     it.copy(errorMessage = err.message ?: "Unable to submit encrypted PGHD batch.")
                 }
@@ -223,7 +269,9 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                 )
             }
             try {
+                DecmedLog.i(TAG, "Submitting PGHD batch: batchId=$batchId")
                 val result = pghdBatchRepository.submitBatch(batchId)
+                DecmedLog.i(TAG, "PGHD batch submit finished: $result")
                 _uiState.update {
                     it.copy(
                         lastSyncMessage = result.message ?: "Submitted PGHD batch $batchId.",
@@ -231,6 +279,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                     )
                 }
             } catch (err: Exception) {
+                DecmedLog.e(TAG, "Failed to submit PGHD batch: batchId=$batchId", err)
                 _uiState.update {
                     it.copy(errorMessage = err.message ?: "Unable to submit PGHD batch.")
                 }
@@ -247,12 +296,14 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
         viewModelScope.launch {
             _uiState.update { it.copy(isGrantingAccess = true, errorMessage = null, lastSyncMessage = null) }
             try {
+                DecmedLog.i(TAG, "Granting PGHD access to $hospitalPersonnelIotaAddress")
                 val patientProfile = patientAuthRepository.getUnlockedProfile()
                 val result = prePghdClient.grantPghdReadAccess(
                     profile = patientProfile,
                     hospitalPersonnelIotaAddress = hospitalPersonnelIotaAddress,
                     hospitalPersonnelPrePublicKey = hospitalPersonnelPrePublicKey
                 )
+                DecmedLog.i(TAG, "PGHD access grant succeeded: $result")
                 _uiState.update {
                     it.copy(
                         lastSyncMessage = "Granted PGHD read access to ${result.hospitalPersonnelIotaAddress}.",
@@ -260,6 +311,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                     )
                 }
             } catch (err: Exception) {
+                DecmedLog.e(TAG, "Failed to grant PGHD access to $hospitalPersonnelIotaAddress", err)
                 _uiState.update {
                     it.copy(errorMessage = err.message ?: "Unable to grant PGHD access.")
                 }
@@ -336,5 +388,9 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
         viewModelScope.launch {
             _uiState.update { it.copy(totalCount = pghdRepository.getTotalCount()) }
         }
+    }
+
+    companion object {
+        private const val TAG = "PghdCollectionViewModel"
     }
 }

@@ -1,7 +1,6 @@
 package com.hackastic.decmed.data.local.security
 
 import java.security.KeyStore
-import java.security.SecureRandom
 import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -14,11 +13,10 @@ class PatientSecureStorage {
     fun encrypt(plainText: String?): String? {
         if (plainText.isNullOrBlank()) return plainText
         val cipher = Cipher.getInstance(TRANSFORMATION)
-        val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
-        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
+        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
         val cipherText = cipher.doFinal(plainText.toByteArray(Charsets.UTF_8))
         return listOf(
-            Base64.getEncoder().encodeToString(iv),
+            Base64.getEncoder().encodeToString(cipher.iv),
             Base64.getEncoder().encodeToString(cipherText)
         ).joinToString(".")
     }

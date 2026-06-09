@@ -1,5 +1,6 @@
 package com.hackastic.decmed.ui.screen
 
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -32,6 +33,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.hackastic.decmed.ui.theme.ThemeMode
@@ -51,6 +53,7 @@ fun SettingsScreen(
     bottomBar: @Composable () -> Unit = {}
 ) {
     val currentTheme by themeViewModel.themeMode.collectAsState()
+    val context = LocalContext.current
 
     Scaffold(
         topBar = {
@@ -100,7 +103,10 @@ fun SettingsScreen(
                         label = "System Default",
                         description = "Follow your device's theme setting",
                         isSelected = currentTheme == ThemeMode.SYSTEM,
-                        onClick = { themeViewModel.setThemeMode(ThemeMode.SYSTEM) }
+                        onClick = {
+                            themeViewModel.setThemeMode(ThemeMode.SYSTEM)
+                            Toast.makeText(context, "Theme set to system default.", Toast.LENGTH_SHORT).show()
+                        }
                     )
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                     ThemeOption(
@@ -108,7 +114,10 @@ fun SettingsScreen(
                         label = "Light",
                         description = "Always use light theme",
                         isSelected = currentTheme == ThemeMode.LIGHT,
-                        onClick = { themeViewModel.setThemeMode(ThemeMode.LIGHT) }
+                        onClick = {
+                            themeViewModel.setThemeMode(ThemeMode.LIGHT)
+                            Toast.makeText(context, "Light theme enabled.", Toast.LENGTH_SHORT).show()
+                        }
                     )
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                     ThemeOption(
@@ -116,7 +125,10 @@ fun SettingsScreen(
                         label = "Dark",
                         description = "Always use dark theme",
                         isSelected = currentTheme == ThemeMode.DARK,
-                        onClick = { themeViewModel.setThemeMode(ThemeMode.DARK) }
+                        onClick = {
+                            themeViewModel.setThemeMode(ThemeMode.DARK)
+                            Toast.makeText(context, "Dark theme enabled.", Toast.LENGTH_SHORT).show()
+                        }
                     )
                 }
             }
@@ -135,7 +147,10 @@ fun SettingsScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onNavigateToSensorConfig() },
+                    .clickable {
+                        Toast.makeText(context, "Opening sensor configuration.", Toast.LENGTH_SHORT).show()
+                        onNavigateToSensorConfig()
+                    },
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant
                 )

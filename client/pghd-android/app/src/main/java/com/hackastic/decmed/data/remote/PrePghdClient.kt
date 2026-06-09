@@ -5,6 +5,7 @@ import com.hackastic.decmed.domain.model.pghd.PghdSecureEnvelope
 import com.hackastic.decmed.domain.model.pghd.PghdSubmitResult
 import com.hackastic.decmed.crypto.DecmedCryptoNative
 import com.hackastic.decmed.iota.DecmedIotaNative
+import com.hackastic.decmed.utils.DecmedLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -132,22 +133,30 @@ class PrePghdClient(private val baseUrl: String) {
     }
 
     private suspend fun postJson(path: String, body: JSONObject): JSONObject = withContext(Dispatchers.IO) {
-        val connection = URL(baseUrl.trimEnd('/') + path).openConnection() as HttpURLConnection
+        val url = baseUrl.trimEnd('/') + path
+        DecmedLog.i(TAG, "PRE request POST $url\nRequest body: ${body.toString(2)}")
+        val connection = URL(url).openConnection() as HttpURLConnection
         connection.requestMethod = "POST"
         connection.setRequestProperty("Content-Type", "application/json")
         connection.doOutput = true
         OutputStreamWriter(connection.outputStream).use { it.write(body.toString()) }
+        val responseCode = connection.responseCode
         if (connection.responseCode !in 200..299) {
             val message = connection.errorStream?.bufferedReader()?.use { it.readText() }
-            error("PRE sync failed: HTTP ${connection.responseCode}${message?.let { " - $it" }.orEmpty()}")
+            val errorMessage = "PRE sync failed: HTTP $responseCode from $url${message?.let { " - $it" }.orEmpty()}"
+            DecmedLog.e(TAG, "$errorMessage\nRequest body: ${body.toString(2)}")
+            error(errorMessage)
         }
         val response = connection.inputStream.bufferedReader().use { it.readText() }
+        DecmedLog.i(TAG, "PRE response HTTP $responseCode from $url\nResponse body: $response")
         if (response.isBlank()) JSONObject() else JSONObject(response)
     }
 
     private fun String?.requireField(name: String): String =
         require(!isNullOrBlank()) { "Missing patient $name." }.let { this!! }
 }
+
+private const val TAG = "PrePghdClient"
 
 data class PghdAccessGrantResult(
     val hospitalPersonnelIotaAddress: String,

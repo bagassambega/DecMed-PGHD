@@ -11,7 +11,7 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.IBinder
-import android.util.Log
+import com.hackastic.decmed.utils.DecmedLog
 import androidx.core.app.NotificationCompat
 import com.hackastic.decmed.config.Env
 import com.hackastic.decmed.data.local.database.SensorDatabase
@@ -105,7 +105,7 @@ class SensorCollectionService : Service(), SensorEventListener {
         sensorAccuracy.clear()
 
         if (sensorTypes.isEmpty()) {
-            Log.w(TAG, "No sensor types provided. Stopping service.")
+            DecmedLog.w(TAG, "No sensor types provided. Stopping service.")
             stopSelf()
             return
         }
@@ -114,7 +114,7 @@ class SensorCollectionService : Service(), SensorEventListener {
             val intervalMs = intervals.getOrNull(index) ?: Env.pghdDefaultSensorIntervalMs
             val sensor = sensorManager.getDefaultSensor(sensorType)
             if (sensor == null) {
-                Log.w(TAG, "Sensor type $sensorType unavailable on this device — skipped.")
+                DecmedLog.w(TAG, "Sensor type $sensorType unavailable on this device — skipped.")
                 return@forEachIndexed
             }
 
@@ -128,7 +128,7 @@ class SensorCollectionService : Service(), SensorEventListener {
         }
 
         if (sensorIntervalsMs.isEmpty()) {
-            Log.w(TAG, "No sensors were registered successfully. Stopping service.")
+            DecmedLog.w(TAG, "No sensors were registered successfully. Stopping service.")
             stopSelf()
         }
     }
@@ -192,9 +192,9 @@ class SensorCollectionService : Service(), SensorEventListener {
             try {
                 database.sensorDao().insertAll(batch)
                 database.pghdRecordDao().upsertAll(batch.map(AndroidSensorPghdMapper::toPghdRecord))
-                Log.d(TAG, "Wrote ${batch.size} Android sensor PGHD records to local DB.")
+                DecmedLog.d(TAG, "Wrote ${batch.size} Android sensor PGHD records to local DB.")
             } catch (e: Exception) {
-                Log.e(TAG, "DB write error: ${e.message}", e)
+                DecmedLog.e(TAG, "DB write error: ${e.message}", e)
             }
         }
     }

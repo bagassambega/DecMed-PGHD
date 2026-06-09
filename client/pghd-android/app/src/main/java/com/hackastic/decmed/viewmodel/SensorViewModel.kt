@@ -3,6 +3,7 @@ package com.hackastic.decmed.viewmodel
 import android.app.Application
 import android.content.Context
 import android.hardware.SensorManager
+import com.hackastic.decmed.utils.DecmedLog
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.hackastic.decmed.MainApplication
@@ -29,12 +30,15 @@ data class SensorUiState(
     val isEnumerating: Boolean = false,
     val enumerationComplete: Boolean = false,
     val configSaved: Boolean = false,
-    val isCollecting: Boolean = false
+    val isCollecting: Boolean = false,
+    val lastMessage: String? = null,
+    val errorMessage: String? = null
 )
 
 class SensorViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
+        private const val TAG = "SensorViewModel"
         val DEFAULT_COLLECTION_INTERVAL_MS: Int get() = Env.pghdDefaultSensorIntervalMs
         val INTERVAL_OPTIONS_MS: List<Int> get() = Env.pghdSensorIntervalOptionsMs
     }
@@ -58,35 +62,49 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
 
     fun enumerateSensors() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isEnumerating = true) }
-            delay(500)
+            try {
+                DecmedLog.i(TAG, "Enumerating sensors")
+                _uiState.update { it.copy(isEnumerating = true, errorMessage = null, lastMessage = null) }
+                delay(500)
 
-            val allSensors = getAvailableSensorsUseCase(sensorManager)
-            val available = allSensors.filter { it.isAvailable }
-            val unavailable = allSensors.filter { !it.isAvailable }
+                val allSensors = getAvailableSensorsUseCase(sensorManager)
+                val available = allSensors.filter { it.isAvailable }
+                val unavailable = allSensors.filter { !it.isAvailable }
 
-            val configs = available.map { sensor ->
-                SensorConfigModel(
-                    sensorType = sensor.type,
-                    sensorName = sensor.name,
-                    isApproved = true,
-                    healthDataDescription = sensor.healthDataCapabilities.joinToString(", "),
-                    collectionIntervalMs = DEFAULT_COLLECTION_INTERVAL_MS
-                )
-            }
+                val configs = available.map { sensor ->
+                    SensorConfigModel(
+                        sensorType = sensor.type,
+                        sensorName = sensor.name,
+                        isApproved = true,
+                        healthDataDescription = sensor.healthDataCapabilities.joinToString(", "),
+                        collectionIntervalMs = DEFAULT_COLLECTION_INTERVAL_MS
+                    )
+                }
 
-            _uiState.update {
-                it.copy(
-                    availableSensors = available,
-                    unavailableSensors = unavailable,
-                    sensorConfigs = configs,
-                    collectionSelection = configs.associate { cfg -> cfg.sensorType to cfg.isApproved },
-                    collectionIntervals = configs.associate { cfg ->
-                        cfg.sensorType to cfg.collectionIntervalMs
-                    },
-                    isEnumerating = false,
-                    enumerationComplete = true
-                )
+                DecmedLog.i(TAG, "Sensor enumeration succeeded: available=${available.size} unavailable=${unavailable.size}")
+                _uiState.update {
+                    it.copy(
+                        availableSensors = available,
+                        unavailableSensors = unavailable,
+                        sensorConfigs = configs,
+                        collectionSelection = configs.associate { cfg -> cfg.sensorType to cfg.isApproved },
+                        collectionIntervals = configs.associate { cfg ->
+                            cfg.sensorType to cfg.collectionIntervalMs
+                        },
+                        isEnumerating = false,
+                        enumerationComplete = true,
+                        lastMessage = "Detected ${available.size} available sensors.",
+                        errorMessage = null
+                    )
+                }
+            } catch (err: Exception) {
+                DecmedLog.e(TAG, "Sensor enumeration failed", err)
+                _uiState.update {
+                    it.copy(
+                        isEnumerating = false,
+                        errorMessage = err.message ?: "Unable to enumerate sensors."
+                    )
+                }
             }
         }
     }
@@ -164,12 +182,18 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
 
     fun markCollectionRunning(running: Boolean) {
         viewModelScope.launch {
-            if (running) {
-                collectionStateRepository.start()
-            } else {
-                collectionStateRepository.stop()
+            try {
+                DecmedLog.i(TAG, "Mark collection running=$running")
+                if (running) {
+                    collectionStateRepository.start()
+                } else {
+                    collectionStateRepository.stop()
+                }
+                _uiState.update { it.copy(isCollecting = running) }
+            } catch (err: Exception) {
+                DecmedLog.e(TAG, "Failed to update collection running state=$running", err)
+                _uiState.update { it.copy(errorMessage = err.message ?: "Unable to update collection state.") }
             }
-            _uiState.update { it.copy(isCollecting = running) }
         }
     }
 
@@ -185,9 +209,26 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
 
     fun saveConfiguration() {
         viewModelScope.launch {
-            saveSensorConfigUseCase(_uiState.value.sensorConfigs)
-            _uiState.update { it.copy(configSaved = true) }
+            try {
+                DecmedLog.i(TAG, "Saving sensor configuration: count=${_uiState.value.sensorConfigs.size}")
+                saveSensorConfigUseCase(_uiState.value.sensorConfigs)
+                _uiState.update {
+                    it.copy(
+                        configSaved = true,
+                        lastMessage = "Sensor configuration saved.",
+                        errorMessage = null
+                    )
+                }
+                DecmedLog.i(TAG, "Sensor configuration saved")
+            } catch (err: Exception) {
+                DecmedLog.e(TAG, "Failed to save sensor configuration", err)
+                _uiState.update { it.copy(errorMessage = err.message ?: "Unable to save sensor configuration.") }
+            }
         }
+    }
+
+    fun clearMessages() {
+        _uiState.update { it.copy(lastMessage = null, errorMessage = null) }
     }
 
     private fun loadExistingConfig() {
@@ -219,42 +260,57 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
 
     fun prepareForReconfiguration() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isEnumerating = true) }
-            delay(300)
+            try {
+                DecmedLog.i(TAG, "Preparing sensor reconfiguration")
+                _uiState.update { it.copy(isEnumerating = true, errorMessage = null, lastMessage = null) }
+                delay(300)
 
-            val allSensors = getAvailableSensorsUseCase(sensorManager)
-            val available = allSensors.filter { it.isAvailable }
-            val unavailable = allSensors.filter { !it.isAvailable }
+                val allSensors = getAvailableSensorsUseCase(sensorManager)
+                val available = allSensors.filter { it.isAvailable }
+                val unavailable = allSensors.filter { !it.isAvailable }
 
-            val existingConfigs = try {
-                getSensorConfigUseCase().first()
-            } catch (_: Exception) {
-                emptyList()
-            }
+                val existingConfigs = try {
+                    getSensorConfigUseCase().first()
+                } catch (err: Exception) {
+                    DecmedLog.e(TAG, "Failed to load existing sensor config during reconfiguration", err)
+                    emptyList()
+                }
 
-            val configs = available.map { sensor ->
-                val existing = existingConfigs.find { it.sensorType == sensor.type }
-                SensorConfigModel(
-                    sensorType = sensor.type,
-                    sensorName = sensor.name,
-                    isApproved = existing?.isApproved ?: true,
-                    healthDataDescription = sensor.healthDataCapabilities.joinToString(", "),
-                    collectionIntervalMs = existing?.collectionIntervalMs ?: DEFAULT_COLLECTION_INTERVAL_MS
-                )
-            }
+                val configs = available.map { sensor ->
+                    val existing = existingConfigs.find { it.sensorType == sensor.type }
+                    SensorConfigModel(
+                        sensorType = sensor.type,
+                        sensorName = sensor.name,
+                        isApproved = existing?.isApproved ?: true,
+                        healthDataDescription = sensor.healthDataCapabilities.joinToString(", "),
+                        collectionIntervalMs = existing?.collectionIntervalMs ?: DEFAULT_COLLECTION_INTERVAL_MS
+                    )
+                }
 
-            _uiState.update {
-                it.copy(
-                    availableSensors = available,
-                    unavailableSensors = unavailable,
-                    sensorConfigs = configs,
-                    collectionSelection = configs.associate { cfg -> cfg.sensorType to cfg.isApproved },
-                    collectionIntervals = configs.associate { cfg ->
-                        cfg.sensorType to cfg.collectionIntervalMs
-                    },
-                    isEnumerating = false,
-                    enumerationComplete = true
-                )
+                _uiState.update {
+                    it.copy(
+                        availableSensors = available,
+                        unavailableSensors = unavailable,
+                        sensorConfigs = configs,
+                        collectionSelection = configs.associate { cfg -> cfg.sensorType to cfg.isApproved },
+                        collectionIntervals = configs.associate { cfg ->
+                            cfg.sensorType to cfg.collectionIntervalMs
+                        },
+                        isEnumerating = false,
+                        enumerationComplete = true,
+                        lastMessage = "Loaded ${available.size} available sensors.",
+                        errorMessage = null
+                    )
+                }
+                DecmedLog.i(TAG, "Sensor reconfiguration ready: available=${available.size} unavailable=${unavailable.size}")
+            } catch (err: Exception) {
+                DecmedLog.e(TAG, "Failed to prepare sensor reconfiguration", err)
+                _uiState.update {
+                    it.copy(
+                        isEnumerating = false,
+                        errorMessage = err.message ?: "Unable to prepare sensor reconfiguration."
+                    )
+                }
             }
         }
     }
