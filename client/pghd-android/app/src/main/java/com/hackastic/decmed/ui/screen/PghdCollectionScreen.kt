@@ -68,11 +68,15 @@ import androidx.health.connect.client.PermissionController
 import com.hackastic.decmed.data.local.entity.PghdRecordEntity
 import com.hackastic.decmed.viewmodel.PghdCollectionViewModel
 import com.google.zxing.BinaryBitmap
+import com.google.zxing.DecodeHintType
+import com.google.zxing.MultiFormatReader
+import com.google.zxing.NotFoundException
 import com.google.zxing.RGBLuminanceSource
 import com.google.zxing.common.HybridBinarizer
-import com.google.zxing.qrcode.QRCodeReader
+import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
+import java.util.EnumMap
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -513,7 +517,21 @@ private fun GrantPghdAccessDialog(
 }
 
 private fun decodeHospitalPersonnelQrPayload(content: String): Pair<String, String>? {
-    val parts = content.trim().split("@", limit = 2)
+    val normalized = content.trim()
+    runCatching {
+        val json = JSONObject(normalized)
+        val address = json.optString("iotaAddress")
+            .ifBlank { json.optString("iota_address") }
+            .ifBlank { json.optString("address") }
+            .trim()
+        val prePublicKey = json.optString("prePublicKey")
+            .ifBlank { json.optString("pre_public_key") }
+            .ifBlank { json.optString("pghdPrePublicKey") }
+            .ifBlank { json.optString("pghd_pre_public_key") }
+            .trim()
+        if (address.isNotBlank() && prePublicKey.isNotBlank()) return address to prePublicKey
+    }
+    val parts = normalized.split("@", limit = 2)
     if (parts.size != 2) return null
     val address = parts[0].trim()
     val prePublicKey = parts[1].trim()
@@ -522,11 +540,35 @@ private fun decodeHospitalPersonnelQrPayload(content: String): Pair<String, Stri
 }
 
 private fun decodeQrBitmap(bitmap: Bitmap): Result<String> = runCatching {
-    val pixels = IntArray(bitmap.width * bitmap.height)
-    bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-    val source = RGBLuminanceSource(bitmap.width, bitmap.height, pixels)
-    val binaryBitmap = BinaryBitmap(HybridBinarizer(source))
-    QRCodeReader().decode(binaryBitmap).text
+    val reader = MultiFormatReader().apply {
+        setHints(
+            EnumMap<DecodeHintType, Any>(DecodeHintType::class.java).apply {
+                put(DecodeHintType.TRY_HARDER, true)
+                put(DecodeHintType.PURE_BARCODE, false)
+            }
+        )
+    }
+    val variants = listOf(bitmap) + if (bitmap.width > 1600 || bitmap.height > 1600) {
+        listOf(Bitmap.createScaledBitmap(bitmap, bitmap.width / 2, bitmap.height / 2, true))
+    } else {
+        emptyList()
+    }
+    var lastError: Throwable? = null
+    for (candidate in variants) {
+        val pixels = IntArray(candidate.width * candidate.height)
+        candidate.getPixels(pixels, 0, candidate.width, 0, 0, candidate.width, candidate.height)
+        val source = RGBLuminanceSource(candidate.width, candidate.height, pixels)
+        for (luminance in listOf(source, source.invert())) {
+            try {
+                return@runCatching reader.decodeWithState(BinaryBitmap(HybridBinarizer(luminance))).text
+            } catch (err: NotFoundException) {
+                lastError = err
+            } finally {
+                reader.reset()
+            }
+        }
+    }
+    throw lastError ?: IllegalArgumentException("No QR code was detected in the selected image.")
 }
 
 @Composable
