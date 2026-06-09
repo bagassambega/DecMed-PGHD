@@ -32,8 +32,8 @@ use types::{AppState, CacheStore, DecmedPackage};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Load envs from .env file
-    dotenvy::dotenv().context("failed to load .env file")?;
+    // Load envs from .env file when present; containerized deployments inject env vars directly.
+    let _ = dotenvy::dotenv();
 
     // Envs
     let cache_backend = env::var("CACHE_BACKEND").unwrap_or_else(|_| "redis".to_string());
@@ -111,6 +111,9 @@ async fn main() -> Result<()> {
         .route("/medical-record", get(Handlers::get_medical_record))
         .route("/medical-record", post(Handlers::create_medical_record))
         .route("/medical-record", put(Handlers::update_medical_record))
+        .route("/pghd", get(Handlers::get_pghd_list))
+        .route("/pghd/invalidate", post(Handlers::invalidate_pghd))
+        .route("/pghd/{index}", get(Handlers::get_pghd))
         .route(
             "/medical-record-update",
             get(Handlers::get_medical_record_update),
@@ -131,8 +134,11 @@ async fn main() -> Result<()> {
         );
 
     let public_routes = Router::new()
+        .route("/health", get(|| async { "OK" }))
         .route("/nonce", post(Handlers::get_nonce_handler))
-        .route("/keys", post(Handlers::store_keys));
+        .route("/keys", post(Handlers::store_keys))
+        .route("/pghd/patient", post(Handlers::register_pghd_patient))
+        .route("/pghd/submit", post(Handlers::submit_pghd));
 
     let api_routes = Router::new()
         .nest("/gen", gen_routes)
@@ -142,7 +148,10 @@ async fn main() -> Result<()> {
     let api_v1_routes = Router::new().nest("/api/v1", api_routes);
 
     // App
-    let app = Router::new().merge(api_v1_routes).with_state(shared_state);
+    let app = Router::new()
+        .route("/health", get(|| async { "OK" }))
+        .merge(api_v1_routes)
+        .with_state(shared_state);
 
     let bind_addr = format!("0.0.0.0:{}", port);
     let listener = tokio::net::TcpListener::bind(&bind_addr)

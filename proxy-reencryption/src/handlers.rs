@@ -2,10 +2,11 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context};
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::Response;
 use axum::{Extension, Json};
+use base64::Engine as _;
 use iota_types::base_types::IotaAddress;
 use iota_types::crypto::{
     EncodeDecodeBase64, IotaKeyPair, IotaSignature, Signature, SignatureScheme,
@@ -13,11 +14,13 @@ use iota_types::crypto::{
 use jwt_simple::claims::Claims;
 use jwt_simple::prelude::{Duration, ECDSAP256KeyPairLike};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use shared_crypto::intent::{Intent, IntentMessage};
 use umbral_pre::{reencrypt, Capsule, KeyFrag, PublicKey};
 
 use crate::constants::{
     ADMINISTRATIVE_KEYS_READ_DUR, MEDICAL_KEYS_READ_DUR, MEDICAL_KEYS_UPDATE_DUR, NONCE_EXP_DUR,
+    PGHD_KEYS_READ_DUR,
 };
 use crate::current_fn;
 use crate::proxy_error::{ProxyError, ResultExt};
@@ -25,9 +28,10 @@ use crate::types::{
     AccessKeys, AppState, AuthRole, ClientMedicalMetadata, CurrentUser,
     GenerateSignatureHandlerPayload, GetNonceHandlerPayload, HandlerCreateMedicalRecordPayload,
     HandlerGetAdministrativeDataQueryParams, HandlerGetMedicalRecordQueryParams,
-    HandlerGetMedicalRecordUpdateQueryParams, HandlerUpdateMedicalRecordPayload, JwtClaims,
-    MedicalMetadata, MoveHospitalPersonnelRole, PatientPrivateAdministrativeMetadata,
-    ReencryptionPurposeType,
+    HandlerGetMedicalRecordUpdateQueryParams, HandlerGetPghdQueryParams,
+    HandlerInvalidatePghdPayload, HandlerRegisterPghdPatientPayload, HandlerSubmitPghdPayload,
+    HandlerUpdateMedicalRecordPayload, JwtClaims, MedicalMetadata, MoveHospitalPersonnelRole,
+    PatientPrivateAdministrativeMetadata, PghdMetadata, ReencryptionPurposeType,
 };
 use crate::types::{GenerateJwtHandlerResponse, HandlerStoreKeysPayload};
 use crate::utils::Utils;
@@ -35,6 +39,435 @@ use crate::utils::Utils;
 pub struct Handlers {}
 
 impl Handlers {
+    pub async fn register_pghd_patient(
+        State(state): State<Arc<AppState>>,
+        Json(payload): Json<HandlerRegisterPghdPatientPayload>,
+    ) -> Result<Response, ProxyError> {
+        let patient_iota_address = IotaAddress::from_str(&payload.patient_iota_address)
+            .map_err(|_| anyhow!("Invalid patient IOTA address"))
+            .code(StatusCode::BAD_REQUEST)?;
+
+        state
+            .cache_store
+            .set_ex(
+                format!("pghd_public_key:{}", patient_iota_address),
+                payload.pghd_public_key,
+                365 * 24 * 60 * 60,
+            )
+            .context(current_fn!())?;
+
+        Ok(Utils::build_success_response((), StatusCode::OK))
+    }
+
+    pub async fn submit_pghd(
+        State(state): State<Arc<AppState>>,
+        Json(payload): Json<HandlerSubmitPghdPayload>,
+    ) -> Result<Response, ProxyError> {
+        let patient_iota_address = IotaAddress::from_str(&payload.patient_iota_address)
+            .map_err(|_| anyhow!("Invalid patient IOTA address"))
+            .code(StatusCode::BAD_REQUEST)?;
+        let proxy_iota_address =
+            IotaAddress::from_str(&state.proxy_iota_address).context(current_fn!())?;
+        let proxy_iota_key_pair = IotaKeyPair::decode(&state.proxy_iota_key_pair)
+            .map_err(|e| anyhow!(e.to_string()))
+            .context(current_fn!())?;
+
+        let enc_pghd_bytes = base64::engine::general_purpose::STANDARD
+            .decode(&payload.enc_pghd)
+            .map_err(|_| anyhow!("Invalid enc_pghd base64"))
+            .code(StatusCode::BAD_REQUEST)?;
+        let h_cipher = hex::encode(Sha256::digest(&enc_pghd_bytes));
+        if h_cipher != payload.h_cipher.to_lowercase() {
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("Invalid h_cipher for encrypted PGHD payload"),
+                code: StatusCode::BAD_REQUEST,
+            });
+        }
+
+        let pghd_public_key =
+            Self::get_patient_pghd_public_key(&state, &patient_iota_address, proxy_iota_address)
+                .await?;
+
+        Utils::verify_pghd_outer_signature(
+            &pghd_public_key,
+            &payload.pghd_outer_signature,
+            &enc_pghd_bytes,
+        )
+        .map_err(|e| anyhow!(e.to_string()))
+        .code(StatusCode::BAD_REQUEST)?;
+
+        let cid = Utils::add_and_pin_to_ipfs(payload.enc_pghd.clone())
+            .await
+            .context(current_fn!())?;
+        let metadata = PghdMetadata {
+            batch_id: payload.batch_id.clone(),
+            capsule: payload.capsule,
+            cid: cid.clone(),
+            created_at: Utils::sys_time_to_iso(std::time::SystemTime::now()),
+            enc_aes_key_nonce: payload.enc_aes_key_nonce,
+            h_cipher: payload.h_cipher,
+            patient_iota_address: patient_iota_address.to_string(),
+            pghd_outer_signature: payload.pghd_outer_signature,
+            verified_by_proxy: true,
+        };
+
+        state
+            .move_call
+            .submit_pghd(
+                cid.clone(),
+                h_cipher.clone(),
+                Utils::serde_serialize_to_base64(&metadata).context(current_fn!())?,
+                &patient_iota_address,
+                proxy_iota_address,
+                proxy_iota_key_pair,
+            )
+            .await
+            .context(current_fn!())?;
+
+        Ok(Utils::build_success_response(
+            json!({ "batch_id": payload.batch_id, "cid": cid }),
+            StatusCode::CREATED,
+        ))
+    }
+
+    pub async fn get_pghd_list(
+        State(state): State<Arc<AppState>>,
+        Extension(current_user): Extension<CurrentUser>,
+        Query(query): Query<HandlerGetPghdQueryParams>,
+    ) -> Result<Response, ProxyError> {
+        if current_user.purpose != ReencryptionPurposeType::ReadPghd {
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("Illegal action. Invalid purpose"),
+                code: StatusCode::BAD_REQUEST,
+            });
+        }
+
+        let patient_iota_address = IotaAddress::from_str(&query.patient_iota_address)
+            .map_err(|_| anyhow!("Invalid patient IOTA address"))
+            .code(StatusCode::BAD_REQUEST)?;
+        let hospital_personnel_iota_address = IotaAddress::from_str(&current_user.iota_address)
+            .map_err(|_| anyhow!("Invalid hospital personnel IOTA address"))
+            .code(StatusCode::BAD_REQUEST)?;
+        let proxy_iota_address =
+            IotaAddress::from_str(&state.proxy_iota_address).context(current_fn!())?;
+
+        Self::ensure_pghd_read_access(
+            &state,
+            &current_user,
+            &patient_iota_address,
+            &query.patient_iota_address,
+        )?;
+
+        let pghd_metadata = state
+            .move_call
+            .get_pghd_list(
+                &hospital_personnel_iota_address,
+                &patient_iota_address,
+                proxy_iota_address,
+            )
+            .await
+            .context(current_fn!())?;
+
+        let res_data: Vec<_> = pghd_metadata
+            .into_iter()
+            .map(|move_metadata| {
+                let metadata: PghdMetadata =
+                    Utils::serde_deserialize_from_base64(move_metadata.metadata)?;
+                Ok(json!({
+                    "index": move_metadata.index,
+                    "cid": move_metadata.cid,
+                    "h_cipher": move_metadata.h_cipher,
+                    "status": move_metadata.status,
+                    "failure_reason": move_metadata.failure_reason,
+                    "timestamp": move_metadata.timestamp,
+                    "metadata": metadata,
+                }))
+            })
+            .collect::<Result<Vec<_>, ProxyError>>()?;
+
+        Ok(Utils::build_success_response(res_data, StatusCode::OK))
+    }
+
+    pub async fn get_pghd(
+        State(state): State<Arc<AppState>>,
+        Extension(current_user): Extension<CurrentUser>,
+        Path(index): Path<u64>,
+        Query(query): Query<HandlerGetPghdQueryParams>,
+    ) -> Result<Response, ProxyError> {
+        if current_user.purpose != ReencryptionPurposeType::ReadPghd {
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("Illegal action. Invalid purpose"),
+                code: StatusCode::BAD_REQUEST,
+            });
+        }
+
+        let patient_iota_address = IotaAddress::from_str(&query.patient_iota_address)
+            .map_err(|_| anyhow!("Invalid patient IOTA address"))
+            .code(StatusCode::BAD_REQUEST)?;
+        let hospital_personnel_iota_address = IotaAddress::from_str(&current_user.iota_address)
+            .map_err(|_| anyhow!("Invalid hospital personnel IOTA address"))
+            .code(StatusCode::BAD_REQUEST)?;
+        let proxy_iota_address =
+            IotaAddress::from_str(&state.proxy_iota_address).context(current_fn!())?;
+
+        Self::ensure_pghd_read_access(
+            &state,
+            &current_user,
+            &patient_iota_address,
+            &query.patient_iota_address,
+        )?;
+
+        let (move_metadata, current_index, prev_index, next_index) = state
+            .move_call
+            .get_pghd(
+                &hospital_personnel_iota_address,
+                index,
+                &patient_iota_address,
+                proxy_iota_address,
+            )
+            .await
+            .context(current_fn!())?;
+        let metadata: PghdMetadata =
+            Utils::serde_deserialize_from_base64(move_metadata.metadata).context(current_fn!())?;
+        let enc_pghd = Utils::get_data_ipfs(metadata.cid.clone())
+            .await
+            .context(current_fn!())?;
+        let enc_pghd_bytes = base64::engine::general_purpose::STANDARD
+            .decode(&enc_pghd)
+            .map_err(|_| anyhow!("Invalid enc_pghd base64 from IPFS"))
+            .code(StatusCode::BAD_GATEWAY)?;
+        let h_download = hex::encode(Sha256::digest(&enc_pghd_bytes));
+        if h_download != move_metadata.h_cipher.to_lowercase() {
+            let proxy_iota_key_pair = IotaKeyPair::decode(&state.proxy_iota_key_pair)
+                .map_err(|e| anyhow!(e.to_string()))
+                .context(current_fn!())?;
+            Self::invalidate_pghd_entry(
+                &state,
+                &hospital_personnel_iota_address,
+                metadata.cid.clone(),
+                "OUTER_HASH_MISMATCH".to_string(),
+                &patient_iota_address,
+                proxy_iota_address,
+                proxy_iota_key_pair,
+            )
+            .await?;
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("ERR_DATA_CORRUPTED"),
+                code: StatusCode::CONFLICT,
+            });
+        }
+
+        let access_keys: String = state
+            .cache_store
+            .get(&Self::access_keys_cache_key(
+                ReencryptionPurposeType::ReadPghd,
+                &current_user.iota_address,
+                &query.patient_iota_address,
+            ))
+            .map_err(|_| anyhow!("Keys not found"))
+            .code(StatusCode::BAD_REQUEST)?;
+        let access_keys: AccessKeys =
+            Utils::serde_deserialize_from_base64(access_keys).context(current_fn!())?;
+        let k_frag: KeyFrag = Utils::serde_deserialize_from_base64(access_keys.k_frag.clone())
+            .context(current_fn!())?;
+        let signer_pre_public_key: PublicKey =
+            Utils::serde_deserialize_from_base64(access_keys.signer_pre_public_key.clone())
+                .context(current_fn!())?;
+        let patient_pre_public_key: PublicKey =
+            Utils::serde_deserialize_from_base64(access_keys.patient_pre_public_key.clone())
+                .context(current_fn!())?;
+        let data_pre_public_key: PublicKey =
+            Utils::serde_deserialize_from_base64(access_keys.data_pre_public_key.clone())
+                .context(current_fn!())?;
+        let capsule: Capsule = Utils::serde_deserialize_from_base64(metadata.capsule.clone())
+            .context(current_fn!())?;
+        let verified_kfrag = k_frag
+            .verify(
+                &signer_pre_public_key,
+                Some(&patient_pre_public_key),
+                Some(&data_pre_public_key),
+            )
+            .map_err(|e| anyhow!(e.0.to_string()).context(current_fn!()))?;
+        let c_frag = reencrypt(&capsule, verified_kfrag).unverify();
+        let pghd_public_key =
+            Self::get_patient_pghd_public_key(&state, &patient_iota_address, proxy_iota_address)
+                .await?;
+
+        let res_data = json!({
+            "current_index": current_index,
+            "c_frag": Utils::serde_serialize_to_base64(&c_frag).context(current_fn!())?,
+            "data_pre_secret_key_seed_capsule": access_keys.data_pre_secret_key_seed_capsule,
+            "enc_pghd": enc_pghd,
+            "enc_aes_key_nonce": metadata.enc_aes_key_nonce,
+            "enc_data_pre_secret_key_seed": access_keys.enc_data_pre_secret_key_seed,
+            "data_pre_public_key": access_keys.data_pre_public_key,
+            "metadata": metadata,
+            "next_index": next_index,
+            "patient_pre_public_key": access_keys.patient_pre_public_key,
+            "pghd_public_key": pghd_public_key,
+            "prev_index": prev_index,
+            "signer_pre_public_key": access_keys.signer_pre_public_key,
+        });
+
+        Ok(Utils::build_success_response(res_data, StatusCode::OK))
+    }
+
+    pub async fn invalidate_pghd(
+        State(state): State<Arc<AppState>>,
+        Extension(current_user): Extension<CurrentUser>,
+        Json(payload): Json<HandlerInvalidatePghdPayload>,
+    ) -> Result<Response, ProxyError> {
+        if current_user.purpose != ReencryptionPurposeType::ReadPghd {
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("Illegal action. Invalid purpose"),
+                code: StatusCode::BAD_REQUEST,
+            });
+        }
+
+        let patient_iota_address = IotaAddress::from_str(&payload.patient_iota_address)
+            .map_err(|_| anyhow!("Invalid patient IOTA address"))
+            .code(StatusCode::BAD_REQUEST)?;
+        let hospital_personnel_iota_address = IotaAddress::from_str(&current_user.iota_address)
+            .map_err(|_| anyhow!("Invalid hospital personnel IOTA address"))
+            .code(StatusCode::BAD_REQUEST)?;
+        Self::ensure_pghd_read_access(
+            &state,
+            &current_user,
+            &patient_iota_address,
+            &payload.patient_iota_address,
+        )?;
+
+        let proxy_iota_address =
+            IotaAddress::from_str(&state.proxy_iota_address).context(current_fn!())?;
+        let proxy_iota_key_pair = IotaKeyPair::decode(&state.proxy_iota_key_pair)
+            .map_err(|e| anyhow!(e.to_string()))
+            .context(current_fn!())?;
+
+        state
+            .move_call
+            .invalidate_pghd_entry(
+                &hospital_personnel_iota_address,
+                payload.cid.clone(),
+                payload.failure_reason,
+                &patient_iota_address,
+                proxy_iota_address,
+                proxy_iota_key_pair,
+            )
+            .await
+            .context(current_fn!())?;
+
+        if let Err(err) = Utils::unpin_ipfs(&payload.cid).await {
+            eprintln!(
+                "failed to unpin invalid PGHD CID {}: {:?}",
+                payload.cid, err
+            );
+        }
+
+        Ok(Utils::build_success_response((), StatusCode::OK))
+    }
+
+    async fn get_patient_pghd_public_key(
+        state: &AppState,
+        patient_iota_address: &IotaAddress,
+        proxy_iota_address: IotaAddress,
+    ) -> Result<String, ProxyError> {
+        match state
+            .move_call
+            .get_patient_pghd_public_key(patient_iota_address, proxy_iota_address)
+            .await
+        {
+            Ok(public_key) => Ok(public_key),
+            Err(chain_error) => state
+                .cache_store
+                .get(&format!("pghd_public_key:{}", patient_iota_address))
+                .map_err(|_| anyhow!("Patient PGHD public key not registered: {chain_error}"))
+                .code(StatusCode::BAD_REQUEST),
+        }
+    }
+
+    async fn invalidate_pghd_entry(
+        state: &AppState,
+        hospital_personnel_iota_address: &IotaAddress,
+        cid: String,
+        failure_reason: String,
+        patient_iota_address: &IotaAddress,
+        proxy_iota_address: IotaAddress,
+        proxy_iota_key_pair: IotaKeyPair,
+    ) -> Result<(), ProxyError> {
+        state
+            .move_call
+            .invalidate_pghd_entry(
+                hospital_personnel_iota_address,
+                cid.clone(),
+                failure_reason,
+                patient_iota_address,
+                proxy_iota_address,
+                proxy_iota_key_pair,
+            )
+            .await
+            .context(current_fn!())?;
+
+        if let Err(err) = Utils::unpin_ipfs(&cid).await {
+            eprintln!("failed to unpin invalid PGHD CID {}: {:?}", cid, err);
+        }
+
+        Ok(())
+    }
+
+    fn ensure_pghd_read_access(
+        state: &AppState,
+        current_user: &CurrentUser,
+        patient_iota_address: &IotaAddress,
+        patient_iota_address_raw: &str,
+    ) -> Result<(), ProxyError> {
+        match &current_user.role {
+            AuthRole::Patient => {
+                let current_patient_address = IotaAddress::from_str(&current_user.iota_address)
+                    .map_err(|_| anyhow!("Invalid patient IOTA address"))
+                    .code(StatusCode::BAD_REQUEST)?;
+                if current_patient_address != *patient_iota_address {
+                    return Err(ProxyError::Anyhow {
+                        source: anyhow!("Illegal action. Patient can only access their own PGHD"),
+                        code: StatusCode::UNAUTHORIZED,
+                    });
+                }
+                Ok(())
+            }
+            AuthRole::MedicalPersonnel => {
+                state
+                    .cache_store
+                    .get(&Self::access_keys_cache_key(
+                        ReencryptionPurposeType::ReadPghd,
+                        &current_user.iota_address,
+                        patient_iota_address_raw,
+                    ))
+                    .map_err(|_| anyhow!("Keys not found"))
+                    .code(StatusCode::BAD_REQUEST)?;
+                Ok(())
+            }
+            _ => Err(ProxyError::Anyhow {
+                source: anyhow!("Illegal action. Invalid role"),
+                code: StatusCode::UNAUTHORIZED,
+            }),
+        }
+    }
+
+    fn access_keys_cache_key(
+        purpose: ReencryptionPurposeType,
+        hospital_personnel_iota_address: &str,
+        patient_iota_address: &str,
+    ) -> String {
+        let purpose = match purpose {
+            ReencryptionPurposeType::Read => "read",
+            ReencryptionPurposeType::Update => "update",
+            ReencryptionPurposeType::ReadPghd => "read_pghd",
+        };
+        format!(
+            "keys:{}:{}@{}",
+            purpose, hospital_personnel_iota_address, patient_iota_address
+        )
+    }
+
     pub async fn create_medical_record(
         State(state): State<Arc<AppState>>,
         Extension(current_user): Extension<CurrentUser>,
@@ -228,9 +661,10 @@ impl Handlers {
         ) = {
             let access_keys: String = state
                 .cache_store
-                .get(&format!(
-                    "keys:{}@{}",
-                    current_user.iota_address, query.patient_iota_address,
+                .get(&Self::access_keys_cache_key(
+                    current_user.purpose,
+                    &current_user.iota_address,
+                    &query.patient_iota_address,
                 ))
                 .map_err(|_| anyhow!("Keys not found"))
                 .code(StatusCode::BAD_REQUEST)?;
@@ -359,9 +793,10 @@ impl Handlers {
         ) = {
             let access_keys: String = state
                 .cache_store
-                .get(&format!(
-                    "keys:{}@{}",
-                    current_user.iota_address, query.patient_iota_address,
+                .get(&Self::access_keys_cache_key(
+                    ReencryptionPurposeType::Read,
+                    &current_user.iota_address,
+                    &query.patient_iota_address,
                 ))
                 .map_err(|_| anyhow!("Keys not found"))
                 .code(StatusCode::BAD_REQUEST)?;
@@ -518,9 +953,10 @@ impl Handlers {
         ) = {
             let access_keys: String = state
                 .cache_store
-                .get(&format!(
-                    "keys:{}@{}",
-                    current_user.iota_address, query.patient_iota_address,
+                .get(&Self::access_keys_cache_key(
+                    ReencryptionPurposeType::Update,
+                    &current_user.iota_address,
+                    &query.patient_iota_address,
                 ))
                 .map_err(|_| anyhow!("Keys not found"))
                 .code(StatusCode::BAD_REQUEST)?;
@@ -644,7 +1080,7 @@ impl Handlers {
             .set_ex(
                 format!("nonce:{}", patient_iota_address),
                 nonce.clone(),
-                NONCE_EXP_DUR,
+                Utils::env_u64("NONCE_EXP_DUR_SECONDS", NONCE_EXP_DUR),
             )
             .context(current_fn!())?;
 
@@ -698,6 +1134,7 @@ impl Handlers {
             .await
             .context(current_fn!())?;
 
+        let requested_purpose = payload.purpose.unwrap_or(ReencryptionPurposeType::Read);
         let (hospital_personnel_role, read_keys_duration, update_keys_duration): (
             AuthRole,
             u64,
@@ -705,13 +1142,19 @@ impl Handlers {
         ) = match role {
             MoveHospitalPersonnelRole::AdministrativePersonnel => (
                 AuthRole::AdministrativePersonnel,
-                ADMINISTRATIVE_KEYS_READ_DUR,
+                Utils::env_u64(
+                    "ADMINISTRATIVE_KEYS_READ_DUR_SECONDS",
+                    ADMINISTRATIVE_KEYS_READ_DUR,
+                ),
                 None,
             ),
             MoveHospitalPersonnelRole::MedicalPersonnel => (
                 AuthRole::MedicalPersonnel,
-                MEDICAL_KEYS_READ_DUR,
-                Some(MEDICAL_KEYS_UPDATE_DUR),
+                Utils::env_u64("MEDICAL_KEYS_READ_DUR_SECONDS", MEDICAL_KEYS_READ_DUR),
+                Some(Utils::env_u64(
+                    "MEDICAL_KEYS_UPDATE_DUR_SECONDS",
+                    MEDICAL_KEYS_UPDATE_DUR,
+                )),
             ),
             _ => {
                 return Err(ProxyError::Anyhow {
@@ -725,15 +1168,27 @@ impl Handlers {
         let es256_keypair = Utils::construct_es256_key_pair_from_pem(&state.jwt_ecdsa_key_pair)
             .context(current_fn!())?;
 
+        let read_purpose = if requested_purpose == ReencryptionPurposeType::ReadPghd {
+            ReencryptionPurposeType::ReadPghd
+        } else {
+            ReencryptionPurposeType::Read
+        };
         let read_claims = JwtClaims {
             role: hospital_personnel_role.clone(),
-            purpose: ReencryptionPurposeType::Read,
+            purpose: read_purpose,
+        };
+        let read_claim_duration = if read_purpose == ReencryptionPurposeType::ReadPghd {
+            Utils::env_u64("PGHD_KEYS_READ_DUR_SECONDS", PGHD_KEYS_READ_DUR)
+        } else {
+            read_keys_duration
         };
         let read_claims =
-            Claims::with_custom_claims(read_claims, Duration::from_secs(read_keys_duration))
+            Claims::with_custom_claims(read_claims, Duration::from_secs(read_claim_duration))
                 .with_subject(hospital_personnel_iota_address);
 
-        let hospital_personnel_access_token_update = if update_keys_duration.is_some() {
+        let hospital_personnel_access_token_update = if update_keys_duration.is_some()
+            && requested_purpose != ReencryptionPurposeType::ReadPghd
+        {
             let update_claims = JwtClaims {
                 role: hospital_personnel_role,
                 purpose: ReencryptionPurposeType::Update,
@@ -763,17 +1218,40 @@ impl Handlers {
         state
             .cache_store
             .set_ex(
-                format!(
-                    "keys:{}@{}",
-                    hospital_personnel_iota_address, patient_iota_address
+                Self::access_keys_cache_key(
+                    read_purpose,
+                    &hospital_personnel_iota_address.to_string(),
+                    &patient_iota_address.to_string(),
                 ),
                 Utils::serde_serialize_to_base64(&access_keys).context(current_fn!())?,
-                update_keys_duration.unwrap_or(read_keys_duration),
+                read_claim_duration,
             )
             .context(current_fn!())?;
 
+        if let Some(update_keys_duration) = update_keys_duration {
+            if requested_purpose != ReencryptionPurposeType::ReadPghd {
+                state
+                    .cache_store
+                    .set_ex(
+                        Self::access_keys_cache_key(
+                            ReencryptionPurposeType::Update,
+                            &hospital_personnel_iota_address.to_string(),
+                            &patient_iota_address.to_string(),
+                        ),
+                        Utils::serde_serialize_to_base64(&access_keys).context(current_fn!())?,
+                        update_keys_duration,
+                    )
+                    .context(current_fn!())?;
+            }
+        }
+
         let res_data = json!({
             "access_token_read": hospital_personnel_access_token_read,
+            "access_token_read_pghd": if read_purpose == ReencryptionPurposeType::ReadPghd {
+                Some(hospital_personnel_access_token_read.clone())
+            } else {
+                None
+            },
             "access_token_update": hospital_personnel_access_token_update,
         });
 

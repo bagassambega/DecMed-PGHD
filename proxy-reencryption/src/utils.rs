@@ -31,6 +31,7 @@ use iota_types::{
 };
 use jwt_simple::prelude::ES256KeyPair;
 use move_core_types::{account_address::AccountAddress, language_storage::StructTag};
+use openssl::{ecdsa::EcdsaSig, pkey::PKey};
 use rand::Rng;
 use reqwest::{Client, IntoUrl};
 use serde::{
@@ -38,6 +39,7 @@ use serde::{
     Deserialize, Deserializer, Serialize,
 };
 use serde_json::json;
+use sha2::Digest;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 
@@ -51,23 +53,70 @@ use crate::{
 pub struct Utils {}
 
 impl Utils {
+    pub fn env_string(key: &str, default_value: &str) -> String {
+        std::env::var(key).unwrap_or_else(|_| default_value.to_string())
+    }
+
+    pub fn env_u64(key: &str, default_value: u64) -> u64 {
+        std::env::var(key)
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(default_value)
+    }
+
     pub async fn add_and_pin_to_ipfs(data: String) -> Result<String, ProxyError> {
         let path_part = reqwest::multipart::Part::text(data);
         let form = reqwest::multipart::Form::new().part("path", path_part);
         let req_client = reqwest::Client::new();
         let res = req_client
-            .post(format!("{}/add", IPFS_BASE_URL))
+            .post(format!(
+                "{}/add",
+                Utils::env_string("IPFS_BASE_URL", IPFS_BASE_URL)
+            ))
             .multipart(form)
             .send()
             .await
             .context(current_fn!())?;
 
-        let res = res
-            .json::<UtilIpfsAddResponse>()
+        let status = res.status();
+        let body = res.text().await.context(current_fn!())?;
+        if !status.is_success() {
+            return Err(anyhow!("failed to add PGHD to IPFS: status={} body={}", status, body)
+                .context(current_fn!())
+                .into());
+        }
+
+        let res = serde_json::from_str::<UtilIpfsAddResponse>(&body)
+            .with_context(|| format!("failed to decode IPFS add response body: {body}"))
+            .context(current_fn!())?;
+        if res.cid.is_empty() {
+            return Err(anyhow!("IPFS add response did not include a CID or Hash: {}", body)
+                .context(current_fn!())
+                .into());
+        }
+
+        Ok(res.cid)
+    }
+
+    pub async fn unpin_ipfs(cid: &str) -> Result<(), ProxyError> {
+        let req_client = reqwest::Client::new();
+        let res = req_client
+            .post(format!(
+                "{}/pin/rm",
+                Utils::env_string("IPFS_BASE_URL", IPFS_BASE_URL)
+            ))
+            .query(&[("arg", cid)])
+            .send()
             .await
             .context(current_fn!())?;
 
-        Ok(res.cid)
+        if !res.status().is_success() {
+            return Err(anyhow!("failed to unpin IPFS CID {}", cid)
+                .context(current_fn!())
+                .into());
+        }
+
+        Ok(())
     }
 
     pub fn build_success_response<T>(data: T, status_code: StatusCode) -> Response
@@ -82,6 +131,33 @@ impl Utils {
             }),
         )
             .into_response()
+    }
+
+    pub fn verify_pghd_outer_signature(
+        public_key_base64: &str,
+        signature_base64: &str,
+        enc_pghd: &[u8],
+    ) -> anyhow::Result<()> {
+        let public_key_der = STANDARD
+            .decode(public_key_base64)
+            .context("invalid PGHD public key base64")?;
+        let signature_der = STANDARD
+            .decode(signature_base64)
+            .context("invalid PGHD signature base64")?;
+        let public_key = PKey::public_key_from_der(&public_key_der)
+            .context("invalid PGHD public key DER")?
+            .ec_key()
+            .context("PGHD public key is not an EC key")?;
+        let signature =
+            EcdsaSig::from_der(&signature_der).context("invalid PGHD ECDSA signature DER")?;
+        let digest = sha2::Sha256::digest(enc_pghd);
+        if !signature
+            .verify(digest.as_slice(), &public_key)
+            .context("failed to verify PGHD ECDSA signature")?
+        {
+            anyhow::bail!("invalid PGHD ECDSA signature");
+        }
+        Ok(())
     }
 
     pub async fn construct_capability_call_arg(
@@ -267,7 +343,10 @@ impl Utils {
 
         let req_client = reqwest::Client::new();
         let res = req_client
-            .post(format!("{}/execute_tx", GAS_STATION_BASE_URL))
+            .post(format!(
+                "{}/execute_tx",
+                Utils::env_string("GAS_STATION_BASE_URL", GAS_STATION_BASE_URL)
+            ))
             .bearer_auth("token")
             .json(&json!({
                 "reservation_id": reservation_id,
@@ -324,7 +403,11 @@ impl Utils {
         let content = Utils::do_http_get_request::<String, String, _>(
             &req_client,
             StatusCode::OK,
-            format!("{}/ipfs/{}", IPFS_GATEWAY_BASE_URL, cid),
+            format!(
+                "{}/ipfs/{}",
+                Utils::env_string("IPFS_GATEWAY_BASE_URL", IPFS_GATEWAY_BASE_URL),
+                cid
+            ),
         )
         .await
         .context(current_fn!())?;
@@ -334,7 +417,7 @@ impl Utils {
 
     pub async fn get_iota_client() -> Result<IotaClient, ProxyError> {
         Ok(IotaClientBuilder::default()
-            .build(IOTA_URL)
+            .build(Utils::env_string("IOTA_URL", IOTA_URL))
             .await
             .context(current_fn!())?)
     }
@@ -450,7 +533,10 @@ impl Utils {
     ) -> Result<(IotaAddress, u64, Vec<ObjectRef>), ProxyError> {
         let req_client = reqwest::Client::new();
         let res = req_client
-            .post(format!("{}/reserve_gas", GAS_STATION_BASE_URL))
+            .post(format!(
+                "{}/reserve_gas",
+                Utils::env_string("GAS_STATION_BASE_URL", GAS_STATION_BASE_URL)
+            ))
             .bearer_auth("token")
             .json(&json!({
               "gas_budget": gas_budget,
@@ -500,5 +586,76 @@ impl Utils {
     pub fn sys_time_to_iso(system_time: SystemTime) -> String {
         let iso: DateTime<Utc> = system_time.into();
         iso.to_rfc3339()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Utils;
+    use crate::types::UtilIpfsAddResponse;
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use openssl::{
+        ec::{EcGroup, EcKey},
+        ecdsa::EcdsaSig,
+        nid::Nid,
+    };
+    use sha2::{Digest, Sha256};
+
+    #[test]
+    fn decodes_kubo_ipfs_add_response() {
+        let response: UtilIpfsAddResponse =
+            serde_json::from_str(r#"{"Name":"path","Hash":"bafytest","Size":"123"}"#).unwrap();
+
+        assert_eq!(response.cid, "bafytest");
+        assert_eq!(response.name, "path");
+        assert_eq!(response.size, 123);
+        assert!(response.allocations.is_empty());
+    }
+
+    #[test]
+    fn decodes_ipfs_cluster_add_response() {
+        let response: UtilIpfsAddResponse = serde_json::from_str(
+            r#"{"cid":"bafycluster","name":"path","size":456,"allocations":["peer-a"]}"#,
+        )
+        .unwrap();
+
+        assert_eq!(response.cid, "bafycluster");
+        assert_eq!(response.name, "path");
+        assert_eq!(response.size, 456);
+        assert_eq!(response.allocations, vec!["peer-a"]);
+    }
+
+    #[test]
+    fn verifies_android_style_pghd_outer_signature() {
+        let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap();
+        let key = EcKey::generate(&group).unwrap();
+        let enc_pghd = b"android-aes-gcm-ciphertext-bytes";
+        let digest = Sha256::digest(enc_pghd);
+        let signature = EcdsaSig::sign(digest.as_slice(), &key).unwrap();
+
+        let public_key_base64 = STANDARD.encode(key.public_key_to_der().unwrap());
+        let signature_base64 = STANDARD.encode(signature.to_der().unwrap());
+
+        Utils::verify_pghd_outer_signature(&public_key_base64, &signature_base64, enc_pghd)
+            .unwrap();
+    }
+
+    #[test]
+    fn rejects_tampered_pghd_outer_signature_payload() {
+        let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap();
+        let key = EcKey::generate(&group).unwrap();
+        let enc_pghd = b"android-aes-gcm-ciphertext-bytes";
+        let digest = Sha256::digest(enc_pghd);
+        let signature = EcdsaSig::sign(digest.as_slice(), &key).unwrap();
+
+        let public_key_base64 = STANDARD.encode(key.public_key_to_der().unwrap());
+        let signature_base64 = STANDARD.encode(signature.to_der().unwrap());
+
+        assert!(Utils::verify_pghd_outer_signature(
+            &public_key_base64,
+            &signature_base64,
+            b"tampered-ciphertext",
+        )
+        .is_err());
     }
 }

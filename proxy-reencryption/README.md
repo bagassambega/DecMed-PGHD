@@ -119,8 +119,8 @@ docker run -p 8000:8000 decmed-proxy:minimal
 
 ```bash
 # VPS Endpoints (Update if changed)
-IOTA_RPC_URL=http://103.107.4.68:9000
-IPFS_API_BASE_URL=http://103.107.4.68:9094/api/v0
+IOTA_URL=https://api.testnet.iota.cafe
+IPFS_BASE_URL=http://103.107.4.68:9094/api/v0
 IPFS_GATEWAY_BASE_URL=http://103.107.4.68:8080
 GAS_STATION_BASE_URL=http://103.107.4.68:9527/v1
 

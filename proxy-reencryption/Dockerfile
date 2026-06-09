@@ -7,6 +7,8 @@ WORKDIR /build
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
+    make \
+    perl \
     pkg-config \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -20,16 +22,17 @@ RUN mkdir src && \
     cargo build --release --locked 2>&1 | grep -v "warning:" || true
 
 # Copy actual source code
-COPY src src
+RUN rm -rf src
+COPY src ./src
 
 # Build actual application
-RUN cargo build --release --locked
+RUN cargo clean && cargo build --release --locked
 
 # Copy binary to /bin
 RUN cp ./target/release/$APP_NAME /bin/server
 
-# Runtime stage - use debian not alpine for better compatibility
-FROM debian:bullseye-slim AS final
+# Runtime stage - use a Debian release with glibc compatible with rust:1.87-slim.
+FROM debian:bookworm-slim AS final
 
 RUN apt-get update && apt-get install -y \
     ca-certificates \

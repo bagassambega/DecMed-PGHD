@@ -119,10 +119,11 @@ pub enum MoveHospitalPersonnelRole {
     MedicalPersonnel,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ReencryptionPurposeType {
     Read,
     Update,
+    ReadPghd,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -144,6 +145,53 @@ pub struct AppState {
     pub proxy_iota_address: String,
     pub proxy_iota_key_pair: String,
     pub cache_store: CacheStore,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct HandlerRegisterPghdPatientPayload {
+    pub patient_id_hash: Option<String>,
+    pub patient_iota_address: String,
+    pub pghd_public_key: String,
+    pub pre_public_key: Option<String>,
+    pub pghd_pre_public_key: Option<String>,
+    pub medical_pre_public_key: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct HandlerSubmitPghdPayload {
+    pub batch_id: String,
+    pub patient_id_hash: Option<String>,
+    pub patient_iota_address: String,
+    pub enc_pghd: String,
+    pub h_cipher: String,
+    pub enc_aes_key_nonce: String,
+    pub capsule: String,
+    pub pghd_outer_signature: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HandlerGetPghdQueryParams {
+    pub patient_iota_address: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct HandlerInvalidatePghdPayload {
+    pub cid: String,
+    pub failure_reason: String,
+    pub patient_iota_address: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct PghdMetadata {
+    pub batch_id: String,
+    pub capsule: String,
+    pub cid: String,
+    pub created_at: String,
+    pub enc_aes_key_nonce: String,
+    pub h_cipher: String,
+    pub patient_iota_address: String,
+    pub pghd_outer_signature: String,
+    pub verified_by_proxy: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -278,6 +326,7 @@ pub struct HandlerStoreKeysPayload {
     pub data_pre_secret_key_seed_capsule: String,
     pub patient_iota_address: String,
     pub patient_pre_public_key: String,
+    pub purpose: Option<ReencryptionPurposeType>,
     pub signature: String,
     pub signer_pre_public_key: String,
 }
@@ -308,6 +357,17 @@ pub struct MovePatientMedicalMetadata {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct MovePatientPghdMetadata {
+    pub index: u64,
+    pub cid: String,
+    pub h_cipher: String,
+    pub metadata: String,
+    pub status: u8,
+    pub failure_reason: String,
+    pub timestamp: u64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct PatientPrivateAdministrativeMetadata {
     pub capsule: String,
     pub enc_data: String,
@@ -325,8 +385,29 @@ where
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct UtilIpfsAddResponse {
+    #[serde(default)]
     pub allocations: Vec<String>,
+    #[serde(default, alias = "Hash")]
     pub cid: String,
+    #[serde(default, alias = "Name")]
     pub name: String,
+    #[serde(default, alias = "Size", deserialize_with = "deserialize_u64_from_any")]
     pub size: u64,
+}
+
+fn deserialize_u64_from_any<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match value {
+        serde_json::Value::Number(number) => number
+            .as_u64()
+            .ok_or_else(|| serde::de::Error::custom("expected unsigned integer")),
+        serde_json::Value::String(value) => value
+            .parse::<u64>()
+            .map_err(|err| serde::de::Error::custom(format!("expected numeric string: {err}"))),
+        serde_json::Value::Null => Ok(0),
+        other => Err(serde::de::Error::custom(format!("expected integer, got {other}"))),
+    }
 }
