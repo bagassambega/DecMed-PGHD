@@ -1,0 +1,27 @@
+[package]
+name = "decmed_iota"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+anyhow = "1"
+argon2 = { version = "0.5.3", features = ["alloc", "password-hash"] }
+base64 = "0.22"
+bcs = "0.1.4"
+bip32 = "0.5"
+bip39 = { version = "2", features = ["rand"] }
+hex = "0.4.3"
+iota-json-rpc-types = { git = "https://github.com/iotaledger/iota", package = "iota-json-rpc-types", rev = "3d7c588ac81a2fdee000bdcde7d390bf62985e05" }
+iota-keys = { git = "https://github.com/iotaledger/iota", package = "iota-keys", rev = "3d7c588ac81a2fdee000bdcde7d390bf62985e05" }
+iota-sdk = { git = "https://github.com/iotaledger/iota", package = "iota-sdk", rev = "3d7c588ac81a2fdee000bdcde7d390bf62985e05" }
+iota-types = { git = "https://github.com/iotaledger/iota", package = "iota-types", rev = "3d7c588ac81a2fdee000bdcde7d390bf62985e05" }
+jni = "0.21"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rustls-platform-verifier = "0.5.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+shared-crypto = { git = "https://github.com/iotaledger/iota", package = "shared-crypto", rev = "3d7c588ac81a2fdee000bdcde7d390bf62985e05" }
+tokio = { version = "=1.44.2", features = ["rt-multi-thread"] }
