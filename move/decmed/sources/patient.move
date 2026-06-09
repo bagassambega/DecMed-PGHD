@@ -12,6 +12,7 @@ use decmed::std_enum_hospital_personnel_access_data_type::{
     HospitalPersonnelAccessDataType,
     administrative as hospital_personnel_access_data_type_administrative,
     medical as  hospital_personnel_access_data_type_medical,
+    pghd as  hospital_personnel_access_data_type_pghd,
 };
 use decmed::shared::{
     encode_patient_id,
@@ -36,11 +37,12 @@ use decmed::std_struct_patient_administrative_metadata::{
 };
 use decmed::std_struct_patient_id_account::PatientIdAccount;
 use decmed::std_struct_patient_medical_metadata::PatientMedicalMetadata;
+use decmed::std_struct_patient_pghd_metadata::PatientPghdMetadata;
 
 use iota::clock::Clock;
 use iota::table_vec;
 
-use std::string::String;
+use std::string::{Self, String};
 
 // Constants
 
@@ -126,46 +128,69 @@ entry fun create_access(
     };
 
     if (hospital_personnel_role == hospital_personnel_role_medical_personnel()) {
-        let (read_access, access_data_type_read,
-            update_access, access_data_type_update, exp_dur_read, exp_dur_update) = create_access_medical_personnel(clock, metadata);
+        if (metadata.length() == 1) {
+            let (read_access, access_data_type_read, exp_dur_read) = create_access_pghd_read(clock, metadata);
 
-        let hospital_personnel_read_access = hospital_personnel_access.borrow_mut_read();
-        if (hospital_personnel_read_access.contains(&patient_id)) {
-            hospital_personnel_read_access.remove(&patient_id);
+            let hospital_personnel_read_access = hospital_personnel_access.borrow_mut_read();
+            if (hospital_personnel_read_access.contains(&patient_id)) {
+                hospital_personnel_read_access.remove(&patient_id);
+            };
+            hospital_personnel_read_access.insert(patient_id, read_access);
+
+            let patient_access_log_read = patient_access_log_new(
+                access_data_type_read,
+                hospital_personnel_access_type_read(),
+                date,
+                exp_dur_read,
+                *hospital_metadata,
+                hospital_personnel_address,
+                hospital_personnel_administrative_metadata_public,
+                patient_access_log.length(),
+                false,
+            );
+            patient_access_log.push_back(patient_access_log_read);
+        } else {
+            let (read_access, access_data_type_read,
+                update_access, access_data_type_update, exp_dur_read, exp_dur_update) = create_access_medical_personnel(clock, metadata);
+
+            let hospital_personnel_read_access = hospital_personnel_access.borrow_mut_read();
+            if (hospital_personnel_read_access.contains(&patient_id)) {
+                hospital_personnel_read_access.remove(&patient_id);
+            };
+            hospital_personnel_read_access.insert(patient_id, read_access);
+
+            let hospital_personnel_update_access = hospital_personnel_access.borrow_mut_update();
+            if (hospital_personnel_update_access.contains(&patient_id)) {
+                hospital_personnel_update_access.remove(&patient_id);
+            };
+            hospital_personnel_update_access.insert(patient_id, update_access);
+
+            let patient_access_log_read = patient_access_log_new(
+                access_data_type_read,
+                hospital_personnel_access_type_read(),
+                date,
+                exp_dur_read,
+                *hospital_metadata,
+                hospital_personnel_address,
+                hospital_personnel_administrative_metadata_public,
+                patient_access_log.length(),
+                false,
+            );
+            patient_access_log.push_back(patient_access_log_read);
+
+            let patient_access_log_update = patient_access_log_new(
+                access_data_type_update,
+                hospital_personnel_access_type_update(),
+                date,
+                exp_dur_update,
+                *hospital_metadata,
+                hospital_personnel_address,
+                hospital_personnel_administrative_metadata_public,
+                patient_access_log.length(),
+                false,
+            );
+            patient_access_log.push_back(patient_access_log_update);
         };
-        hospital_personnel_read_access.insert(patient_id, read_access);
-
-        let hospital_personnel_update_access = hospital_personnel_access.borrow_mut_update();
-        if (hospital_personnel_update_access.contains(&patient_id)) {
-            hospital_personnel_update_access.remove(&patient_id);
-        };
-        hospital_personnel_update_access.insert(patient_id, update_access);
-
-        let patient_access_log_read = patient_access_log_new(
-            access_data_type_read,
-            hospital_personnel_access_type_read(),
-            date,
-            exp_dur_read,
-            *hospital_metadata,
-            hospital_personnel_address,
-            hospital_personnel_administrative_metadata_public,
-            patient_access_log.length(),
-            false,
-        );
-        patient_access_log.push_back(patient_access_log_read);
-
-        let patient_access_log_update = patient_access_log_new(
-            access_data_type_update,
-            hospital_personnel_access_type_update(),
-            date,
-            exp_dur_update,
-            *hospital_metadata,
-            hospital_personnel_address,
-            hospital_personnel_administrative_metadata_public,
-            patient_access_log.length(),
-            false,
-        );
-        patient_access_log.push_back(patient_access_log_update);
     };
 }
 
@@ -197,7 +222,8 @@ public(package) fun create_access_test(
 /// ## Params:
 /// - `metadata`: vector<Base64 encoded>
 ///     - length = 1 for administrative
-///     - length = 2 for medical
+///     - length = 1 for medical personnel PGHD read
+///     - length = 2 for medical personnel medical record access
 ///         - 0: read
 ///         - 1: update
 fun create_access_administrative_personnel(
@@ -271,6 +297,32 @@ fun create_access_medical_personnel(
      hospital_personnel_access_data_update, hospital_personnel_access_data_types_update, exp_dur_read, exp_dur_update)
 }
 
+/// ## Params:
+/// - `metadata`: vector<Base64 encoded>
+///     - length = 1 for PGHD read
+fun create_access_pghd_read(
+    clock: &Clock,
+    metadata: vector<String>,
+): (HospitalPersonnelAccessData, vector<HospitalPersonnelAccessDataType>, u64)
+{
+    assert!(metadata.length() == 1, EInvalidMetadataLength);
+
+    let mut hospital_personnel_access_data_types_read = vector::empty<HospitalPersonnelAccessDataType>();
+    hospital_personnel_access_data_types_read.push_back(hospital_personnel_access_data_type_pghd());
+
+    let exp_dur_read = 24 * 60;
+    let exp_read = clock.timestamp_ms() + (exp_dur_read * 60 * 1000); // 24 hours
+
+    let hospital_personnel_access_data_read = hospital_personnel_access_data_new(
+        hospital_personnel_access_data_types_read,
+        exp_read,
+        *metadata.borrow(0),
+        option::none(),
+    );
+
+    (hospital_personnel_access_data_read, hospital_personnel_access_data_types_read, exp_dur_read)
+}
+
 entry fun is_account_registered(
     address_id: &AddressId,
     ctx: &TxContext,
@@ -305,8 +357,17 @@ entry fun signup(
     let access_log = table_vec::empty<PatientAccessLog>(ctx);
     let administrative_metadata = patient_administrative_metadata_new(private_metadata);
     let medical_metadata = table_vec::empty<PatientMedicalMetadata>(ctx);
+    let pghd_metadata = table_vec::empty<PatientPghdMetadata>(ctx);
 
-    let patient_account = patient_account_new(access_log, ctx.sender(), administrative_metadata, false, medical_metadata);
+    let patient_account = patient_account_new(
+        access_log,
+        ctx.sender(),
+        administrative_metadata,
+        false,
+        medical_metadata,
+        pghd_metadata,
+        string::utf8(b""),
+    );
     patient_id_account_table.add(patient_id, patient_account);
 }
 
@@ -340,6 +401,52 @@ entry fun get_account_info(
     let patient_account = patient_id_account_table.borrow(patient_id);
 
     *patient_account.borrow_administrative_metadata()
+}
+
+entry fun set_pghd_public_key(
+    address_id: &AddressId,
+    patient_id_account: &mut PatientIdAccount,
+    pghd_public_key: String,
+    ctx: &TxContext,
+)
+{
+    let address_id_table = address_id.borrow_table();
+    assert!(address_id_table.contains(ctx.sender()), EAddressNotFound);
+
+    let patient_id = *address_id_table.borrow(ctx.sender());
+    let patient_id_account_table = patient_id_account.borrow_mut_table();
+    let patient_account = patient_id_account_table.borrow_mut(patient_id);
+    patient_account.set_pghd_public_key(pghd_public_key);
+}
+
+entry fun get_pghd_public_key(
+    address_id: &AddressId,
+    patient_id_account: &PatientIdAccount,
+    ctx: &TxContext,
+): String
+{
+    let address_id_table = address_id.borrow_table();
+    assert!(address_id_table.contains(ctx.sender()), EAddressNotFound);
+
+    let patient_id = *address_id_table.borrow(ctx.sender());
+    let patient_id_account_table = patient_id_account.borrow_table();
+    let patient_account = patient_id_account_table.borrow(patient_id);
+    *patient_account.borrow_pghd_public_key()
+}
+
+entry fun get_patient_pghd_public_key(
+    address_id: &AddressId,
+    patient_address: address,
+    patient_id_account: &PatientIdAccount,
+): String
+{
+    let address_id_table = address_id.borrow_table();
+    assert!(address_id_table.contains(patient_address), EAddressNotFound);
+
+    let patient_id = *address_id_table.borrow(patient_address);
+    let patient_id_account_table = patient_id_account.borrow_table();
+    let patient_account = patient_id_account_table.borrow(patient_id);
+    *patient_account.borrow_pghd_public_key()
 }
 
 /// ## Params

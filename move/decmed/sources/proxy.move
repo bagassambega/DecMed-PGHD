@@ -3,6 +3,7 @@ module decmed::proxy;
 use decmed::std_enum_hospital_personnel_access_data_type::{
     administrative as hospital_personnel_access_data_type_administrative,
     medical as hospital_personnel_access_data_type_medical,
+    pghd as hospital_personnel_access_data_type_pghd,
 };
 use decmed::std_enum_hospital_personnel_role::{
     medical_personnel as hospital_personnel_role_medical_personnel,
@@ -25,6 +26,14 @@ use decmed::std_struct_patient_medical_metadata::{
 
     new as patient_medical_metadata_new,
 };
+use decmed::std_struct_patient_pghd_metadata::{
+    PatientPghdMetadata,
+
+    borrow_cid as patient_pghd_metadata_borrow_cid,
+    borrow_status as patient_pghd_metadata_borrow_status,
+    invalidate as patient_pghd_metadata_invalidate,
+    new as patient_pghd_metadata_new,
+};
 
 use iota::clock::Clock;
 
@@ -37,6 +46,9 @@ const EAddressNotFound: u64 = 4003;
 const EInvalidAccessType: u64 = 4004;
 const EMedicalRecordCreationLimit: u64 = 4005;
 const EMedicalRecordNotFound: u64 = 4006;
+const EInvalidPghdMetadata: u64 = 4007;
+const EPGHDRecordNotFound: u64 = 4008;
+const EPGHDRecordInvalid: u64 = 4009;
 
 entry fun create_capability(
     proxy_address: address,
@@ -352,6 +364,191 @@ entry fun is_patient_registered(
     let patient_id_account_table = patient_id_account.borrow_table();
 
     assert!(patient_id_account_table.contains(patient_id), EAccountNotFound);
+}
+
+entry fun submit_pghd(
+    address_id: &AddressId,
+    clock: &Clock,
+    cid: String,
+    h_cipher: String,
+    metadata: String,
+    patient_address: address,
+    patient_id_account: &mut PatientIdAccount,
+    _: &ProxyCap,
+)
+{
+    assert!(metadata.length() > 0, EInvalidPghdMetadata);
+
+    let address_id_table = address_id.borrow_table();
+    assert!(address_id_table.contains(patient_address), EAddressNotFound);
+
+    let patient_id = *address_id_table.borrow(patient_address);
+    let patient_id_account_table = patient_id_account.borrow_mut_table();
+    assert!(patient_id_account_table.contains(patient_id), EAccountNotFound);
+
+    let patient_account = patient_id_account_table.borrow_mut(patient_id);
+    let pghd_metadata = patient_account.borrow_mut_pghd_metadata();
+    let index = pghd_metadata.length();
+    let metadata = patient_pghd_metadata_new(index, cid, h_cipher, metadata, clock.timestamp_ms());
+    pghd_metadata.push_back(metadata);
+}
+
+entry fun get_pghd_list(
+    address_id: &AddressId,
+    clock: &Clock,
+    hospital_personnel_address: address,
+    hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    patient_address: address,
+    patient_id_account: &PatientIdAccount,
+    _: &ProxyCap,
+): vector<PatientPghdMetadata>
+{
+    let address_id_table = address_id.borrow_table();
+    assert!(address_id_table.contains(patient_address), EAddressNotFound);
+    assert!(address_id_table.contains(hospital_personnel_address), EAddressNotFound);
+
+    let patient_id = *address_id_table.borrow(patient_address);
+    let hospital_personnel_id = *address_id_table.borrow(hospital_personnel_address);
+    assert_pghd_read_access(
+        clock,
+        hospital_personnel_id,
+        hospital_personnel_id_account,
+        patient_id,
+    );
+
+    let patient_id_account_table = patient_id_account.borrow_table();
+    assert!(patient_id_account_table.contains(patient_id), EAccountNotFound);
+
+    let patient_account = patient_id_account_table.borrow(patient_id);
+    let pghd_metadata = patient_account.borrow_pghd_metadata();
+    let mut index = 0;
+    let metadata_len = pghd_metadata.length();
+    let mut metadata_list = vector[];
+
+    while (index < metadata_len) {
+        let metadata = pghd_metadata.borrow(index);
+        if (patient_pghd_metadata_borrow_status(metadata) == 0) {
+            metadata_list.push_back(*metadata);
+        };
+        index = index + 1;
+    };
+
+    metadata_list
+}
+
+entry fun get_pghd(
+    address_id: &AddressId,
+    clock: &Clock,
+    hospital_personnel_address: address,
+    hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    index: u64,
+    patient_address: address,
+    patient_id_account: &PatientIdAccount,
+    _: &ProxyCap,
+): (PatientPghdMetadata, u64, Option<u64>, Option<u64>)
+{
+    let address_id_table = address_id.borrow_table();
+    assert!(address_id_table.contains(patient_address), EAddressNotFound);
+    assert!(address_id_table.contains(hospital_personnel_address), EAddressNotFound);
+
+    let patient_id = *address_id_table.borrow(patient_address);
+    let hospital_personnel_id = *address_id_table.borrow(hospital_personnel_address);
+    assert_pghd_read_access(
+        clock,
+        hospital_personnel_id,
+        hospital_personnel_id_account,
+        patient_id,
+    );
+
+    let patient_id_account_table = patient_id_account.borrow_table();
+    assert!(patient_id_account_table.contains(patient_id), EAccountNotFound);
+
+    let patient_account = patient_id_account_table.borrow(patient_id);
+    let pghd_metadata = patient_account.borrow_pghd_metadata();
+    let metadata_len = pghd_metadata.length();
+    assert!(index < metadata_len, EPGHDRecordNotFound);
+    let metadata = pghd_metadata.borrow(index);
+    assert!(patient_pghd_metadata_borrow_status(metadata) == 0, EPGHDRecordInvalid);
+
+    let mut prev_index = option::none();
+    let mut next_index = option::some(index + 1);
+
+    if (index + 1 >= metadata_len) {
+        next_index = option::none()
+    };
+    if (index != 0) {
+        prev_index = option::some(index - 1)
+    };
+
+    (*metadata, index, prev_index, next_index)
+}
+
+entry fun invalidate_pghd_entry(
+    address_id: &AddressId,
+    clock: &Clock,
+    hospital_personnel_address: address,
+    hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    cid: String,
+    failure_reason: String,
+    patient_address: address,
+    patient_id_account: &mut PatientIdAccount,
+    _: &ProxyCap,
+)
+{
+    let address_id_table = address_id.borrow_table();
+    assert!(address_id_table.contains(patient_address), EAddressNotFound);
+    assert!(address_id_table.contains(hospital_personnel_address), EAddressNotFound);
+
+    let patient_id = *address_id_table.borrow(patient_address);
+    let hospital_personnel_id = *address_id_table.borrow(hospital_personnel_address);
+    assert_pghd_read_access(
+        clock,
+        hospital_personnel_id,
+        hospital_personnel_id_account,
+        patient_id,
+    );
+
+    let patient_id_account_table = patient_id_account.borrow_mut_table();
+    assert!(patient_id_account_table.contains(patient_id), EAccountNotFound);
+
+    let patient_account = patient_id_account_table.borrow_mut(patient_id);
+    let pghd_metadata = patient_account.borrow_mut_pghd_metadata();
+    let mut index = 0;
+    let metadata_len = pghd_metadata.length();
+
+    while (index < metadata_len) {
+        let metadata = pghd_metadata.borrow_mut(index);
+        if (*patient_pghd_metadata_borrow_cid(metadata) == cid) {
+            patient_pghd_metadata_invalidate(metadata, failure_reason);
+            return
+        };
+        index = index + 1;
+    };
+
+    abort EPGHDRecordNotFound
+}
+
+fun assert_pghd_read_access(
+    clock: &Clock,
+    hospital_personnel_id: String,
+    hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    patient_id: String,
+)
+{
+    let hospital_personnel_id_account_table = hospital_personnel_id_account.borrow_mut_table();
+    let hospital_personnel_account = hospital_personnel_id_account_table.borrow_mut(hospital_personnel_id);
+    let hospital_personnel_access = hospital_personnel_account.borrow_mut_access().borrow_mut();
+    let hospital_personnel_read_access = hospital_personnel_access.borrow_mut_read();
+
+    assert!(hospital_personnel_read_access.contains(&patient_id), EAccessNotFound);
+    let read_access = hospital_personnel_read_access.get(&patient_id);
+    let read_access_types = read_access.borrow_access_data_types();
+    assert!(read_access_types.contains(&hospital_personnel_access_data_type_pghd()), EInvalidAccessType);
+
+    if (read_access.borrow_exp() < clock.timestamp_ms()) {
+        hospital_personnel_read_access.remove(&patient_id);
+        assert!(false, EAccessExpired);
+    };
 }
 
 entry fun update_medical_record(
