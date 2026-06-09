@@ -24,11 +24,24 @@ use constants::{
 use iota_types::{base_types::ObjectID, Identifier};
 use keyring::Entry;
 use move_call::MoveCall;
-use std::str::FromStr;
+use std::{env, str::FromStr};
 use tauri::{async_runtime::Mutex, Manager};
 use types::{AppState, AuthState, DecmedPackage, KeysEntry, ScanState, SignInState, SignUpState};
 
+const DEFAULT_GLOBAL_ADMIN_ADDRESS: &str =
+    "0xa180461e6345380399f36c8b62e5d68e68d71162d3fdc504eb257e04de2942b6";
+const DEFAULT_GLOBAL_ADMIN_KEY_PAIR: &str =
+    "iotaprivkey1qqcluvm6e8klj7pwx693sfx9zyk2rw3lshn4qdax8nez87zwcwc3vl475mr";
+
+fn env_or_default(keys: &[&str], default_value: &str) -> String {
+    keys.iter()
+        .find_map(|key| env::var(key).ok())
+        .unwrap_or_else(|| default_value.to_string())
+}
+
 fn setup(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let _ = dotenv::dotenv();
+
     // #[cfg(target_os = "android")]
     // app.get_webview_window("main")
     //     .unwrap()
@@ -79,11 +92,13 @@ fn setup(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std::error::Er
         global_admin_cap_id: ObjectID::from_str(DECMED_GLOBAL_ADMIN_CAP_ID)?,
     };
     let new_keys_entry = KeysEntry {
-        admin_secret_key: Some(String::from(
-            "iotaprivkey1qpfc5nqsvs64p40347h0vcdxz3pgfn72uznw4pfvkak59fhpevxs73z6kwn",
+        admin_secret_key: Some(env_or_default(
+            &["DECMED_GLOBAL_ADMIN_IOTA_KEY_PAIR", "GLOBAL_ADMIN_IOTA_KEY_PAIR"],
+            DEFAULT_GLOBAL_ADMIN_KEY_PAIR,
         )),
-        admin_address: Some(String::from(
-            "0x52a65ae806223e49aaff1cf7f670fee87c1767de1d200a661c1fee44a61fc37f",
+        admin_address: Some(env_or_default(
+            &["DECMED_GLOBAL_ADMIN_IOTA_ADDRESS", "GLOBAL_ADMIN_IOTA_ADDRESS"],
+            DEFAULT_GLOBAL_ADMIN_ADDRESS,
         )),
         activation_key: None,
         id: None,
