@@ -1,6 +1,7 @@
 package com.hackastic.decmed.viewmodel
 
 import android.app.Application
+import com.hackastic.decmed.config.Env
 import com.hackastic.decmed.utils.DecmedLog
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -8,6 +9,10 @@ import com.hackastic.decmed.MainApplication
 import com.hackastic.decmed.data.health.HealthConnectPghdClient
 import com.hackastic.decmed.data.local.entity.PghdBatchEntity
 import com.hackastic.decmed.data.local.entity.PghdRecordEntity
+import com.hackastic.decmed.data.pghd.PghdPayloadConverter
+import com.hackastic.decmed.data.pghd.PghdPayloadSerializer
+import com.hackastic.decmed.domain.model.pghd.PghdBatchPayload
+import com.hackastic.decmed.worker.PghdWorkScheduler
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -166,6 +171,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                 }
                 val records = healthConnectPghdClient.readXiaomiBandPghd(daysBack)
                 pghdRepository.saveHealthConnectRecords(records)
+                scheduleSizeThresholdBatchIfNeeded()
                 refreshTotalCount()
                 DecmedLog.i(TAG, "Health Connect sync succeeded: records=${records.size} daysBack=$daysBack")
                 _uiState.update {
@@ -210,6 +216,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                     numericValue = trimmedValue.toDoubleOrNull(),
                     notes = notes
                 )
+                scheduleSizeThresholdBatchIfNeeded()
                 refreshTotalCount()
                 DecmedLog.i(TAG, "Manual PGHD record saved")
                 _uiState.update {
@@ -289,35 +296,63 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    fun grantPghdAccess(
+    fun grantAccess(
         hospitalPersonnelIotaAddress: String,
-        hospitalPersonnelPrePublicKey: String
+        hospitalPersonnelPrePublicKey: String,
+        accessKind: PatientGrantAccessKind
     ) {
         viewModelScope.launch {
             _uiState.update { it.copy(isGrantingAccess = true, errorMessage = null, lastSyncMessage = null) }
             try {
-                DecmedLog.i(TAG, "Granting PGHD access to $hospitalPersonnelIotaAddress")
+                DecmedLog.i(TAG, "Granting $accessKind access to $hospitalPersonnelIotaAddress")
                 val patientProfile = patientAuthRepository.getUnlockedProfile()
-                val result = prePghdClient.grantPghdReadAccess(
-                    profile = patientProfile,
-                    hospitalPersonnelIotaAddress = hospitalPersonnelIotaAddress,
-                    hospitalPersonnelPrePublicKey = hospitalPersonnelPrePublicKey
-                )
-                DecmedLog.i(TAG, "PGHD access grant succeeded: $result")
+                val result = when (accessKind) {
+                    PatientGrantAccessKind.PGHD_READ -> prePghdClient.grantPghdReadAccess(
+                        profile = patientProfile,
+                        hospitalPersonnelIotaAddress = hospitalPersonnelIotaAddress,
+                        hospitalPersonnelPrePublicKey = hospitalPersonnelPrePublicKey
+                    )
+                    PatientGrantAccessKind.MEDICAL_RECORD_READ_UPDATE -> prePghdClient.grantMedicalRecordReadUpdateAccess(
+                        profile = patientProfile,
+                        hospitalPersonnelIotaAddress = hospitalPersonnelIotaAddress,
+                        hospitalPersonnelPrePublicKey = hospitalPersonnelPrePublicKey
+                    )
+                }
+                DecmedLog.i(TAG, "$accessKind access grant succeeded: $result")
                 _uiState.update {
                     it.copy(
-                        lastSyncMessage = "Granted PGHD read access to ${result.hospitalPersonnelIotaAddress}.",
+                        lastSyncMessage = "Granted ${accessKind.displayLabel} to ${result.hospitalPersonnelIotaAddress}.",
                         errorMessage = null
                     )
                 }
             } catch (err: Exception) {
-                DecmedLog.e(TAG, "Failed to grant PGHD access to $hospitalPersonnelIotaAddress", err)
+                DecmedLog.e(TAG, "Failed to grant $accessKind access to $hospitalPersonnelIotaAddress", err)
                 _uiState.update {
-                    it.copy(errorMessage = err.message ?: "Unable to grant PGHD access.")
+                    it.copy(errorMessage = err.message ?: "Unable to grant access.")
                 }
             } finally {
                 _uiState.update { it.copy(isGrantingAccess = false) }
             }
+        }
+    }
+
+    private suspend fun scheduleSizeThresholdBatchIfNeeded() {
+        val records = pghdRepository.getUnbatchedRecords()
+        if (records.isEmpty()) return
+        val profile = runCatching { patientAuthRepository.getUnlockedProfile() }.getOrNull() ?: return
+        val patientId = profile.iotaAddress ?: profile.idHash ?: profile.id
+        val estimatedPayload = PghdPayloadConverter.recordsToBatchPayload(
+            records = records,
+            patientId = patientId,
+            triggerReason = PghdBatchPayload.TRIGGER_SIZE_THRESHOLD
+        )
+        val estimatedBytes = PghdPayloadSerializer.toJson(estimatedPayload).toByteArray(Charsets.UTF_8).size
+        if (estimatedBytes > Env.pghdEarlyTriggerBytes) {
+            DecmedLog.i(
+                TAG,
+                "Scheduling immediate PGHD batch because unbatched payload size=$estimatedBytes exceeds threshold=${Env.pghdEarlyTriggerBytes}"
+            )
+            PghdWorkScheduler.scheduleBatchNow(getApplication())
         }
     }
 
@@ -393,4 +428,9 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
     companion object {
         private const val TAG = "PghdCollectionViewModel"
     }
+}
+
+enum class PatientGrantAccessKind(val displayLabel: String) {
+    PGHD_READ("PGHD read access"),
+    MEDICAL_RECORD_READ_UPDATE("medical record read/update access")
 }

@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit
 
 object PghdWorkScheduler {
     private const val BATCH_WORK = "decmed_pghd_batch_work"
+    private const val BATCH_NOW_WORK = "decmed_pghd_batch_now_work"
     private const val RETRY_WORK = "decmed_pghd_retry_work"
     private const val HEALTH_CONNECT_SYNC_WORK = "decmed_pghd_health_connect_sync_work"
 
@@ -43,6 +44,17 @@ object PghdWorkScheduler {
         WorkManager.getInstance(context).cancelUniqueWork(RETRY_WORK)
         WorkManager.getInstance(context).cancelUniqueWork(HEALTH_CONNECT_SYNC_WORK)
         WorkManager.getInstance(context).cancelUniqueWork(BATCH_WORK)
+        WorkManager.getInstance(context).cancelUniqueWork(BATCH_NOW_WORK)
+    }
+
+    fun scheduleBatchNow(context: Context) {
+        val request = OneTimeWorkRequestBuilder<PghdBatchWorker>().build()
+
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            BATCH_NOW_WORK,
+            ExistingWorkPolicy.REPLACE,
+            request
+        )
     }
 
     private fun scheduleHealthConnectSync(context: Context) {

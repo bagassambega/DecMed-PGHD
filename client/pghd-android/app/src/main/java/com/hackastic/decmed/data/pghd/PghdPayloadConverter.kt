@@ -71,7 +71,8 @@ object PghdPayloadConverter {
             batchId = payload.batchId,
             patientId = payload.patientId,
             startTimestamp = payload.batchPeriod.startTimestamp,
-            endTimestamp = payload.batchPeriod.endTimestamp
+            endTimestamp = payload.batchPeriod.endTimestamp,
+            triggerReason = payload.triggerReason ?: PghdBatchEntity.TRIGGER_TIME_BASED
         )
 
     fun payloadToDataPointEntities(payload: PghdBatchPayload): List<PghdBatchDataPointEntity> =

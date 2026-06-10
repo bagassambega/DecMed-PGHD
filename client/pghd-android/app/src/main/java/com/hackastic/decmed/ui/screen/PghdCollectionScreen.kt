@@ -66,6 +66,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.health.connect.client.PermissionController
 import com.hackastic.decmed.data.local.entity.PghdRecordEntity
+import com.hackastic.decmed.viewmodel.PatientGrantAccessKind
 import com.hackastic.decmed.viewmodel.PghdCollectionViewModel
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
@@ -241,8 +242,8 @@ fun PghdCollectionScreen(
         GrantPghdAccessDialog(
             isGranting = uiState.isGrantingAccess,
             onDismiss = { showGrantAccessDialog = false },
-            onGrant = { personnelAddress, personnelPrePublicKey ->
-                viewModel.grantPghdAccess(personnelAddress, personnelPrePublicKey)
+            onGrant = { personnelAddress, personnelPrePublicKey, accessKind ->
+                viewModel.grantAccess(personnelAddress, personnelPrePublicKey, accessKind)
                 showGrantAccessDialog = false
             }
         )
@@ -386,11 +387,12 @@ private fun HealthConnectSummaryCard(
 private fun GrantPghdAccessDialog(
     isGranting: Boolean,
     onDismiss: () -> Unit,
-    onGrant: (String, String) -> Unit
+    onGrant: (String, String, PatientGrantAccessKind) -> Unit
 ) {
     val context = LocalContext.current
     var personnelAddress by rememberSaveable { mutableStateOf("") }
     var personnelPrePublicKey by rememberSaveable { mutableStateOf("") }
+    var selectedAccessKind by rememberSaveable { mutableStateOf(PatientGrantAccessKind.PGHD_READ) }
     var scanError by rememberSaveable { mutableStateOf<String?>(null) }
     val applyQrContent: (String) -> Unit = { content ->
         val decoded = decodeHospitalPersonnelQrPayload(content)
@@ -448,7 +450,7 @@ private fun GrantPghdAccessDialog(
         confirmButton = {
             Button(
                 enabled = !isGranting && personnelAddress.isNotBlank() && personnelPrePublicKey.isNotBlank(),
-                onClick = { onGrant(personnelAddress, personnelPrePublicKey) }
+                onClick = { onGrant(personnelAddress, personnelPrePublicKey, selectedAccessKind) }
             ) {
                 Text(if (isGranting) "Granting" else "Grant")
             }
@@ -458,12 +460,32 @@ private fun GrantPghdAccessDialog(
                 Text("Cancel")
             }
         },
-        title = { Text("Grant PGHD Access") },
+        title = { Text("Grant Access") },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                Text(
+                    text = "Access type",
+                    style = MaterialTheme.typography.labelMedium
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = selectedAccessKind == PatientGrantAccessKind.PGHD_READ,
+                        onClick = { selectedAccessKind = PatientGrantAccessKind.PGHD_READ },
+                        label = { Text("PGHD Read") },
+                        enabled = !isGranting
+                    )
+                    FilterChip(
+                        selected = selectedAccessKind == PatientGrantAccessKind.MEDICAL_RECORD_READ_UPDATE,
+                        onClick = {
+                            selectedAccessKind = PatientGrantAccessKind.MEDICAL_RECORD_READ_UPDATE
+                        },
+                        label = { Text("Medical Read/Update") },
+                        enabled = !isGranting
+                    )
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         modifier = Modifier.weight(1f),

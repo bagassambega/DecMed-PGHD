@@ -28,6 +28,7 @@ import com.hackastic.decmed.data.local.entity.SensorData
  *          • Added index on (dataType, endTimeEpochMillis)
  *   v5 — Added pghd_records table for encrypted Health Connect and manual PGHD.
  *   v7 — PGHD batch table now stores encrypted envelopes and retry state.
+ *   v8 — PGHD batch table stores triggerReason for time/size based batching.
  */
 @Database(
     entities = [
@@ -37,7 +38,7 @@ import com.hackastic.decmed.data.local.entity.SensorData
         PghdBatchEntity::class,
         PghdBatchDataPointEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class SensorDatabase : RoomDatabase() {

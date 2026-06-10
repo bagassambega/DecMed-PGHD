@@ -208,11 +208,18 @@ private fun PghdBatchCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 BatchStatusChip(status = batch.status)
-                Text(
-                    text = "Retry ${batch.retryCount}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = "Triggered by ${batch.triggerReason.toTriggerLabel()}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "Retry ${batch.retryCount}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             Text(
@@ -231,6 +238,12 @@ private fun PghdBatchCard(
         }
     }
 }
+
+private fun String.toTriggerLabel(): String =
+    when (this) {
+        PghdBatchEntity.TRIGGER_SIZE_THRESHOLD -> "size threshold"
+        else -> "15-minute schedule"
+    }
 
 @Composable
 private fun BatchStatusChip(status: String) {

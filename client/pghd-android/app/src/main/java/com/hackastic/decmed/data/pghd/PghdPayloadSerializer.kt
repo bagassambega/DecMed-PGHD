@@ -35,6 +35,7 @@ object PghdPayloadSerializer {
     fun innerPlaintextToJson(innerPlaintext: PghdInnerPlaintext): String =
         JSONObject()
             .put("pghd_data", JSONObject(innerPlaintext.pghdData))
+            .put("pghd_data_json", innerPlaintext.pghdData)
             .put("inner_signature", innerPlaintext.innerSignature)
             .toString()
 

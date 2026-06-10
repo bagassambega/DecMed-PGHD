@@ -23,6 +23,7 @@ data class PghdBatchEntity(
     val capsule: String = "",
     val hCipher: String = "",
     val pghdOuterSignature: String = "",
+    val triggerReason: String = TRIGGER_TIME_BASED,
     val status: String = STATUS_PENDING,
     val retryCount: Int = 0,
     val createdAtEpochMillis: Long = System.currentTimeMillis(),
@@ -33,5 +34,7 @@ data class PghdBatchEntity(
         const val STATUS_SENT = "sent"
         const val STATUS_FAILED = "failed"
         const val STATUS_PERMANENT_FAILURE = "permanent_failure"
+        const val TRIGGER_TIME_BASED = "time_based"
+        const val TRIGGER_SIZE_THRESHOLD = "size_threshold"
     }
 }
