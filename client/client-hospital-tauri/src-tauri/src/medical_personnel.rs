@@ -432,9 +432,16 @@ pub async fn get_pghd(
         .get("inner_signature")
         .and_then(Value::as_str)
         .ok_or(anyhow!("PGHD plaintext missing inner_signature").context(current_fn!()))?;
-    if let Err(err) =
-        verify_pghd_inner_signature(&res.data.pghd_public_key, inner_signature, pghd_data)
-    {
+    let signed_pghd_data = inner
+        .get("pghd_data_json")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .unwrap_or(serde_json::to_string(pghd_data).context(current_fn!())?);
+    if let Err(err) = verify_pghd_inner_signature(
+        &res.data.pghd_public_key,
+        inner_signature,
+        signed_pghd_data.as_bytes(),
+    ) {
         request_pghd_invalidation(
             &req_client,
             &access_token,
@@ -512,7 +519,7 @@ fn aes_decrypt_with_aad(
 fn verify_pghd_inner_signature(
     public_key_base64: &str,
     signature_base64: &str,
-    pghd_data: &Value,
+    signed_pghd_data: &[u8],
 ) -> Result<(), HospitalError> {
     let public_key_der = STANDARD.decode(public_key_base64).context(current_fn!())?;
     let verifying_key = VerifyingKey::from_public_key_der(&public_key_der)
@@ -520,7 +527,7 @@ fn verify_pghd_inner_signature(
     let signature_der = STANDARD.decode(signature_base64).context(current_fn!())?;
     let signature = P256Signature::from_der(&signature_der)
         .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
-    let digest = Sha256::digest(serde_json::to_string(pghd_data).context(current_fn!())?);
+    let digest = Sha256::digest(signed_pghd_data);
     verifying_key
         .verify_prehash(&digest, &signature)
         .map_err(|e| anyhow!(e.to_string()).context(current_fn!()).into())

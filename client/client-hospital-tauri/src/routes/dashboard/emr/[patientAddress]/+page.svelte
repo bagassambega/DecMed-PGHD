@@ -12,7 +12,19 @@
 
 </script>
 
-<h2 class="text-lg font-montserrat font-semibold">EMR of</h2>
+<div class="flex items-start justify-between gap-4 mb-4">
+	<div>
+		<h2 class="text-lg font-montserrat font-semibold">EMR of</h2>
+		<p class="text-sm text-zinc-500">Patient: {data.patientIotaAddress}</p>
+	</div>
+	<button
+		type="button"
+		class="border border-zinc-300 px-3 py-1.5 rounded-md text-sm"
+		onclick={() => emrReadState.refreshMedicalRecord()}
+	>
+		Refresh
+	</button>
+</div>
 
 {#if data.accessToken}
 	{#await emrReadState.fetchMedicalRecord}
@@ -173,17 +185,19 @@
 						class="max-w-max bg-zinc-800 text-zinc-100 px-4 rounded-md"
 						onclick={() => {
 							emrReadState.index = record.prevIndex as number;
+							emrReadState.refreshMedicalRecord();
 						}}>Prev</a
 					>
 				</div>
 			{/if}
-			{#if record.nextIndex !== null && record.prevIndex !== undefined}
+			{#if record.nextIndex !== null && record.nextIndex !== undefined}
 				<div class="flex-1 justify-end flex items-center">
 					<a
 						href={`/dashboard/emr/${data.patientIotaAddress}?accessToken=${data.accessToken}&index=${record.nextIndex}`}
 						class="max-w-max bg-zinc-800 text-zinc-100 px-4 rounded-md"
 						onclick={() => {
 							emrReadState.index = record.nextIndex as number;
+							emrReadState.refreshMedicalRecord();
 						}}>Next</a
 					>
 				</div>

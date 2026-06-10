@@ -11,10 +11,12 @@ type Props = {
 export class PghdReadState {
 	accessToken = $state('');
 	patientIotaAddress = $state('');
+	fetchPghdList = $state<Promise<InvokeGetPghdListItem[]>>(Promise.resolve([]));
 
 	constructor({ accessToken, patientIotaAddress }: Props) {
 		this.accessToken = accessToken;
 		this.patientIotaAddress = patientIotaAddress;
+		this.refreshPghdList();
 	}
 
 	getPghdList = async (accessToken: string, patientIotaAddress: string) => {
@@ -26,8 +28,9 @@ export class PghdReadState {
 		});
 
 		if (!resInvokeGetPghdList.success) {
-			toast.error(resInvokeGetPghdList.error);
-			throw new Error(resInvokeGetPghdList.error);
+			const errorMessage = explainPghdAccessError(resInvokeGetPghdList.error);
+			toast.error(errorMessage);
+			throw new Error(errorMessage);
 		}
 
 		return resInvokeGetPghdList.data.data;
@@ -43,8 +46,9 @@ export class PghdReadState {
 		});
 
 		if (!resInvokeGetPghd.success) {
-			toast.error(resInvokeGetPghd.error);
-			throw new Error(resInvokeGetPghd.error);
+			const errorMessage = explainPghdAccessError(resInvokeGetPghd.error);
+			toast.error(errorMessage);
+			throw new Error(errorMessage);
 		}
 
 		const pghd = resInvokeGetPghd.data.data;
@@ -74,7 +78,18 @@ export class PghdReadState {
 		}
 
 		toast.success('PGHD entry invalidated.');
+		this.refreshPghdList();
 	};
 
-	fetchPghdList = $derived(this.getPghdList(this.accessToken, this.patientIotaAddress));
+	refreshPghdList = () => {
+		this.fetchPghdList = this.getPghdList(this.accessToken, this.patientIotaAddress);
+	};
 }
+
+const explainPghdAccessError = (error: string) => {
+	if (error.includes('Keys not found')) {
+		return 'PGHD PRE access keys are missing or expired. Re-grant PGHD access from the Android patient app using this personnel QR, then refresh this page.';
+	}
+
+	return error;
+};

@@ -221,6 +221,7 @@ pub async fn create_pghd_access(
 ) -> anyhow::Result<()> {
     let hospital_personnel_address = IotaAddress::from_str(&hospital_personnel_address)
         .context("invalid hospital personnel address")?;
+    let metadata_items: Vec<String> = serde_json::from_str(&metadata).unwrap_or_else(|_| vec![metadata]);
     let sender = IotaAddress::from_str(&sender_address).context("invalid sender address")?;
     let sender_key_pair = IotaKeyPair::decode(&sender_key_pair)
         .map_err(|err| anyhow!(err.to_string()))
@@ -240,7 +241,9 @@ pub async fn create_pghd_access(
                         .context("serialize hospital personnel address")?,
                 ),
                 package.hospital_personnel_id_account_arg(true)?,
-                CallArg::Pure(bcs::to_bytes(&vec![metadata]).context("serialize PGHD metadata")?),
+                CallArg::Pure(
+                    bcs::to_bytes(&metadata_items).context("serialize access metadata")?,
+                ),
                 package.patient_id_account_arg(true),
             ],
             sender,

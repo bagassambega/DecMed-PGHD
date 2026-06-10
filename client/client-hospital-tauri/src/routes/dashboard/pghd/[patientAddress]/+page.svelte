@@ -10,9 +10,17 @@
 	});
 
 	let selectedPghd = $state<Promise<NonNullable<InvokeGetPghdResponseData>> | null>(null);
+	let selectedPghdIndex = $state<number | null>(null);
 
 	const openPghd = (index: number) => {
+		selectedPghdIndex = index;
 		selectedPghd = pghdReadState.getPghd(data.accessToken, index, data.patientIotaAddress);
+	};
+
+	const refreshSelectedPghd = () => {
+		if (selectedPghdIndex !== null) {
+			openPghd(selectedPghdIndex);
+		}
 	};
 
 	const formatDate = (value?: number | string) => {
@@ -43,7 +51,16 @@
 		<h2 class="text-lg font-montserrat font-semibold">Patient Generated Health Data</h2>
 		<p class="text-sm text-zinc-500">Patient: {data.patientIotaAddress}</p>
 	</div>
-	<a href="/dashboard" class="border border-zinc-300 px-3 py-1.5 rounded-md text-sm">Back</a>
+	<div class="flex gap-2">
+		<button
+			type="button"
+			class="border border-zinc-300 px-3 py-1.5 rounded-md text-sm"
+			onclick={() => pghdReadState.refreshPghdList()}
+		>
+			Refresh
+		</button>
+		<a href="/dashboard" class="border border-zinc-300 px-3 py-1.5 rounded-md text-sm">Back</a>
+	</div>
 </div>
 
 <section class="border border-zinc-200 rounded-md bg-white">
@@ -128,13 +145,25 @@
 							)}
 						</p>
 					</div>
-					<button
-						type="button"
-						class="border border-zinc-300 px-3 py-1.5 rounded-md text-sm"
-						onclick={() => (selectedPghd = null)}
-					>
-						Close
-					</button>
+					<div class="flex gap-2">
+						<button
+							type="button"
+							class="border border-zinc-300 px-3 py-1.5 rounded-md text-sm"
+							onclick={refreshSelectedPghd}
+						>
+							Refresh
+						</button>
+						<button
+							type="button"
+							class="border border-zinc-300 px-3 py-1.5 rounded-md text-sm"
+							onclick={() => {
+								selectedPghd = null;
+								selectedPghdIndex = null;
+							}}
+						>
+							Close
+						</button>
+					</div>
 				</div>
 
 				<div class="grid sm:grid-cols-3 gap-3 p-4 border-b border-zinc-200">

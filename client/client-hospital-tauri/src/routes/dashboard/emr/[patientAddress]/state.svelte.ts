@@ -20,12 +20,16 @@ export class EmrReadState {
 	pghdAccessToken = $state<string | null>(null);
 	index = $state<number>(0);
 	patientIotaAddress = $state('');
+	fetchMedicalRecord = $state<Promise<InvokeGetMedicalRecordResponseData>>(new Promise(() => {}));
+	fetchPghdList = $state<Promise<InvokeGetPghdListItem[]>>(Promise.resolve([]));
 
 	constructor({ accessToken, pghdAccessToken, index, patientIotaAddress }: Props) {
 		this.accessToken = accessToken;
 		this.pghdAccessToken = pghdAccessToken;
 		this.index = index;
 		this.patientIotaAddress = patientIotaAddress;
+		this.refreshMedicalRecord();
+		this.refreshPghdList();
 	}
 
 	getMedicalRecord = async (
@@ -51,9 +55,13 @@ export class EmrReadState {
 		return resInvokeGetMedicalRecord.data.data;
 	};
 
-	fetchMedicalRecord = $derived(
-		this.getMedicalRecord(this.accessToken, this.index, this.patientIotaAddress)
-	);
+	refreshMedicalRecord = () => {
+		this.fetchMedicalRecord = this.getMedicalRecord(
+			this.accessToken,
+			this.index,
+			this.patientIotaAddress
+		);
+	};
 
 	getPghdList = async (accessToken: string | null, patientIotaAddress: string) => {
 		const resInvokeGetPghdList = await tryCatchAsVal(async () => {
@@ -64,8 +72,9 @@ export class EmrReadState {
 		});
 
 		if (!resInvokeGetPghdList.success) {
-			toast.error(resInvokeGetPghdList.error);
-			throw new Error(resInvokeGetPghdList.error);
+			const errorMessage = explainPghdAccessError(resInvokeGetPghdList.error);
+			toast.error(errorMessage);
+			throw new Error(errorMessage);
 		}
 
 		return resInvokeGetPghdList.data.data;
@@ -81,8 +90,9 @@ export class EmrReadState {
 		});
 
 		if (!resInvokeGetPghd.success) {
-			toast.error(resInvokeGetPghd.error);
-			throw new Error(resInvokeGetPghd.error);
+			const errorMessage = explainPghdAccessError(resInvokeGetPghd.error);
+			toast.error(errorMessage);
+			throw new Error(errorMessage);
 		}
 
 		const pghd = resInvokeGetPghd.data.data;
@@ -113,5 +123,15 @@ export class EmrReadState {
 		toast.success('PGHD entry invalidated.');
 	};
 
-	fetchPghdList = $derived(this.getPghdList(this.pghdAccessToken, this.patientIotaAddress));
+	refreshPghdList = () => {
+		this.fetchPghdList = this.getPghdList(this.pghdAccessToken, this.patientIotaAddress);
+	};
 }
+
+const explainPghdAccessError = (error: string) => {
+	if (error.includes('Keys not found')) {
+		return 'PGHD PRE access keys are missing or expired. Re-grant PGHD access from the Android patient app using this personnel QR, then refresh this page.';
+	}
+
+	return error;
+};
