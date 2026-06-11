@@ -48,8 +48,9 @@ export class EmrReadState {
 		console.log(resInvokeGetMedicalRecord);
 
 		if (!resInvokeGetMedicalRecord.success) {
-			toast.error(resInvokeGetMedicalRecord.error);
-			throw new Error(resInvokeGetMedicalRecord.error);
+			const errorMessage = explainMedicalRecordAccessError(resInvokeGetMedicalRecord.error);
+			toast.error(errorMessage);
+			throw new Error(errorMessage);
 		}
 
 		return resInvokeGetMedicalRecord.data.data;
@@ -129,8 +130,27 @@ export class EmrReadState {
 }
 
 const explainPghdAccessError = (error: string) => {
-	if (error.includes('Keys not found')) {
+	if (
+		error.includes('Keys not found') ||
+		error.toLowerCase().includes('expired') ||
+		error.toLowerCase().includes('invalid token') ||
+		error.toLowerCase().includes('unauthorized')
+	) {
 		return 'PGHD PRE access keys are missing or expired. Re-grant PGHD access from the Android patient app using this personnel QR, then refresh this page.';
+	}
+
+	return error;
+};
+
+const explainMedicalRecordAccessError = (error: string) => {
+	if (
+		error.includes('Keys not found') ||
+		error.toLowerCase().includes('expired') ||
+		error.toLowerCase().includes('invalid token') ||
+		error.toLowerCase().includes('unauthorized') ||
+		error.toLowerCase().includes('illegal action')
+	) {
+		return 'Medical record access is missing or expired. Re-grant medical read/update access from the Android patient app using this personnel QR, then refresh this page.';
 	}
 
 	return error;

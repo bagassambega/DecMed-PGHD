@@ -87,7 +87,12 @@ export class PghdReadState {
 }
 
 const explainPghdAccessError = (error: string) => {
-	if (error.includes('Keys not found')) {
+	if (
+		error.includes('Keys not found') ||
+		error.toLowerCase().includes('expired') ||
+		error.toLowerCase().includes('invalid token') ||
+		error.toLowerCase().includes('unauthorized')
+	) {
 		return 'PGHD PRE access keys are missing or expired. Re-grant PGHD access from the Android patient app using this personnel QR, then refresh this page.';
 	}
 
