@@ -241,6 +241,7 @@ private fun PghdBatchCard(
 
 private fun String.toTriggerLabel(): String =
     when (this) {
+        PghdBatchEntity.TRIGGER_MANUAL_SUBMIT -> "manual submit"
         PghdBatchEntity.TRIGGER_SIZE_THRESHOLD -> "size threshold"
         else -> "15-minute schedule"
     }

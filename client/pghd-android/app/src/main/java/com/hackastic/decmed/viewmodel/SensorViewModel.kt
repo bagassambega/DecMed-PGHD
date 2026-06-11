@@ -207,6 +207,15 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
             }
     }
 
+    fun getApprovedCollectionConfig(): List<Pair<Int, Int>> {
+        val state = _uiState.value
+        return state.sensorConfigs
+            .filter { it.isApproved }
+            .map { cfg ->
+                cfg.sensorType to (state.collectionIntervals[cfg.sensorType] ?: cfg.collectionIntervalMs)
+            }
+    }
+
     fun saveConfiguration() {
         viewModelScope.launch {
             try {
@@ -234,7 +243,10 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
     private fun loadExistingConfig() {
         viewModelScope.launch {
             val hasConfig = getSensorConfigUseCase.hasExistingConfig()
-            if (!hasConfig) return@launch
+            if (!hasConfig) {
+                enumerateSensors()
+                return@launch
+            }
 
             val configs = getSensorConfigUseCase().first()
             _uiState.update { state ->

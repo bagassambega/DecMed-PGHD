@@ -13,6 +13,7 @@ data class PghdBatchPayload(
         const val SCHEMA_VERSION = "1.0"
         const val TRIGGER_TIME_BASED = "time_based"
         const val TRIGGER_SIZE_THRESHOLD = "size_threshold"
+        const val TRIGGER_MANUAL_SUBMIT = "manual_submit"
     }
 }
 

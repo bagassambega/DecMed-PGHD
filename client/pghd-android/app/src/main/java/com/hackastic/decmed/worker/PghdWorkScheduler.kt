@@ -16,6 +16,7 @@ object PghdWorkScheduler {
     private const val BATCH_NOW_WORK = "decmed_pghd_batch_now_work"
     private const val RETRY_WORK = "decmed_pghd_retry_work"
     private const val HEALTH_CONNECT_SYNC_WORK = "decmed_pghd_health_connect_sync_work"
+    private const val HEALTH_CONNECT_SYNC_NOW_WORK = "decmed_pghd_health_connect_sync_now_work"
 
     fun scheduleAll(context: Context) {
         // Work is scheduled only after the patient explicitly starts collection.
@@ -29,7 +30,7 @@ object PghdWorkScheduler {
 
         WorkManager.getInstance(context).enqueueUniqueWork(
             RETRY_WORK,
-            ExistingWorkPolicy.REPLACE,
+            ExistingWorkPolicy.KEEP,
             request
         )
     }
@@ -43,8 +44,21 @@ object PghdWorkScheduler {
     fun cancelCollectionWork(context: Context) {
         WorkManager.getInstance(context).cancelUniqueWork(RETRY_WORK)
         WorkManager.getInstance(context).cancelUniqueWork(HEALTH_CONNECT_SYNC_WORK)
+        WorkManager.getInstance(context).cancelUniqueWork(HEALTH_CONNECT_SYNC_NOW_WORK)
         WorkManager.getInstance(context).cancelUniqueWork(BATCH_WORK)
         WorkManager.getInstance(context).cancelUniqueWork(BATCH_NOW_WORK)
+    }
+
+    fun scheduleHealthConnectSyncNow(context: Context) {
+        val request = OneTimeWorkRequestBuilder<PghdHealthConnectSyncWorker>()
+            .setInitialDelay(2, TimeUnit.SECONDS)
+            .build()
+
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            HEALTH_CONNECT_SYNC_NOW_WORK,
+            ExistingWorkPolicy.REPLACE,
+            request
+        )
     }
 
     fun scheduleBatchNow(context: Context) {

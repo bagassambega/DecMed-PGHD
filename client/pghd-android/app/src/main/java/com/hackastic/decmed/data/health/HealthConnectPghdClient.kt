@@ -113,7 +113,7 @@ class HealthConnectPghdClient(
         val grantedPermissions = getGrantedPermissions()
         return HealthConnectPermissionState(
             grantedPermissions = grantedPermissions,
-            hasRequiredDataPermissions = grantedPermissions.containsAll(XIAOMI_BAND_READ_PERMISSIONS),
+            hasRequiredDataPermissions = grantedPermissions.any { it in READ_DATA_PERMISSIONS },
             hasHistoryPermission = HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY in grantedPermissions
         )
     }
@@ -121,7 +121,8 @@ class HealthConnectPghdClient(
     suspend fun readRecentPghd(daysBack: Long = 30): List<PghdRecordEntity> {
         val end = Instant.now()
         val start = end.minus(daysBack, ChronoUnit.DAYS)
-        return DESCRIPTORS.flatMap { descriptor ->
+        val grantedPermissions = getGrantedPermissions()
+        return DESCRIPTORS.filter { it.readPermission in grantedPermissions }.flatMap { descriptor ->
             readRecordsForDescriptor(descriptor, start, end)
         }
     }
@@ -150,6 +151,7 @@ class HealthConnectPghdClient(
 
     private data class HealthRecordDescriptor<T : Record>(
         val recordClass: KClass<T>,
+        val readPermission: String = HealthPermission.getReadPermission(recordClass),
         val toEntities: (T) -> List<PghdRecordEntity>
     )
 
@@ -176,7 +178,48 @@ class HealthConnectPghdClient(
             HealthPermission.getReadPermission(Vo2MaxRecord::class)
         )
 
-        val READ_DATA_PERMISSIONS: Set<String> = XIAOMI_BAND_READ_PERMISSIONS
+        val READ_DATA_PERMISSIONS: Set<String> = setOf(
+            HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class),
+            HealthPermission.getReadPermission(BasalBodyTemperatureRecord::class),
+            HealthPermission.getReadPermission(BasalMetabolicRateRecord::class),
+            HealthPermission.getReadPermission(BloodGlucoseRecord::class),
+            HealthPermission.getReadPermission(BloodPressureRecord::class),
+            HealthPermission.getReadPermission(BodyFatRecord::class),
+            HealthPermission.getReadPermission(BodyTemperatureRecord::class),
+            HealthPermission.getReadPermission(BodyWaterMassRecord::class),
+            HealthPermission.getReadPermission(BoneMassRecord::class),
+            HealthPermission.getReadPermission(CervicalMucusRecord::class),
+            HealthPermission.getReadPermission(CyclingPedalingCadenceRecord::class),
+            HealthPermission.getReadPermission(DistanceRecord::class),
+            HealthPermission.getReadPermission(ElevationGainedRecord::class),
+            HealthPermission.getReadPermission(ExerciseSessionRecord::class),
+            HealthPermission.getReadPermission(FloorsClimbedRecord::class),
+            HealthPermission.getReadPermission(HeartRateRecord::class),
+            HealthPermission.getReadPermission(HeartRateVariabilityRmssdRecord::class),
+            HealthPermission.getReadPermission(HeightRecord::class),
+            HealthPermission.getReadPermission(HydrationRecord::class),
+            HealthPermission.getReadPermission(IntermenstrualBleedingRecord::class),
+            HealthPermission.getReadPermission(LeanBodyMassRecord::class),
+            HealthPermission.getReadPermission(MenstruationFlowRecord::class),
+            HealthPermission.getReadPermission(MenstruationPeriodRecord::class),
+            HealthPermission.getReadPermission(NutritionRecord::class),
+            HealthPermission.getReadPermission(OvulationTestRecord::class),
+            HealthPermission.getReadPermission(OxygenSaturationRecord::class),
+            HealthPermission.getReadPermission(PlannedExerciseSessionRecord::class),
+            HealthPermission.getReadPermission(PowerRecord::class),
+            HealthPermission.getReadPermission(RespiratoryRateRecord::class),
+            HealthPermission.getReadPermission(RestingHeartRateRecord::class),
+            HealthPermission.getReadPermission(SexualActivityRecord::class),
+            HealthPermission.getReadPermission(SkinTemperatureRecord::class),
+            HealthPermission.getReadPermission(SleepSessionRecord::class),
+            HealthPermission.getReadPermission(SpeedRecord::class),
+            HealthPermission.getReadPermission(StepsCadenceRecord::class),
+            HealthPermission.getReadPermission(StepsRecord::class),
+            HealthPermission.getReadPermission(TotalCaloriesBurnedRecord::class),
+            HealthPermission.getReadPermission(Vo2MaxRecord::class),
+            HealthPermission.getReadPermission(WeightRecord::class),
+            HealthPermission.getReadPermission(WheelchairPushesRecord::class)
+        )
 
         val READ_HISTORY_PERMISSIONS: Set<String> = setOf(HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY)
 

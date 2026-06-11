@@ -25,6 +25,7 @@ import kotlinx.coroutines.launch
 
 data class PghdCollectionUiState(
     val records: List<PghdRecordEntity> = emptyList(),
+    val homeRecords: List<PghdRecordEntity> = emptyList(),
     val batches: List<PghdBatchEntity> = emptyList(),
     val recordTypes: List<String> = emptyList(),
     val selectedSourceTag: String? = null,
@@ -63,6 +64,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
 
     init {
         observeRecords()
+        observeHomeRecords()
         observeBatches()
         observeRecordTypes()
         observeHealthConnectSourcePackages()
@@ -169,7 +171,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                 } else {
                     HealthConnectPghdClient.DEFAULT_SYNC_DAYS
                 }
-                val records = healthConnectPghdClient.readXiaomiBandPghd(daysBack)
+                val records = healthConnectPghdClient.readRecentPghd(daysBack)
                 pghdRepository.saveHealthConnectRecords(records)
                 scheduleSizeThresholdBatchIfNeeded()
                 refreshTotalCount()
@@ -382,6 +384,14 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                         }
                     }
                 }
+        }
+    }
+
+    private fun observeHomeRecords() {
+        viewModelScope.launch {
+            pghdRepository.getRecords(sourceTag = null, recordType = null).collect { records ->
+                _uiState.update { it.copy(homeRecords = records) }
+            }
         }
     }
 

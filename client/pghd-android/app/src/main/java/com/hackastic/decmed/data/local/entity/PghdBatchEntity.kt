@@ -36,5 +36,6 @@ data class PghdBatchEntity(
         const val STATUS_PERMANENT_FAILURE = "permanent_failure"
         const val TRIGGER_TIME_BASED = "time_based"
         const val TRIGGER_SIZE_THRESHOLD = "size_threshold"
+        const val TRIGGER_MANUAL_SUBMIT = "manual_submit"
     }
 }

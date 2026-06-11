@@ -191,8 +191,11 @@ class SensorCollectionService : Service(), SensorEventListener {
         serviceScope.launch {
             try {
                 database.sensorDao().insertAll(batch)
-                database.pghdRecordDao().upsertAll(batch.map(AndroidSensorPghdMapper::toPghdRecord))
-                DecmedLog.d(TAG, "Wrote ${batch.size} Android sensor PGHD records to local DB.")
+                val pghdRecords = AndroidSensorPghdMapper.toPghdRecords(batch)
+                if (pghdRecords.isNotEmpty()) {
+                    database.pghdRecordDao().upsertAll(pghdRecords)
+                }
+                DecmedLog.d(TAG, "Wrote ${batch.size} raw phone sensor rows and ${pghdRecords.size} semantic phone_sensor PGHD records to local DB.")
             } catch (e: Exception) {
                 DecmedLog.e(TAG, "DB write error: ${e.message}", e)
             }

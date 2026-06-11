@@ -134,7 +134,7 @@ object PghdPayloadConverter {
         when (sourceTag) {
             PghdRecordEntity.SOURCE_HEALTH_CONNECT -> "android_health_connect"
             PghdRecordEntity.SOURCE_MANUAL -> "android_manual_input"
-            PghdRecordEntity.SOURCE_ANDROID_SENSOR -> "android_internal_sensor"
+            PghdRecordEntity.SOURCE_PHONE_SENSOR -> "phone_sensor"
             else -> sourcePackageName ?: "android_sensor"
         }
 
@@ -143,7 +143,7 @@ object PghdPayloadConverter {
             sourceTag == PghdRecordEntity.SOURCE_HEALTH_CONNECT && sourcePackageName?.isLikelyWearablePackage() == true -> "wearable"
             sourceTag == PghdRecordEntity.SOURCE_HEALTH_CONNECT -> "wearable"
             sourceTag == PghdRecordEntity.SOURCE_MANUAL -> "smartphone"
-            sourceTag == PghdRecordEntity.SOURCE_ANDROID_SENSOR -> "smartphone"
+            sourceTag == PghdRecordEntity.SOURCE_PHONE_SENSOR -> "smartphone"
             else -> "smartphone"
         }
 

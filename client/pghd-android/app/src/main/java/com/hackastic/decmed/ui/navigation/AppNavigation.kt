@@ -264,6 +264,7 @@ fun AppNavigation(
         composable(Screen.Home.route) {
             HomeScreen(
                 viewModel = sensorViewModel,
+                pghdViewModel = pghdCollectionViewModel,
                 onNavigateToSettings = {
                     navController.navigate(Screen.Settings.route)
                 },

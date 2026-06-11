@@ -56,7 +56,7 @@ class PghdBatchRepositoryImpl(
         val batch = createEncryptedBatch(
             records = records,
             patientProfile = patientProfile,
-            triggerReason = PghdBatchPayload.TRIGGER_TIME_BASED
+            triggerReason = PghdBatchPayload.TRIGGER_MANUAL_SUBMIT
         )
         return submitBatch(batch)
     }

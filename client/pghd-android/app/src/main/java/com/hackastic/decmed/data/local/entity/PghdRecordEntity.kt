@@ -30,6 +30,7 @@ data class PghdRecordEntity(
     companion object {
         const val SOURCE_HEALTH_CONNECT = "Health Connect"
         const val SOURCE_MANUAL = "Manual input"
-        const val SOURCE_ANDROID_SENSOR = "Android sensor"
+        const val SOURCE_PHONE_SENSOR = "phone_sensor"
+        const val SOURCE_ANDROID_SENSOR = SOURCE_PHONE_SENSOR
     }
 }

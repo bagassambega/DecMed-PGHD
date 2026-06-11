@@ -26,7 +26,7 @@ class PghdHealthConnectSyncWorker(
         } else {
             Env.pghdDefaultSyncDays
         }
-        val records = client.readXiaomiBandPghd(daysBack)
+        val records = client.readRecentPghd(daysBack)
         container.pghdRepository.saveHealthConnectRecords(records)
         return Result.success()
     }
