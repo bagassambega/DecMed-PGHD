@@ -119,6 +119,9 @@ export type PghdDataGroup = {
 	device_type: string;
 	recording_method?: string;
 	source: string;
+	source_label?: string;
+	source_package_name?: string;
+	device_source?: string;
 	data_points: PghdDataPoint[];
 };
 

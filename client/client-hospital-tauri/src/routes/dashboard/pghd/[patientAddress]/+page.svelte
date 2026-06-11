@@ -44,6 +44,9 @@
 		}
 		return `${point.value} ${point.unit}`.trim();
 	};
+
+	const formatUnknown = (value: unknown) =>
+		value === undefined || value === null || value === '' ? '-' : String(value);
 </script>
 
 <div class="flex items-start justify-between gap-4 mb-4">
@@ -144,6 +147,12 @@
 								pghd.pghd_data.batch_period.end_timestamp
 							)}
 						</p>
+						<p class="text-xs text-zinc-500 mt-1">
+							Batch device: {formatUnknown(pghd.pghd_data.source_device?.['device_manufacturer'])}
+							{formatUnknown(pghd.pghd_data.source_device?.['device_model'])} · Platform:
+							{formatUnknown(pghd.pghd_data.source_device?.['platform'])} · App:
+							{formatUnknown(pghd.pghd_data.source_device?.['app_version'])}
+						</p>
 					</div>
 					<div class="flex gap-2">
 						<button
@@ -171,7 +180,9 @@
 						<div class="bg-zinc-50 border border-zinc-200 rounded-md p-3">
 							<p class="text-sm font-medium">{group.measurement_type}</p>
 							<p class="text-2xl font-semibold">{group.data_points.length}</p>
-							<p class="text-xs text-zinc-500">{group.source} / {group.device_type}</p>
+							<p class="text-xs text-zinc-500">
+								Source: {group.source_label ?? group.source} · Device: {group.device_type}
+							</p>
 						</div>
 					{/each}
 				</div>
@@ -180,12 +191,31 @@
 					{#each pghd.pghd_data.data_group as group}
 						<div>
 							<h5 class="font-medium mb-2">{group.measurement_type}</h5>
+							<div class="grid sm:grid-cols-4 gap-2 mb-2 text-xs">
+								<div class="bg-zinc-50 border border-zinc-200 rounded-md p-2">
+									<p class="text-zinc-500">Source</p>
+									<p class="font-medium">{group.source_label ?? group.source}</p>
+								</div>
+								<div class="bg-zinc-50 border border-zinc-200 rounded-md p-2">
+									<p class="text-zinc-500">Device Source</p>
+									<p class="font-medium">{group.device_source ?? group.source_package_name ?? '-'}</p>
+								</div>
+								<div class="bg-zinc-50 border border-zinc-200 rounded-md p-2">
+									<p class="text-zinc-500">Device Type</p>
+									<p class="font-medium">{group.device_type}</p>
+								</div>
+								<div class="bg-zinc-50 border border-zinc-200 rounded-md p-2">
+									<p class="text-zinc-500">Recording Method</p>
+									<p class="font-medium">{group.recording_method ?? '-'}</p>
+								</div>
+							</div>
 							<div class="overflow-hidden border border-zinc-200 rounded-md">
 								<table class="w-full text-sm">
 									<thead class="bg-zinc-50 text-zinc-500">
 										<tr>
 											<th class="text-left p-2">Time</th>
 											<th class="text-left p-2">Value</th>
+											<th class="text-left p-2">Source</th>
 											<th class="text-left p-2">Method</th>
 										</tr>
 									</thead>
@@ -194,6 +224,7 @@
 											<tr class="border-t border-zinc-200">
 												<td class="p-2">{formatDate(point.timestamp)}</td>
 												<td class="p-2">{formatPointValue(point)}</td>
+												<td class="p-2">{group.source_label ?? group.source}</td>
 												<td class="p-2">{group.recording_method ?? '-'}</td>
 											</tr>
 										{/each}
