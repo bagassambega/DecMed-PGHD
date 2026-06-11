@@ -60,6 +60,9 @@ object PghdPayloadSerializer {
             .put("data_points", JSONArray(dataGroup.dataPoints.map(::dataPointToJson)))
 
         dataGroup.recordingMethod?.let { json.put("recording_method", it) }
+        dataGroup.sourceLabel?.let { json.put("source_label", it) }
+        dataGroup.sourcePackageName?.let { json.put("source_package_name", it) }
+        dataGroup.deviceSource?.let { json.put("device_source", it) }
         return json
     }
 

@@ -165,7 +165,9 @@ private fun PghdBatchCard(
     onSubmit: () -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
-    val canSubmit = batch.status != PghdBatchEntity.STATUS_SENT && !isSubmitting
+    val canSubmit = batch.status != PghdBatchEntity.STATUS_SENT &&
+        batch.status != PghdBatchEntity.STATUS_PENDING &&
+        !isSubmitting
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -182,13 +184,13 @@ private fun PghdBatchCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = batch.batchId,
+                        text = "Batch ID: ${batch.batchId}",
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1
                     )
                     Text(
-                        text = dateFormatter.format(Date(batch.createdAtEpochMillis)),
+                        text = "Created: ${dateFormatter.format(Date(batch.createdAtEpochMillis))}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -222,12 +224,12 @@ private fun PghdBatchCard(
                 BatchStatusChip(status = batch.status)
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        text = "Triggered by ${batch.triggerReason.toTriggerLabel()}",
+                        text = "Trigger: ${batch.triggerReason.toTriggerLabel()}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = "Retry ${batch.retryCount}",
+                        text = "Retry count: ${batch.retryCount}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -235,7 +237,13 @@ private fun PghdBatchCard(
             }
 
             Text(
-                text = "${dateFormatter.format(Date(batch.startTimestamp))} - ${dateFormatter.format(Date(batch.endTimestamp))}",
+                text = "Data period: ${dateFormatter.format(Date(batch.startTimestamp.toEpochMillisForDisplay()))} - ${dateFormatter.format(Date(batch.endTimestamp.toEpochMillisForDisplay()))}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Text(
+                text = "Patient address: ${batch.patientId}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -258,13 +266,18 @@ private fun String.toTriggerLabel(): String =
         else -> "15-minute schedule"
     }
 
+private fun Long.toEpochMillisForDisplay(): Long =
+    if (this < 10_000_000_000L) this * 1000L else this
+
 @Composable
 private fun BatchStatusChip(status: String) {
     val (label, icon, color) = when (status) {
+        PghdBatchEntity.STATUS_WAITING_FOR_TRIGGER -> Triple("Waiting for trigger", Icons.Default.CloudUpload, MaterialTheme.colorScheme.secondary)
+        PghdBatchEntity.STATUS_PENDING -> Triple("Sending", Icons.Default.CloudUpload, MaterialTheme.colorScheme.tertiary)
         PghdBatchEntity.STATUS_SENT -> Triple("Sent", Icons.Default.CheckCircle, MaterialTheme.colorScheme.primary)
         PghdBatchEntity.STATUS_FAILED -> Triple("Failed", Icons.Default.Error, MaterialTheme.colorScheme.error)
         PghdBatchEntity.STATUS_PERMANENT_FAILURE -> Triple("Permanent failure", Icons.Default.Error, MaterialTheme.colorScheme.error)
-        else -> Triple("Pending", Icons.Default.CloudUpload, MaterialTheme.colorScheme.tertiary)
+        else -> Triple(status.replace('_', ' '), Icons.Default.CloudUpload, MaterialTheme.colorScheme.tertiary)
     }
     AssistChip(
         onClick = {},

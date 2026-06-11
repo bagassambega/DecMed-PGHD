@@ -14,6 +14,9 @@ class PghdSubmitWorker(
         val container = (applicationContext as MainApplication).container
         if (!container.pghdCollectionStateRepository.isEnabled()) return Result.success()
 
+        val profile = runCatching { container.patientAuthRepository.getUnlockedProfile() }
+            .getOrElse { return Result.retry() }
+        container.prePghdClient.pushRegistration(profile)
         container.pghdBatchRepository.submitPendingBatches(Env.pghdMaxRetryCount)
         PghdWorkScheduler.scheduleRetry(applicationContext)
         return Result.success()

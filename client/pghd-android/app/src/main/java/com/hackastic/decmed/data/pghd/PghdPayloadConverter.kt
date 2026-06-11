@@ -45,7 +45,10 @@ object PghdPayloadConverter {
                     measurementType = record.recordType.toSnakeCase(),
                     deviceType = record.toPghdDeviceType(),
                     recordingMethod = record.toRecordingMethod(),
-                    source = record.toPghdSource()
+                    source = record.toPghdSource(),
+                    sourceLabel = record.sourceTag,
+                    sourcePackageName = record.sourcePackageName,
+                    deviceSource = record.toDeviceSource()
                 )
             }
             .map { (key, groupRecords) ->
@@ -54,6 +57,9 @@ object PghdPayloadConverter {
                     deviceType = key.deviceType,
                     recordingMethod = key.recordingMethod,
                     source = key.source,
+                    sourceLabel = key.sourceLabel,
+                    sourcePackageName = key.sourcePackageName,
+                    deviceSource = key.deviceSource,
                     dataPoints = groupRecords.sortedBy { it.endTimeEpochMillis }.map(::recordToDataPoint)
                 )
             }
@@ -153,6 +159,14 @@ object PghdPayloadConverter {
             else -> "auto"
         }
 
+    private fun PghdRecordEntity.toDeviceSource(): String =
+        when (sourceTag) {
+            PghdRecordEntity.SOURCE_HEALTH_CONNECT -> sourcePackageName ?: "Health Connect provider"
+            PghdRecordEntity.SOURCE_MANUAL -> "DecMed patient manual entry"
+            PghdRecordEntity.SOURCE_PHONE_SENSOR -> "DecMed Android phone sensor"
+            else -> sourcePackageName ?: sourceTag
+        }
+
     private fun String.toJsonObjectValue(): PghdMeasurementValue.ObjectValue? {
         if (!trimStart().startsWith("{")) return null
         return runCatching {
@@ -197,6 +211,9 @@ object PghdPayloadConverter {
         val measurementType: String,
         val deviceType: String,
         val recordingMethod: String?,
-        val source: String
+        val source: String,
+        val sourceLabel: String?,
+        val sourcePackageName: String?,
+        val deviceSource: String?
     )
 }

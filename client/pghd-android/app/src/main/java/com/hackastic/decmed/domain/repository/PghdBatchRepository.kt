@@ -21,5 +21,6 @@ interface PghdBatchRepository {
     ): PghdSubmitResult
     suspend fun submitBatch(batchId: String): PghdSubmitResult
     suspend fun submitPendingBatches(maxRetryCount: Int): List<PghdSubmitResult>
+    suspend fun normalizeBatchStatuses()
     suspend fun deleteBatch(batchId: String)
 }

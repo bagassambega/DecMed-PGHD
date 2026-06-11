@@ -24,12 +24,13 @@ data class PghdBatchEntity(
     val hCipher: String = "",
     val pghdOuterSignature: String = "",
     val triggerReason: String = TRIGGER_TIME_BASED,
-    val status: String = STATUS_PENDING,
+    val status: String = STATUS_WAITING_FOR_TRIGGER,
     val retryCount: Int = 0,
     val createdAtEpochMillis: Long = System.currentTimeMillis(),
     val lastAttemptEpochMillis: Long? = null
 ) {
     companion object {
+        const val STATUS_WAITING_FOR_TRIGGER = "waiting_for_trigger"
         const val STATUS_PENDING = "pending"
         const val STATUS_SENT = "sent"
         const val STATUS_FAILED = "failed"

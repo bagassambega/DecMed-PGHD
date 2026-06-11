@@ -35,6 +35,9 @@ data class PghdDataGroupPayload(
     val deviceType: String,
     val recordingMethod: String? = null,
     val source: String,
+    val sourceLabel: String? = null,
+    val sourcePackageName: String? = null,
+    val deviceSource: String? = null,
     val dataPoints: List<PghdDataPointPayload>
 )
 

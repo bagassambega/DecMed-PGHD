@@ -73,8 +73,9 @@ class PghdBatchRepositoryImpl(
     }
 
     override suspend fun submitPendingBatches(maxRetryCount: Int): List<PghdSubmitResult> {
+        normalizeStalePendingBatches()
         val batches = pghdBatchDao.getBatchesByStatus(
-            listOf(PghdBatchEntity.STATUS_PENDING, PghdBatchEntity.STATUS_FAILED)
+            listOf(PghdBatchEntity.STATUS_WAITING_FOR_TRIGGER, PghdBatchEntity.STATUS_FAILED)
         )
         return batches.map { submitBatch(it, maxRetryCount) }
     }
@@ -83,17 +84,28 @@ class PghdBatchRepositoryImpl(
         pghdBatchDao.deleteBatch(batchId)
     }
 
+    override suspend fun normalizeBatchStatuses() {
+        normalizeStalePendingBatches()
+    }
+
     private suspend fun submitBatch(
         batch: PghdBatchEntity,
         maxRetryCount: Int = 3
     ): PghdSubmitResult {
+        normalizeStalePendingBatches()
+        val attemptAt = System.currentTimeMillis()
+        pghdBatchDao.markDeliveryInProgress(
+            batchId = batch.batchId,
+            status = PghdBatchEntity.STATUS_PENDING,
+            lastAttemptEpochMillis = attemptAt
+        )
         return try {
             val result = prePghdClient.submitPghd(batch.toEnvelope())
             pghdBatchDao.updateDeliveryState(
                 batchId = batch.batchId,
                 status = PghdBatchEntity.STATUS_SENT,
                 retryCount = batch.retryCount,
-                lastAttemptEpochMillis = System.currentTimeMillis()
+                lastAttemptEpochMillis = attemptAt
             )
             result
         } catch (err: Exception) {
@@ -107,7 +119,7 @@ class PghdBatchRepositoryImpl(
                 batchId = batch.batchId,
                 status = status,
                 retryCount = retryCount,
-                lastAttemptEpochMillis = System.currentTimeMillis()
+                lastAttemptEpochMillis = attemptAt
             )
             PghdSubmitResult(
                 batchId = batch.batchId,
@@ -128,4 +140,16 @@ class PghdBatchRepositoryImpl(
             capsule = capsule,
             pghdOuterSignature = pghdOuterSignature
         )
+
+    private suspend fun normalizeStalePendingBatches() {
+        pghdBatchDao.resetStalePendingBatches(
+            pendingStatus = PghdBatchEntity.STATUS_PENDING,
+            newStatus = PghdBatchEntity.STATUS_WAITING_FOR_TRIGGER,
+            staleBeforeEpochMillis = System.currentTimeMillis() - STALE_PENDING_TIMEOUT_MILLIS
+        )
+    }
+
+    private companion object {
+        const val STALE_PENDING_TIMEOUT_MILLIS = 10 * 60 * 1000L
+    }
 }

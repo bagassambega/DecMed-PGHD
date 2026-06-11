@@ -56,7 +56,7 @@ object PghdWorkScheduler {
 
         WorkManager.getInstance(context).enqueueUniqueWork(
             HEALTH_CONNECT_SYNC_NOW_WORK,
-            ExistingWorkPolicy.REPLACE,
+            ExistingWorkPolicy.KEEP,
             request
         )
     }
@@ -79,7 +79,7 @@ object PghdWorkScheduler {
 
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             HEALTH_CONNECT_SYNC_WORK,
-            ExistingPeriodicWorkPolicy.UPDATE,
+            ExistingPeriodicWorkPolicy.KEEP,
             request
         )
     }
@@ -92,7 +92,7 @@ object PghdWorkScheduler {
 
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             BATCH_WORK,
-            ExistingPeriodicWorkPolicy.UPDATE,
+            ExistingPeriodicWorkPolicy.KEEP,
             request
         )
     }

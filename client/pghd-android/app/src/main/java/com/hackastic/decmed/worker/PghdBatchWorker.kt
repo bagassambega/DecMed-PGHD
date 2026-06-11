@@ -44,6 +44,8 @@ class PghdBatchWorker(
             triggerReason = triggerReason
         )
         container.pghdRepository.markRecordsBatched(records.map { it.uid }, batch.batchId)
+        container.prePghdClient.pushRegistration(profile)
+        container.pghdBatchRepository.submitBatch(batch.batchId)
         return Result.success()
     }
 }

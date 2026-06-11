@@ -69,6 +69,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
     val requestedHistoryPermissions: Set<String> = HealthConnectPghdClient.READ_HISTORY_PERMISSIONS
 
     init {
+        normalizeBatchStatuses()
         observeRecords()
         observeHomeRecords()
         observeBatches()
@@ -76,6 +77,13 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
         observeHealthConnectSourcePackages()
         refreshHealthConnectState()
         refreshTotalCount()
+    }
+
+    private fun normalizeBatchStatuses() {
+        viewModelScope.launch {
+            runCatching { pghdBatchRepository.normalizeBatchStatuses() }
+                .onFailure { DecmedLog.e(TAG, "Failed to normalize PGHD batch statuses", it) }
+        }
     }
 
     fun refreshHealthConnectState() {
