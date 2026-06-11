@@ -33,7 +33,7 @@ use crate::types::{
     HandlerUpdateMedicalRecordPayload, JwtClaims, MedicalMetadata, MoveHospitalPersonnelRole,
     PatientPrivateAdministrativeMetadata, PghdMetadata, ReencryptionPurposeType,
 };
-use crate::types::{GenerateJwtHandlerResponse, HandlerStoreKeysPayload};
+use crate::types::{GenerateJwtHandlerResponse, HandlerRevokeKeysPayload, HandlerStoreKeysPayload};
 use crate::utils::Utils;
 
 pub struct Handlers {}
@@ -1256,6 +1256,72 @@ impl Handlers {
         });
 
         Ok(Utils::build_success_response(res_data, StatusCode::OK))
+    }
+
+    pub async fn revoke_keys(
+        State(state): State<Arc<AppState>>,
+        Json(payload): Json<HandlerRevokeKeysPayload>,
+    ) -> Result<Response, ProxyError> {
+        let patient_iota_address = IotaAddress::from_str(&payload.patient_iota_address)
+            .map_err(|_| anyhow!("Invalid patient IOTA address"))
+            .code(StatusCode::BAD_REQUEST)?;
+        let hospital_personnel_iota_address =
+            IotaAddress::from_str(&payload.hospital_personnel_iota_address)
+                .map_err(|_| anyhow!("Invalid hospital personnel IOTA address"))
+                .code(StatusCode::BAD_REQUEST)?;
+        let signature = Utils::construct_signature_from_str(&payload.signature)
+            .map_err(|_| anyhow!("Invalid signature"))
+            .code(StatusCode::BAD_REQUEST)?;
+
+        let nonce_key = format!("nonce:{}", patient_iota_address);
+        let nonce: String = state
+            .cache_store
+            .get(&nonce_key)
+            .map_err(|_| anyhow!("Nonce not found"))
+            .code(StatusCode::BAD_REQUEST)?;
+
+        let intent_message = IntentMessage::new(Intent::personal_message(), nonce);
+        signature
+            .verify_secure(
+                &intent_message,
+                patient_iota_address,
+                SignatureScheme::ED25519,
+            )
+            .map_err(|_| anyhow!("Failed to verify signature"))
+            .code(StatusCode::UNAUTHORIZED)?;
+
+        state
+            .cache_store
+            .del(&nonce_key)
+            .map_err(|_| anyhow!("Nonce expired"))
+            .code(StatusCode::UNAUTHORIZED)?;
+
+        let mut revoked_keys = Vec::new();
+        let purposes = match payload.purpose {
+            ReencryptionPurposeType::ReadPghd => vec![ReencryptionPurposeType::ReadPghd],
+            ReencryptionPurposeType::Read => vec![ReencryptionPurposeType::Read],
+            ReencryptionPurposeType::Update => {
+                vec![
+                    ReencryptionPurposeType::Read,
+                    ReencryptionPurposeType::Update,
+                ]
+            }
+        };
+
+        for purpose in purposes {
+            let key = Self::access_keys_cache_key(
+                purpose,
+                &hospital_personnel_iota_address.to_string(),
+                &patient_iota_address.to_string(),
+            );
+            state.cache_store.del(&key).context(current_fn!())?;
+            revoked_keys.push(key);
+        }
+
+        Ok(Utils::build_success_response(
+            json!({ "revoked_keys": revoked_keys }),
+            StatusCode::OK,
+        ))
     }
 
     pub async fn update_medical_record(

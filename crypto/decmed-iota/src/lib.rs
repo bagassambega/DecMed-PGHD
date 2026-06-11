@@ -221,7 +221,8 @@ pub async fn create_pghd_access(
 ) -> anyhow::Result<()> {
     let hospital_personnel_address = IotaAddress::from_str(&hospital_personnel_address)
         .context("invalid hospital personnel address")?;
-    let metadata_items: Vec<String> = serde_json::from_str(&metadata).unwrap_or_else(|_| vec![metadata]);
+    let metadata_items: Vec<String> =
+        serde_json::from_str(&metadata).unwrap_or_else(|_| vec![metadata]);
     let sender = IotaAddress::from_str(&sender_address).context("invalid sender address")?;
     let sender_key_pair = IotaKeyPair::decode(&sender_key_pair)
         .map_err(|err| anyhow!(err.to_string()))
@@ -241,8 +242,42 @@ pub async fn create_pghd_access(
                         .context("serialize hospital personnel address")?,
                 ),
                 package.hospital_personnel_id_account_arg(true)?,
+                CallArg::Pure(bcs::to_bytes(&metadata_items).context("serialize access metadata")?),
+                package.patient_id_account_arg(true),
+            ],
+            sender,
+            &sender_key_pair,
+        )
+        .await
+}
+
+pub async fn revoke_pghd_access(
+    config: AndroidIotaConfig,
+    hospital_personnel_address: String,
+    access_log_index: u64,
+    sender_address: String,
+    sender_key_pair: String,
+) -> anyhow::Result<()> {
+    let hospital_personnel_address = IotaAddress::from_str(&hospital_personnel_address)
+        .context("invalid hospital personnel address")?;
+    let sender = IotaAddress::from_str(&sender_address).context("invalid sender address")?;
+    let sender_key_pair = IotaKeyPair::decode(&sender_key_pair)
+        .map_err(|err| anyhow!(err.to_string()))
+        .context("invalid sender IOTA keypair")?;
+    let package = AndroidMovePackage::from_config(config)?;
+
+    package
+        .execute_patient_call(
+            "revoke_access",
+            vec![
+                package.address_id_arg(false),
                 CallArg::Pure(
-                    bcs::to_bytes(&metadata_items).context("serialize access metadata")?,
+                    bcs::to_bytes(&hospital_personnel_address)
+                        .context("serialize hospital personnel address")?,
+                ),
+                package.hospital_personnel_id_account_arg(true)?,
+                CallArg::Pure(
+                    bcs::to_bytes(&access_log_index).context("serialize access log index")?,
                 ),
                 package.patient_id_account_arg(true),
             ],
@@ -599,7 +634,9 @@ async fn decode_json_response<T: DeserializeOwned>(
         .text()
         .await
         .with_context(|| format!("{label}: read response body from {url}"))?;
-    native_log_chunks(&format!("{label}: HTTP {status} from {url}; response body: {body}"));
+    native_log_chunks(&format!(
+        "{label}: HTTP {status} from {url}; response body: {body}"
+    ));
 
     if !status.is_success() {
         return Err(anyhow!(
@@ -607,9 +644,8 @@ async fn decode_json_response<T: DeserializeOwned>(
         ));
     }
 
-    serde_json::from_str::<T>(&body).with_context(|| {
-        format!("{label}: decode JSON response from {url}; response body: {body}")
-    })
+    serde_json::from_str::<T>(&body)
+        .with_context(|| format!("{label}: decode JSON response from {url}; response body: {body}"))
 }
 
 fn native_log_chunks(message: &str) {
@@ -826,6 +862,34 @@ pub extern "system" fn Java_com_hackastic_decmed_iota_DecmedIotaNative_createPgh
             date,
             hospital_personnel_address,
             metadata,
+            sender_address,
+            sender_key_pair,
+        ))
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_hackastic_decmed_iota_DecmedIotaNative_revokePghdAccessJson(
+    env: JNIEnv,
+    _class: JClass,
+    config: JString,
+    hospital_personnel_address: JString,
+    access_log_index: jni::sys::jlong,
+    sender_address: JString,
+    sender_key_pair: JString,
+) -> jstring {
+    jni_result(env, |env| {
+        if access_log_index < 0 {
+            return Err(anyhow!("access log index must be non-negative"));
+        }
+        let config = parse_config(&jstring_to_string(env, config)?)?;
+        let hospital_personnel_address = jstring_to_string(env, hospital_personnel_address)?;
+        let sender_address = jstring_to_string(env, sender_address)?;
+        let sender_key_pair = jstring_to_string(env, sender_key_pair)?;
+        block_on(revoke_pghd_access(
+            config,
+            hospital_personnel_address,
+            access_log_index as u64,
             sender_address,
             sender_key_pair,
         ))

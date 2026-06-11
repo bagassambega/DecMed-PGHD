@@ -137,6 +137,7 @@ async fn main() -> Result<()> {
         .route("/health", get(|| async { "OK" }))
         .route("/nonce", post(Handlers::get_nonce_handler))
         .route("/keys", post(Handlers::store_keys))
+        .route("/keys/revoke", post(Handlers::revoke_keys))
         .route("/pghd/patient", post(Handlers::register_pghd_patient))
         .route("/pghd/submit", post(Handlers::submit_pghd));
 

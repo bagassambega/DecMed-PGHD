@@ -332,6 +332,14 @@ pub struct HandlerStoreKeysPayload {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct HandlerRevokeKeysPayload {
+    pub hospital_personnel_iota_address: String,
+    pub patient_iota_address: String,
+    pub purpose: ReencryptionPurposeType,
+    pub signature: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct HandlerUpdateMedicalRecordPayload {
     pub medical_metadata: String,
     pub patient_iota_address: String,
@@ -408,6 +416,8 @@ where
             .parse::<u64>()
             .map_err(|err| serde::de::Error::custom(format!("expected numeric string: {err}"))),
         serde_json::Value::Null => Ok(0),
-        other => Err(serde::de::Error::custom(format!("expected integer, got {other}"))),
+        other => Err(serde::de::Error::custom(format!(
+            "expected integer, got {other}"
+        ))),
     }
 }

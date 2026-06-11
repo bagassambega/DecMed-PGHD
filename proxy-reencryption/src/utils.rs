@@ -81,18 +81,24 @@ impl Utils {
         let status = res.status();
         let body = res.text().await.context(current_fn!())?;
         if !status.is_success() {
-            return Err(anyhow!("failed to add PGHD to IPFS: status={} body={}", status, body)
-                .context(current_fn!())
-                .into());
+            return Err(anyhow!(
+                "failed to add PGHD to IPFS: status={} body={}",
+                status,
+                body
+            )
+            .context(current_fn!())
+            .into());
         }
 
         let res = serde_json::from_str::<UtilIpfsAddResponse>(&body)
             .with_context(|| format!("failed to decode IPFS add response body: {body}"))
             .context(current_fn!())?;
         if res.cid.is_empty() {
-            return Err(anyhow!("IPFS add response did not include a CID or Hash: {}", body)
-                .context(current_fn!())
-                .into());
+            return Err(
+                anyhow!("IPFS add response did not include a CID or Hash: {}", body)
+                    .context(current_fn!())
+                    .into(),
+            );
         }
 
         Ok(res.cid)
