@@ -33,6 +33,13 @@ object DecmedIotaNative {
         senderAddress: String,
         senderKeyPair: String
     ): String
+    external fun revokePghdAccessJson(
+        config: String,
+        hospitalPersonnelAddress: String,
+        accessLogIndex: Long,
+        senderAddress: String,
+        senderKeyPair: String
+    ): String
     external fun signPersonalMessageJson(senderKeyPair: String, message: String): String
 
     fun initialize(context: Context) {
@@ -125,6 +132,25 @@ object DecmedIotaNative {
                 date,
                 hospitalPersonnelAddress,
                 metadata,
+                senderAddress,
+                senderKeyPair
+            )
+        ) { Unit }
+    }
+
+    fun revokePghdAccess(
+        hospitalPersonnelAddress: String,
+        accessLogIndex: Long,
+        senderAddress: String,
+        senderKeyPair: String
+    ) {
+        ensureLoaded()
+        ensureAndroidTlsInitialized()
+        decodeData(
+            revokePghdAccessJson(
+                iotaConfigJson(requireGrantObjects = true),
+                hospitalPersonnelAddress,
+                accessLogIndex,
                 senderAddress,
                 senderKeyPair
             )

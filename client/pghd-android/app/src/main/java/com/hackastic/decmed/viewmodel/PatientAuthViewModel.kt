@@ -84,10 +84,13 @@ class PatientAuthViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun signOut() {
+    fun signOut(onDone: () -> Unit = {}) {
         viewModelScope.launch {
             DecmedLog.i(TAG, "Signing out patient")
-            repository.signOut()
+            runBusy("logout patient") {
+                repository.signOut()
+                onDone()
+            }
         }
     }
 

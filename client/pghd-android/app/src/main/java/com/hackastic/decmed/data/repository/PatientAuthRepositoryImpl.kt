@@ -156,7 +156,7 @@ class PatientAuthRepositoryImpl(
 
     override suspend fun signOut() {
         dataStore.edit { prefs ->
-            prefs[Keys.sessionState] = SESSION_LOCKED
+            Keys.patientKeys.forEach { key -> prefs.remove(key) }
         }
     }
 
@@ -182,6 +182,29 @@ class PatientAuthRepositoryImpl(
         val occupation = stringPreferencesKey("patient_occupation")
         val maritalStatus = stringPreferencesKey("patient_marital_status")
         val sessionState = stringPreferencesKey("patient_session_state")
+        val patientKeys = listOf(
+            patientId,
+            patientIdHash,
+            iotaAddress,
+            iotaKeyPair,
+            medicalPrePublicKey,
+            medicalPreSecretKey,
+            pghdPrePublicKey,
+            pghdPreSecretKey,
+            prePublicKey,
+            preSecretKey,
+            pghdPublicKey,
+            pghdSecretKey,
+            profileName,
+            birthPlace,
+            dateOfBirth,
+            gender,
+            religion,
+            education,
+            occupation,
+            maritalStatus,
+            sessionState
+        )
     }
 
     private companion object {

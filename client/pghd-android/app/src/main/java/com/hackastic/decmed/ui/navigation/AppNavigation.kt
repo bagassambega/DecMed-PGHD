@@ -35,6 +35,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import com.hackastic.decmed.data.remote.service.SensorCollectionService
 import com.hackastic.decmed.di.dataStore
 import com.hackastic.decmed.domain.model.patient.PatientAuthState
 import androidx.health.connect.client.PermissionController
@@ -56,6 +57,7 @@ import com.hackastic.decmed.viewmodel.PatientAuthViewModel
 import com.hackastic.decmed.viewmodel.PghdCollectionViewModel
 import com.hackastic.decmed.viewmodel.SensorViewModel
 import com.hackastic.decmed.viewmodel.ThemeViewModel
+import com.hackastic.decmed.worker.PghdWorkScheduler
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -307,6 +309,23 @@ fun AppNavigation(
                 onNavigateToSensorConfig = {
                     sensorViewModel.prepareForReconfiguration()
                     navController.navigate(Screen.SensorConfig.route)
+                },
+                onLogout = {
+                    context.startService(
+                        android.content.Intent(context, SensorCollectionService::class.java).apply {
+                            action = SensorCollectionService.ACTION_STOP_COLLECTION
+                        }
+                    )
+                    sensorViewModel.markCollectionRunning(false)
+                    PghdWorkScheduler.cancelCollectionWork(context)
+                    patientAuthViewModel.signOut {
+                        navController.navigate(Screen.PatientAuth.route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                inclusive = true
+                            }
+                            launchSingleTop = true
+                        }
+                    }
                 },
                 bottomBar = bottomBar
             )

@@ -1,8 +1,13 @@
 package com.hackastic.decmed.ui.screen
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +29,7 @@ import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -35,21 +41,26 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.health.connect.client.PermissionController
 import com.hackastic.decmed.data.local.entity.PghdBatchEntity
 import com.hackastic.decmed.data.local.entity.PghdRecordEntity
 import com.hackastic.decmed.data.remote.service.SensorCollectionService
+import com.hackastic.decmed.ui.components.toPghdSourceDisplayLabel
 import com.hackastic.decmed.utils.DecmedLog
 import com.hackastic.decmed.viewmodel.PghdCollectionViewModel
 import com.hackastic.decmed.viewmodel.SensorViewModel
@@ -75,6 +86,41 @@ fun HomeScreen(
     val approvedSensorCount = uiState.sensorConfigs.count { it.isApproved }
     val metrics = remember(pghdUiState.homeRecords) {
         pghdUiState.homeRecords.toHomeMetrics()
+    }
+    var showPermissionExplanation by remember { mutableStateOf(false) }
+    var pendingPermissionItems by remember { mutableStateOf<List<String>>(emptyList()) }
+    val startCollectionIfPossible = {
+        val selectedConfig = viewModel.getApprovedCollectionConfig()
+        if (selectedConfig.isEmpty()) {
+            Toast.makeText(context, "Enable at least one phone sensor before collecting PGHD.", Toast.LENGTH_LONG).show()
+        } else {
+            startCollection(context, selectedConfig)
+            viewModel.markCollectionRunning(true)
+            PghdWorkScheduler.scheduleCollectionWork(context)
+            PghdWorkScheduler.scheduleHealthConnectSyncNow(context)
+            Toast.makeText(context, "PGHD collection started.", Toast.LENGTH_SHORT).show()
+        }
+    }
+    val healthConnectPermissionLauncher = rememberLauncherForActivityResult(
+        PermissionController.createRequestPermissionResultContract()
+    ) { grantedPermissions ->
+        pghdViewModel.onPermissionsResult(grantedPermissions)
+        startCollectionIfPossible()
+    }
+    val sensorPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val missing = requiredSensorPermissions()
+            .filter { grants[it] != true && ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
+        if (missing.isEmpty()) {
+            if (!pghdUiState.hasHealthConnectPermissions) {
+                healthConnectPermissionLauncher.launch(pghdViewModel.requestedPermissions)
+            } else {
+                startCollectionIfPossible()
+            }
+        } else {
+            Toast.makeText(context, "Sensor permissions are required before automatic PGHD collection.", Toast.LENGTH_LONG).show()
+        }
     }
 
     Scaffold(
@@ -132,13 +178,16 @@ fun HomeScreen(
                         modifier = Modifier.weight(1f),
                         enabled = approvedSensorCount > 0 && !uiState.isCollecting,
                         onClick = {
-                            val selectedConfig = viewModel.getApprovedCollectionConfig()
-                            if (selectedConfig.isNotEmpty()) {
-                                startCollection(context, selectedConfig)
-                                viewModel.markCollectionRunning(true)
-                                PghdWorkScheduler.scheduleCollectionWork(context)
-                                PghdWorkScheduler.scheduleHealthConnectSyncNow(context)
-                                Toast.makeText(context, "PGHD collection started.", Toast.LENGTH_SHORT).show()
+                            val permissionItems = collectionPermissionExplanationItems(
+                                context = context,
+                                hasHealthConnectPermissions = pghdUiState.hasHealthConnectPermissions,
+                                hasHealthConnectHistoryPermission = pghdUiState.hasHealthConnectHistoryPermission
+                            )
+                            if (permissionItems.isEmpty()) {
+                                startCollectionIfPossible()
+                            } else {
+                                pendingPermissionItems = permissionItems
+                                showPermissionExplanation = true
                             }
                         }
                     ) {
@@ -199,6 +248,54 @@ fun HomeScreen(
             }
         }
     }
+
+    if (showPermissionExplanation) {
+        CollectionPermissionDialog(
+            permissionItems = pendingPermissionItems,
+            onDismiss = { showPermissionExplanation = false },
+            onContinue = {
+                showPermissionExplanation = false
+                val missingAndroidPermissions = missingAndroidSensorPermissions(context)
+                if (missingAndroidPermissions.isNotEmpty()) {
+                    sensorPermissionLauncher.launch(missingAndroidPermissions.toTypedArray())
+                } else if (!pghdUiState.hasHealthConnectPermissions || !pghdUiState.hasHealthConnectHistoryPermission) {
+                    healthConnectPermissionLauncher.launch(pghdViewModel.requestedPermissions)
+                } else {
+                    startCollectionIfPossible()
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun CollectionPermissionDialog(
+    permissionItems: List<String>,
+    onDismiss: () -> Unit,
+    onContinue: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("PGHD Collection Permissions") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("This app needs permission for collecting data such as:")
+                permissionItems.forEach { item ->
+                    Text("- $item", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onContinue) {
+                Text("Grant Permissions")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Not Now")
+            }
+        }
+    )
 }
 
 @Composable
@@ -440,12 +537,7 @@ private fun PghdRecordEntity.toMetricSummary(): String {
 }
 
 private fun String.toFriendlySourceLabel(): String =
-    when (this) {
-        PghdRecordEntity.SOURCE_HEALTH_CONNECT -> "Health Connect"
-        PghdRecordEntity.SOURCE_MANUAL -> "Manual"
-        PghdRecordEntity.SOURCE_PHONE_SENSOR -> "phone_sensor"
-        else -> this
-    }
+    toPghdSourceDisplayLabel()
 
 private fun String.toFriendlyMetricName(fallback: String): String =
     when (this) {
@@ -500,6 +592,43 @@ private fun startCollection(context: Context, sensorConfigs: List<Pair<Int, Int>
     }
 
     ContextCompat.startForegroundService(context, intent)
+}
+
+private fun requiredSensorPermissions(): List<String> =
+    buildList {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            add(Manifest.permission.ACTIVITY_RECOGNITION)
+        }
+        /*
+         * BODY_SENSORS is only required for direct body-worn sensor APIs.
+         * The current phone-sensor collector does not read heart/body sensors
+         * directly; wearable wellness data comes through Health Connect with
+         * its own permission contract. Requiring BODY_SENSORS here can trap
+         * users in a false missing-permission loop on devices that expose the
+         * permission in Settings but do not return it through the runtime
+         * permission callback.
+         */
+    }
+
+private fun missingAndroidSensorPermissions(context: Context): List<String> =
+    requiredSensorPermissions().filter { permission ->
+        ContextCompat.checkSelfPermission(context, permission) != PackageManager.PERMISSION_GRANTED
+    }
+
+private fun collectionPermissionExplanationItems(
+    context: Context,
+    hasHealthConnectPermissions: Boolean,
+    hasHealthConnectHistoryPermission: Boolean
+): List<String> {
+    val items = mutableListOf<String>()
+    val missingAndroid = missingAndroidSensorPermissions(context).toSet()
+    if (Manifest.permission.ACTIVITY_RECOGNITION in missingAndroid) {
+        items += "activity data, steps, movement, and exercise signals"
+    }
+    if (!hasHealthConnectPermissions) {
+        items += "Health Connect wellness, activity, sleep, heart, SpO2, and wearable records"
+    }
+    return items
 }
 
 private fun stopCollection(context: Context) {

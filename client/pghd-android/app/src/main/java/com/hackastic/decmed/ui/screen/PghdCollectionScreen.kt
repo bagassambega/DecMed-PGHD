@@ -67,6 +67,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.health.connect.client.PermissionController
 import com.hackastic.decmed.data.local.entity.PghdRecordEntity
+import com.hackastic.decmed.ui.components.PghdDateRangeFilter
+import com.hackastic.decmed.ui.components.toPghdSourceDisplayLabel
 import com.hackastic.decmed.viewmodel.PatientGrantAccessKind
 import com.hackastic.decmed.viewmodel.PghdCollectionViewModel
 import com.google.zxing.BinaryBitmap
@@ -92,6 +94,7 @@ fun PghdCollectionScreen(
     val context = LocalContext.current
     var showManualDialog by rememberSaveable { mutableStateOf(false) }
     var showGrantAccessDialog by rememberSaveable { mutableStateOf(false) }
+    var showRevokeAccessDialog by rememberSaveable { mutableStateOf(false) }
     var selectedSummaryType by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedDetailRecord by remember { mutableStateOf<PghdRecordEntity?>(null) }
     val dateFormatter = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()) }
@@ -169,6 +172,7 @@ fun PghdCollectionScreen(
                     isSyncing = uiState.isSyncing,
                     isSubmitting = uiState.isSubmitting,
                     isGrantingAccess = uiState.isGrantingAccess,
+                    isRevokingAccess = uiState.isRevokingAccess,
                     healthConnectStatusMessage = uiState.healthConnectStatusMessage,
                     message = uiState.lastSyncMessage,
                     error = uiState.errorMessage,
@@ -178,7 +182,8 @@ fun PghdCollectionScreen(
                     onRequestHistoryPermission = { permissionLauncher.launch(viewModel.requestedHistoryPermissions) },
                     onSync = viewModel::syncFromHealthConnect,
                     onSubmit = viewModel::submitDisplayedPghd,
-                    onGrantAccess = { showGrantAccessDialog = true }
+                    onGrantAccess = { showGrantAccessDialog = true },
+                    onRevokeAccess = { showRevokeAccessDialog = true }
                 )
             }
 
@@ -186,6 +191,14 @@ fun PghdCollectionScreen(
                 PghdSummaryDashboard(
                     records = uiState.records,
                     onDetail = { selectedSummaryType = it }
+                )
+            }
+
+            item {
+                PghdDateRangeFilter(
+                    startDateMillis = uiState.dateFilterStartMillis,
+                    endDateMillis = uiState.dateFilterEndMillis,
+                    onDateRangeChange = viewModel::setDateFilter
                 )
             }
 
@@ -213,7 +226,7 @@ fun PghdCollectionScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "No PGHD records collected yet",
+                            text = "No PGHD records match the selected filters",
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -252,6 +265,17 @@ fun PghdCollectionScreen(
         )
     }
 
+    if (showRevokeAccessDialog) {
+        RevokePghdAccessDialog(
+            isRevoking = uiState.isRevokingAccess,
+            onDismiss = { showRevokeAccessDialog = false },
+            onRevoke = { personnelAddress, accessLogIndex, accessKind ->
+                viewModel.revokeAccess(personnelAddress, accessLogIndex, accessKind)
+                showRevokeAccessDialog = false
+            }
+        )
+    }
+
     selectedDetailRecord?.let { record ->
         PghdRecordDetailDialog(
             record = record,
@@ -283,6 +307,7 @@ private fun HealthConnectSummaryCard(
     isSyncing: Boolean,
     isSubmitting: Boolean,
     isGrantingAccess: Boolean,
+    isRevokingAccess: Boolean,
     healthConnectStatusMessage: String,
     message: String?,
     error: String?,
@@ -292,7 +317,8 @@ private fun HealthConnectSummaryCard(
     onRequestHistoryPermission: () -> Unit,
     onSync: () -> Unit,
     onSubmit: () -> Unit,
-    onGrantAccess: () -> Unit
+    onGrantAccess: () -> Unit,
+    onRevokeAccess: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -348,11 +374,21 @@ private fun HealthConnectSummaryCard(
                     Icon(Icons.Default.CloudUpload, contentDescription = null)
                     Text(if (isSubmitting) "Submitting" else "Submit PGHD")
                 }
-                OutlinedButton(
-                    enabled = !isSyncing && !isSubmitting && !isGrantingAccess,
-                    onClick = onGrantAccess
-                ) {
-                    Text(if (isGrantingAccess) "Granting" else "Grant Access")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        modifier = Modifier.weight(1f),
+                        enabled = !isSyncing && !isSubmitting && !isGrantingAccess && !isRevokingAccess,
+                        onClick = onGrantAccess
+                    ) {
+                        Text(if (isGrantingAccess) "Granting" else "Grant")
+                    }
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        enabled = !isSyncing && !isSubmitting && !isGrantingAccess && !isRevokingAccess,
+                        onClick = onRevokeAccess
+                    ) {
+                        Text(if (isRevokingAccess) "Revoking" else "Revoke")
+                    }
                 }
             }
 
@@ -577,6 +613,92 @@ private fun decodeHospitalPersonnelQrPayload(content: String): Pair<String, Stri
     return address to prePublicKey
 }
 
+@Composable
+private fun RevokePghdAccessDialog(
+    isRevoking: Boolean,
+    onDismiss: () -> Unit,
+    onRevoke: (String, Long, PatientGrantAccessKind) -> Unit
+) {
+    var personnelAddress by rememberSaveable { mutableStateOf("") }
+    var accessLogIndexText by rememberSaveable { mutableStateOf("") }
+    var selectedAccessKind by rememberSaveable { mutableStateOf(PatientGrantAccessKind.PGHD_READ) }
+    val accessLogIndex = accessLogIndexText.toLongOrNull()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            Button(
+                enabled = !isRevoking && personnelAddress.isNotBlank() && accessLogIndex != null && accessLogIndex >= 0,
+                onClick = { onRevoke(personnelAddress, accessLogIndex ?: 0L, selectedAccessKind) }
+            ) {
+                Text(if (isRevoking) "Revoking" else "Revoke")
+            }
+        },
+        dismissButton = {
+            OutlinedButton(enabled = !isRevoking, onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+        title = { Text("Revoke Access") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "Select the access type and enter the access log index created when access was granted.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = selectedAccessKind == PatientGrantAccessKind.PGHD_READ,
+                        onClick = { selectedAccessKind = PatientGrantAccessKind.PGHD_READ },
+                        label = { Text("PGHD Read") },
+                        enabled = !isRevoking
+                    )
+                    FilterChip(
+                        selected = selectedAccessKind == PatientGrantAccessKind.MEDICAL_RECORD_READ_UPDATE,
+                        onClick = {
+                            selectedAccessKind = PatientGrantAccessKind.MEDICAL_RECORD_READ_UPDATE
+                        },
+                        label = { Text("Medical Read/Update") },
+                        enabled = !isRevoking
+                    )
+                }
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = personnelAddress,
+                    onValueChange = { personnelAddress = it },
+                    label = { Text("Personnel IOTA address") },
+                    singleLine = true,
+                    enabled = !isRevoking
+                )
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = accessLogIndexText,
+                    onValueChange = { candidate ->
+                        accessLogIndexText = candidate.filter(Char::isDigit)
+                    },
+                    label = { Text("Access log index") },
+                    singleLine = true,
+                    enabled = !isRevoking,
+                    supportingText = {
+                        Text(
+                            if (selectedAccessKind == PatientGrantAccessKind.MEDICAL_RECORD_READ_UPDATE) {
+                                "Enter the medical read log index. The update log is created directly after it and will be revoked too."
+                            } else {
+                                "Use the PGHD read index shown in the patient's access log."
+                            }
+                        )
+                    },
+                    isError = accessLogIndexText.isNotBlank() && accessLogIndex == null
+                )
+            }
+        }
+    )
+}
+
 private fun decodeQrBitmap(bitmap: Bitmap): Result<String> = runCatching {
     val reader = MultiFormatReader().apply {
         setHints(
@@ -704,12 +826,12 @@ private fun SourceFilters(
         FilterChip(
             selected = selectedSourceTag == PghdRecordEntity.SOURCE_MANUAL,
             onClick = { onSelected(PghdRecordEntity.SOURCE_MANUAL) },
-            label = { Text(PghdRecordEntity.SOURCE_MANUAL) }
+            label = { Text(PghdRecordEntity.SOURCE_MANUAL.toPghdSourceDisplayLabel()) }
         )
         FilterChip(
             selected = selectedSourceTag == PghdRecordEntity.SOURCE_PHONE_SENSOR,
             onClick = { onSelected(PghdRecordEntity.SOURCE_PHONE_SENSOR) },
-            label = { Text(PghdRecordEntity.SOURCE_PHONE_SENSOR) }
+            label = { Text(PghdRecordEntity.SOURCE_PHONE_SENSOR.toPghdSourceDisplayLabel()) }
         )
     }
 }
@@ -741,7 +863,7 @@ private fun PghdRecordCard(
                 )
                 AssistChip(
                     onClick = {},
-                    label = { Text(record.sourceTag) }
+                    label = { Text(record.sourceTag.toPghdSourceDisplayLabel()) }
                 )
             }
             Text(
@@ -819,7 +941,7 @@ private fun PghdSummaryDetailDialog(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Text(
-                                        text = record.sourcePackageName ?: record.sourceTag,
+                                        text = record.sourcePackageName ?: record.sourceTag.toPghdSourceDisplayLabel(),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -853,11 +975,11 @@ private fun PghdRecordDetailDialog(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 DetailLine("Type", record.recordType)
                 DetailLine("Value", "${record.valueText} ${record.unit}".trim())
-                DetailLine("Source", record.sourceTag)
+                DetailLine("Source", record.sourceTag.toPghdSourceDisplayLabel())
                 DetailLine("Source package", record.sourcePackageName ?: "-")
                 DetailLine("Start", dateFormatter.format(Date(record.startTimeEpochMillis)))
                 DetailLine("End", dateFormatter.format(Date(record.endTimeEpochMillis)))
-                DetailLine("Sync", record.batchId ?: "local only")
+                DetailLine("Sync", record.batchId?.let { "batched: $it" } ?: "local only")
                 if (!record.notes.isNullOrBlank()) {
                     DetailLine("Notes", record.notes)
                 }

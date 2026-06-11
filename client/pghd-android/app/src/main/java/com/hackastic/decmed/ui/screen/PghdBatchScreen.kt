@@ -45,6 +45,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.hackastic.decmed.data.local.entity.PghdBatchEntity
+import com.hackastic.decmed.ui.components.PghdDateRangeFilter
 import com.hackastic.decmed.viewmodel.PghdCollectionViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -114,13 +115,24 @@ fun PghdBatchScreen(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            if (uiState.batches.isEmpty()) {
+            PghdDateRangeFilter(
+                startDateMillis = uiState.dateFilterStartMillis,
+                endDateMillis = uiState.dateFilterEndMillis,
+                onDateRangeChange = viewModel::setDateFilter
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (uiState.visibleBatches.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "No PGHD batches created yet",
+                        text = if (uiState.batches.isEmpty()) {
+                            "No PGHD batches created yet"
+                        } else {
+                            "No PGHD batches match the selected date filter"
+                        },
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -131,7 +143,7 @@ fun PghdBatchScreen(
                     contentPadding = PaddingValues(bottom = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(uiState.batches) { batch ->
+                    items(uiState.visibleBatches) { batch ->
                         PghdBatchCard(
                             batch = batch,
                             dateFormatter = dateFormatter,

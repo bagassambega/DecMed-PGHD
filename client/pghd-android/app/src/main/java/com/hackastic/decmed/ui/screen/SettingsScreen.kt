@@ -14,8 +14,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.SettingsBrightness
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -49,6 +51,7 @@ import com.hackastic.decmed.viewmodel.ThemeViewModel
 fun SettingsScreen(
     themeViewModel: ThemeViewModel,
     onNavigateToSensorConfig: () -> Unit,
+    onLogout: () -> Unit = {},
     onBack: (() -> Unit)? = null,
     bottomBar: @Composable () -> Unit = {}
 ) {
@@ -180,6 +183,31 @@ fun SettingsScreen(
                         )
                     }
                 }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "Account",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(vertical = 12.dp)
+            )
+
+            Button(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    Toast.makeText(context, "Logging out patient session.", Toast.LENGTH_SHORT).show()
+                    onLogout()
+                }
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Logout,
+                    contentDescription = null
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Logout")
             }
         }
     }

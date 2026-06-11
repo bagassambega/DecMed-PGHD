@@ -53,6 +53,7 @@ class PghdBatchRepositoryImpl(
         records: List<PghdRecordEntity>,
         patientProfile: PatientProfile
     ): PghdSubmitResult {
+        prePghdClient.pushRegistration(patientProfile)
         val batch = createEncryptedBatch(
             records = records,
             patientProfile = patientProfile,

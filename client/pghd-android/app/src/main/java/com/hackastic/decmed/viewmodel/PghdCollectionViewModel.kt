@@ -27,9 +27,12 @@ data class PghdCollectionUiState(
     val records: List<PghdRecordEntity> = emptyList(),
     val homeRecords: List<PghdRecordEntity> = emptyList(),
     val batches: List<PghdBatchEntity> = emptyList(),
+    val visibleBatches: List<PghdBatchEntity> = emptyList(),
     val recordTypes: List<String> = emptyList(),
     val selectedSourceTag: String? = null,
     val selectedRecordType: String? = null,
+    val dateFilterStartMillis: Long? = null,
+    val dateFilterEndMillis: Long? = null,
     val totalCount: Long = 0,
     val isHealthConnectAvailable: Boolean = false,
     val healthConnectStatusMessage: String = "Health Connect status has not been checked yet.",
@@ -39,6 +42,7 @@ data class PghdCollectionUiState(
     val isSubmitting: Boolean = false,
     val submittingBatchId: String? = null,
     val isGrantingAccess: Boolean = false,
+    val isRevokingAccess: Boolean = false,
     val lastSyncMessage: String? = null,
     val errorMessage: String? = null,
     val healthConnectSourcePackages: List<String> = emptyList(),
@@ -55,6 +59,8 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
 
     private val selectedSourceTag = MutableStateFlow<String?>(null)
     private val selectedRecordType = MutableStateFlow<String?>(null)
+    private val dateFilterStartMillis = MutableStateFlow<Long?>(null)
+    private val dateFilterEndMillis = MutableStateFlow<Long?>(null)
 
     private val _uiState = MutableStateFlow(PghdCollectionUiState())
     val uiState: StateFlow<PghdCollectionUiState> = _uiState.asStateFlow()
@@ -279,6 +285,8 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
             }
             try {
                 DecmedLog.i(TAG, "Submitting PGHD batch: batchId=$batchId")
+                val patientProfile = patientAuthRepository.getUnlockedProfile()
+                prePghdClient.pushRegistration(patientProfile)
                 val result = pghdBatchRepository.submitBatch(batchId)
                 DecmedLog.i(TAG, "PGHD batch submit finished: $result")
                 _uiState.update {
@@ -338,6 +346,47 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    fun revokeAccess(
+        hospitalPersonnelIotaAddress: String,
+        accessLogIndex: Long,
+        accessKind: PatientGrantAccessKind
+    ) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isRevokingAccess = true, errorMessage = null, lastSyncMessage = null) }
+            try {
+                require(accessLogIndex >= 0) { "Access log index must be non-negative." }
+                DecmedLog.i(
+                    TAG,
+                    "Revoking $accessKind access for hospitalPersonnel=$hospitalPersonnelIotaAddress index=$accessLogIndex"
+                )
+                val patientProfile = patientAuthRepository.getUnlockedProfile()
+                val result = prePghdClient.revokeAccess(
+                    profile = patientProfile,
+                    hospitalPersonnelIotaAddress = hospitalPersonnelIotaAddress,
+                    accessLogIndex = accessLogIndex,
+                    purpose = accessKind.reencryptionPurpose
+                )
+                _uiState.update {
+                    it.copy(
+                        lastSyncMessage = "Revoked ${accessKind.displayLabel} for ${result.hospitalPersonnelIotaAddress} at access log ${result.accessLogIndexes.joinToString { "#$it" }}.",
+                        errorMessage = null
+                    )
+                }
+            } catch (err: Exception) {
+                DecmedLog.e(
+                    TAG,
+                    "Failed to revoke $accessKind access for $hospitalPersonnelIotaAddress index=$accessLogIndex",
+                    err
+                )
+                _uiState.update {
+                    it.copy(errorMessage = err.message ?: "Unable to revoke access.")
+                }
+            } finally {
+                _uiState.update { it.copy(isRevokingAccess = false) }
+            }
+        }
+    }
+
     private suspend fun scheduleSizeThresholdBatchIfNeeded() {
         val records = pghdRepository.getUnbatchedRecords()
         if (records.isEmpty()) return
@@ -366,20 +415,48 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
         selectedRecordType.value = recordType
     }
 
+    fun setDateFilter(startMillis: Long?, endMillis: Long?) {
+        val normalizedStart = startMillis?.coerceAtMost(endMillis ?: startMillis)
+        val normalizedEnd = endMillis?.coerceAtLeast(startMillis ?: endMillis)
+        dateFilterStartMillis.value = normalizedStart
+        dateFilterEndMillis.value = normalizedEnd
+        _uiState.update {
+            it.copy(
+                dateFilterStartMillis = normalizedStart,
+                dateFilterEndMillis = normalizedEnd
+            )
+        }
+    }
+
+    fun clearDateFilter() {
+        setDateFilter(null, null)
+    }
+
     fun clearMessages() {
         _uiState.update { it.copy(errorMessage = null, lastSyncMessage = null) }
     }
 
     private fun observeRecords() {
         viewModelScope.launch {
-            combine(selectedSourceTag, selectedRecordType) { source, type -> source to type }
-                .collectLatest { (source, type) ->
-                    pghdRepository.getRecords(sourceTag = source, recordType = type).collect { records ->
+            combine(
+                selectedSourceTag,
+                selectedRecordType,
+                dateFilterStartMillis,
+                dateFilterEndMillis
+            ) { source, type, start, end -> DateFilteredQuery(source, type, start, end) }
+                .collectLatest { query ->
+                    pghdRepository.getRecords(sourceTag = query.sourceTag, recordType = query.recordType).collect { records ->
+                        val visibleRecords = records.filterRecordsByDateRange(
+                            startMillis = query.startMillis,
+                            endMillis = query.endMillis
+                        )
                         _uiState.update {
                             it.copy(
-                                records = records,
-                                selectedSourceTag = source,
-                                selectedRecordType = type
+                                records = visibleRecords,
+                                selectedSourceTag = query.sourceTag,
+                                selectedRecordType = query.recordType,
+                                dateFilterStartMillis = query.startMillis,
+                                dateFilterEndMillis = query.endMillis
                             )
                         }
                     }
@@ -397,9 +474,21 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
 
     private fun observeBatches() {
         viewModelScope.launch {
-            pghdBatchRepository.getBatches().collect { batches ->
-                _uiState.update { it.copy(batches = batches) }
-            }
+            combine(
+                pghdBatchRepository.getBatches(),
+                dateFilterStartMillis,
+                dateFilterEndMillis
+            ) { batches, start, end -> Triple(batches, start, end) }
+                .collect { (batches, start, end) ->
+                    _uiState.update {
+                        it.copy(
+                            batches = batches,
+                            visibleBatches = batches.filterBatchesByDateRange(start, end),
+                            dateFilterStartMillis = start,
+                            dateFilterEndMillis = end
+                        )
+                    }
+                }
         }
     }
 
@@ -440,7 +529,40 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
     }
 }
 
+private data class DateFilteredQuery(
+    val sourceTag: String?,
+    val recordType: String?,
+    val startMillis: Long?,
+    val endMillis: Long?
+)
+
+private fun List<PghdRecordEntity>.filterRecordsByDateRange(
+    startMillis: Long?,
+    endMillis: Long?
+): List<PghdRecordEntity> =
+    filter { record ->
+        val afterStart = startMillis == null || record.endTimeEpochMillis >= startMillis
+        val beforeEnd = endMillis == null || record.startTimeEpochMillis <= endMillis
+        afterStart && beforeEnd
+    }
+
+private fun List<PghdBatchEntity>.filterBatchesByDateRange(
+    startMillis: Long?,
+    endMillis: Long?
+): List<PghdBatchEntity> =
+    filter { batch ->
+        val afterStart = startMillis == null || batch.endTimestamp >= startMillis
+        val beforeEnd = endMillis == null || batch.startTimestamp <= endMillis
+        afterStart && beforeEnd
+    }
+
 enum class PatientGrantAccessKind(val displayLabel: String) {
     PGHD_READ("PGHD read access"),
-    MEDICAL_RECORD_READ_UPDATE("medical record read/update access")
+    MEDICAL_RECORD_READ_UPDATE("medical record read/update access");
+
+    val reencryptionPurpose: String
+        get() = when (this) {
+            PGHD_READ -> "ReadPghd"
+            MEDICAL_RECORD_READ_UPDATE -> "Update"
+        }
 }

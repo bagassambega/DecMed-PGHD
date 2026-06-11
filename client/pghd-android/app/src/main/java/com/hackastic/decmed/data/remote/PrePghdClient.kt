@@ -200,6 +200,48 @@ class PrePghdClient(private val baseUrl: String) {
         )
     }
 
+    suspend fun revokeAccess(
+        profile: PatientProfile,
+        hospitalPersonnelIotaAddress: String,
+        accessLogIndex: Long,
+        purpose: String
+    ): PghdAccessRevokeResult = withContext(Dispatchers.IO) {
+        require(baseUrl.isNotBlank()) { "PRE_BASE_URL must be configured before revoking access." }
+        require(accessLogIndex >= 0) { "Access log index must be non-negative." }
+        val patientIotaAddress = profile.iotaAddress.requireField("iota_address")
+        val patientIotaKeyPair = profile.iotaKeyPair.requireField("iota_key_pair")
+        val personnelAddress = hospitalPersonnelIotaAddress.trim()
+        require(personnelAddress.isNotBlank()) { "Hospital personnel IOTA address is required." }
+
+        val nonce = getNonce(patientIotaAddress)
+        val signature = DecmedIotaNative.signPersonalMessage(patientIotaKeyPair, nonce)
+        val payload = JSONObject()
+            .put("hospital_personnel_iota_address", personnelAddress)
+            .put("patient_iota_address", patientIotaAddress)
+            .put("purpose", purpose)
+            .put("signature", signature)
+        postJson("/api/v1/keys/revoke", payload)
+
+        val accessLogIndexes = if (purpose == "Update") {
+            listOf(accessLogIndex, accessLogIndex + 1)
+        } else {
+            listOf(accessLogIndex)
+        }
+        accessLogIndexes.forEach { index ->
+            DecmedIotaNative.revokePghdAccess(
+                hospitalPersonnelAddress = personnelAddress,
+                accessLogIndex = index,
+                senderAddress = patientIotaAddress,
+                senderKeyPair = patientIotaKeyPair
+            )
+        }
+
+        PghdAccessRevokeResult(
+            hospitalPersonnelIotaAddress = personnelAddress,
+            accessLogIndexes = accessLogIndexes
+        )
+    }
+
     private fun encryptAccessMetadata(personnelPrePublicKey: String, accessData: JSONObject): String {
         val encryptedAccessData = DecmedCryptoNative.encryptForPublicKey(
             personnelPrePublicKey,
@@ -248,4 +290,9 @@ private const val TAG = "PrePghdClient"
 data class PghdAccessGrantResult(
     val hospitalPersonnelIotaAddress: String,
     val date: String
+)
+
+data class PghdAccessRevokeResult(
+    val hospitalPersonnelIotaAddress: String,
+    val accessLogIndexes: List<Long>
 )
