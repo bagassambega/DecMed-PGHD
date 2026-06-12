@@ -9,6 +9,7 @@ import com.hackastic.decmed.MainApplication
 import com.hackastic.decmed.data.health.HealthConnectPghdClient
 import com.hackastic.decmed.data.local.entity.PghdBatchEntity
 import com.hackastic.decmed.data.local.entity.PghdRecordEntity
+import com.hackastic.decmed.data.repository.StoredPghdAccessGrant
 import com.hackastic.decmed.data.pghd.PghdPayloadConverter
 import com.hackastic.decmed.data.pghd.PghdPayloadSerializer
 import com.hackastic.decmed.domain.model.pghd.PghdBatchPayload
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.Instant
 
 data class PghdCollectionUiState(
     val records: List<PghdRecordEntity> = emptyList(),
@@ -38,7 +40,9 @@ data class PghdCollectionUiState(
     val healthConnectStatusMessage: String = "Health Connect status has not been checked yet.",
     val hasHealthConnectPermissions: Boolean = false,
     val hasHealthConnectHistoryPermission: Boolean = false,
+    val isRefreshingHealthConnectState: Boolean = false,
     val isSyncing: Boolean = false,
+    val isSavingManualRecord: Boolean = false,
     val isSubmitting: Boolean = false,
     val submittingBatchId: String? = null,
     val isGrantingAccess: Boolean = false,
@@ -46,7 +50,8 @@ data class PghdCollectionUiState(
     val lastSyncMessage: String? = null,
     val errorMessage: String? = null,
     val healthConnectSourcePackages: List<String> = emptyList(),
-    val hasDetectedXiaomiSource: Boolean = false
+    val hasDetectedXiaomiSource: Boolean = false,
+    val activeAccessGrants: List<StoredPghdAccessGrant> = emptyList()
 )
 
 class PghdCollectionViewModel(application: Application) : AndroidViewModel(application) {
@@ -56,6 +61,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
     private val prePghdClient = container.prePghdClient
     private val patientAuthRepository = container.patientAuthRepository
     private val healthConnectPghdClient = container.healthConnectPghdClient
+    private val pghdAccessGrantRepository = container.pghdAccessGrantRepository
 
     private val selectedSourceTag = MutableStateFlow<String?>(null)
     private val selectedRecordType = MutableStateFlow<String?>(null)
@@ -75,6 +81,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
         observeBatches()
         observeRecordTypes()
         observeHealthConnectSourcePackages()
+        observeAccessGrants()
         refreshHealthConnectState()
         refreshTotalCount()
     }
@@ -86,8 +93,19 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    private fun observeAccessGrants() {
+        viewModelScope.launch {
+            pghdAccessGrantRepository.grants.collectLatest { grants ->
+                _uiState.update { state ->
+                    state.copy(activeAccessGrants = grants.filter { it.isActive })
+                }
+            }
+        }
+    }
+
     fun refreshHealthConnectState() {
         viewModelScope.launch {
+            _uiState.update { it.copy(isRefreshingHealthConnectState = true, errorMessage = null) }
             try {
                 DecmedLog.i(TAG, "Refreshing Health Connect state")
                 val availabilityState = healthConnectPghdClient.getAvailabilityState()
@@ -104,8 +122,10 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
             } catch (err: Exception) {
                 DecmedLog.e(TAG, "Failed to refresh Health Connect state", err)
                 _uiState.update {
-                    it.copy(errorMessage = err.message ?: "Unable to refresh Health Connect state.")
+                    it.copy(errorMessage = err.toVerboseUserMessage("Unable to refresh Health Connect state."))
                 }
+            } finally {
+                _uiState.update { it.copy(isRefreshingHealthConnectState = false) }
             }
         }
     }
@@ -180,22 +200,29 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                     return@launch
                 }
 
-                val daysBack = if (permissionState.hasHistoryPermission) {
+                val fallbackDaysBack = if (permissionState.hasHistoryPermission) {
                     HealthConnectPghdClient.HISTORY_SYNC_DAYS
                 } else {
                     HealthConnectPghdClient.DEFAULT_SYNC_DAYS
                 }
-                val records = healthConnectPghdClient.readRecentPghd(daysBack)
+                val latestHealthConnectEnd = pghdRepository.getLatestHealthConnectEndTimeMillis()
+                val syncStart = latestHealthConnectEnd
+                    ?.let { Instant.ofEpochMilli(it + 1) }
+                    ?: Instant.now().minusSeconds(fallbackDaysBack * 24L * 60L * 60L)
+                val records = healthConnectPghdClient.readPghdSince(syncStart)
                 pghdRepository.saveHealthConnectRecords(records)
                 scheduleSizeThresholdBatchIfNeeded()
                 refreshTotalCount()
-                DecmedLog.i(TAG, "Health Connect sync succeeded: records=${records.size} daysBack=$daysBack")
+                DecmedLog.i(
+                    TAG,
+                    "Health Connect sync succeeded: records=${records.size} syncStart=$syncStart latestPreviousEnd=$latestHealthConnectEnd fallbackDaysBack=$fallbackDaysBack"
+                )
                 _uiState.update {
                     it.copy(
                         hasHealthConnectPermissions = true,
                         hasHealthConnectHistoryPermission = permissionState.hasHistoryPermission,
                         lastSyncMessage = buildString {
-                            append("Synced ${records.size} Xiaomi-band Health Connect records from the last $daysBack days.")
+                            append("Synced ${records.size} Health Connect records since $syncStart.")
                             if (!permissionState.hasHistoryPermission) {
                                 append(" Grant health history permission to include older records.")
                             }
@@ -205,7 +232,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
             } catch (err: Exception) {
                 DecmedLog.e(TAG, "Health Connect sync failed", err)
                 _uiState.update {
-                    it.copy(errorMessage = err.message ?: "Unable to sync Health Connect data.")
+                    it.copy(errorMessage = err.toVerboseUserMessage("Unable to sync Health Connect data."))
                 }
             } finally {
                 _uiState.update { it.copy(isSyncing = false) }
@@ -221,6 +248,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
         notes: String?
     ) {
         viewModelScope.launch {
+            _uiState.update { it.copy(isSavingManualRecord = true, errorMessage = null, lastSyncMessage = null) }
             try {
                 DecmedLog.i(TAG, "Saving manual PGHD record: type=$recordType displayName=$displayName unit=$unit")
                 val trimmedValue = valueText.trim()
@@ -241,8 +269,10 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
             } catch (err: Exception) {
                 DecmedLog.e(TAG, "Failed to save manual PGHD record", err)
                 _uiState.update {
-                    it.copy(errorMessage = err.message ?: "Unable to save manual PGHD record.")
+                    it.copy(errorMessage = err.toVerboseUserMessage("Unable to save manual PGHD record."))
                 }
+            } finally {
+                _uiState.update { it.copy(isSavingManualRecord = false) }
             }
         }
     }
@@ -264,17 +294,27 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                     records = recordsToSubmit,
                     patientProfile = patientProfile
                 )
+                if (!result.accepted) {
+                    PghdWorkScheduler.scheduleSubmitWhenConnected(getApplication())
+                }
                 DecmedLog.i(TAG, "Displayed PGHD submit finished: $result")
                 _uiState.update {
-                    it.copy(
-                        lastSyncMessage = result.message ?: "Submitted encrypted PGHD batch ${result.batchId}.",
-                        errorMessage = null
-                    )
+                    if (result.accepted) {
+                        it.copy(
+                            lastSyncMessage = result.message ?: "Submitted encrypted PGHD batch ${result.batchId}.",
+                            errorMessage = null
+                        )
+                    } else {
+                        it.copy(
+                            lastSyncMessage = null,
+                            errorMessage = result.message ?: "Failed to submit encrypted PGHD batch ${result.batchId}."
+                        )
+                    }
                 }
             } catch (err: Exception) {
                 DecmedLog.e(TAG, "Failed to submit displayed PGHD", err)
                 _uiState.update {
-                    it.copy(errorMessage = err.message ?: "Unable to submit encrypted PGHD batch.")
+                    it.copy(errorMessage = err.toVerboseUserMessage("Unable to submit encrypted PGHD batch."))
                 }
             } finally {
                 _uiState.update { it.copy(isSubmitting = false) }
@@ -295,18 +335,31 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                 DecmedLog.i(TAG, "Submitting PGHD batch: batchId=$batchId")
                 val patientProfile = patientAuthRepository.getUnlockedProfile()
                 prePghdClient.pushRegistration(patientProfile)
-                val result = pghdBatchRepository.submitBatch(batchId)
+                val result = pghdBatchRepository.submitBatch(
+                    batchId = batchId,
+                    submitTriggerReason = PghdBatchEntity.TRIGGER_MANUAL_SUBMIT
+                )
+                if (!result.accepted) {
+                    PghdWorkScheduler.scheduleSubmitWhenConnected(getApplication())
+                }
                 DecmedLog.i(TAG, "PGHD batch submit finished: $result")
                 _uiState.update {
-                    it.copy(
-                        lastSyncMessage = result.message ?: "Submitted PGHD batch $batchId.",
-                        errorMessage = if (result.accepted) null else result.message
-                    )
+                    if (result.accepted) {
+                        it.copy(
+                            lastSyncMessage = result.message ?: "Submitted PGHD batch $batchId.",
+                            errorMessage = null
+                        )
+                    } else {
+                        it.copy(
+                            lastSyncMessage = null,
+                            errorMessage = result.message ?: "Failed to submit PGHD batch $batchId."
+                        )
+                    }
                 }
             } catch (err: Exception) {
                 DecmedLog.e(TAG, "Failed to submit PGHD batch: batchId=$batchId", err)
                 _uiState.update {
-                    it.copy(errorMessage = err.message ?: "Unable to submit PGHD batch.")
+                    it.copy(errorMessage = err.toVerboseUserMessage("Unable to submit PGHD batch."))
                 }
             } finally {
                 _uiState.update { it.copy(submittingBatchId = null) }
@@ -337,6 +390,20 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                     )
                 }
                 DecmedLog.i(TAG, "$accessKind access grant succeeded: $result")
+                val firstAccessLogIndex = pghdAccessGrantRepository.nextAccessLogIndex()
+                val accessLogIndexes = when (accessKind) {
+                    PatientGrantAccessKind.PGHD_READ -> listOf(firstAccessLogIndex)
+                    PatientGrantAccessKind.MEDICAL_RECORD_READ_UPDATE -> listOf(
+                        firstAccessLogIndex,
+                        firstAccessLogIndex + 1
+                    )
+                }
+                pghdAccessGrantRepository.saveGrant(
+                    hospitalPersonnelIotaAddress = result.hospitalPersonnelIotaAddress,
+                    accessKind = accessKind,
+                    accessLogIndexes = accessLogIndexes,
+                    grantedAt = result.date
+                )
                 _uiState.update {
                     it.copy(
                         lastSyncMessage = "Granted ${accessKind.displayLabel} to ${result.hospitalPersonnelIotaAddress}.",
@@ -346,7 +413,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
             } catch (err: Exception) {
                 DecmedLog.e(TAG, "Failed to grant $accessKind access to $hospitalPersonnelIotaAddress", err)
                 _uiState.update {
-                    it.copy(errorMessage = err.message ?: "Unable to grant access.")
+                    it.copy(errorMessage = err.toVerboseUserMessage("Unable to grant access."))
                 }
             } finally {
                 _uiState.update { it.copy(isGrantingAccess = false) }
@@ -354,40 +421,38 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    fun revokeAccess(
-        hospitalPersonnelIotaAddress: String,
-        accessLogIndex: Long,
-        accessKind: PatientGrantAccessKind
-    ) {
+    fun revokeAccess(grant: StoredPghdAccessGrant) {
         viewModelScope.launch {
             _uiState.update { it.copy(isRevokingAccess = true, errorMessage = null, lastSyncMessage = null) }
             try {
-                require(accessLogIndex >= 0) { "Access log index must be non-negative." }
+                val firstAccessLogIndex = grant.accessLogIndexes.minOrNull()
+                    ?: error("Selected access grant does not have an access log index.")
                 DecmedLog.i(
                     TAG,
-                    "Revoking $accessKind access for hospitalPersonnel=$hospitalPersonnelIotaAddress index=$accessLogIndex"
+                    "Revoking ${grant.accessKind} access for hospitalPersonnel=${grant.hospitalPersonnelIotaAddress} indexes=${grant.accessLogIndexes}"
                 )
                 val patientProfile = patientAuthRepository.getUnlockedProfile()
                 val result = prePghdClient.revokeAccess(
                     profile = patientProfile,
-                    hospitalPersonnelIotaAddress = hospitalPersonnelIotaAddress,
-                    accessLogIndex = accessLogIndex,
-                    purpose = accessKind.reencryptionPurpose
+                    hospitalPersonnelIotaAddress = grant.hospitalPersonnelIotaAddress,
+                    accessLogIndex = firstAccessLogIndex,
+                    purpose = grant.accessKind.reencryptionPurpose
                 )
+                pghdAccessGrantRepository.markRevoked(grant.id, java.time.Instant.now().toString())
                 _uiState.update {
                     it.copy(
-                        lastSyncMessage = "Revoked ${accessKind.displayLabel} for ${result.hospitalPersonnelIotaAddress} at access log ${result.accessLogIndexes.joinToString { "#$it" }}.",
+                        lastSyncMessage = "Revoked ${grant.accessKind.displayLabel} for ${result.hospitalPersonnelIotaAddress}.",
                         errorMessage = null
                     )
                 }
             } catch (err: Exception) {
                 DecmedLog.e(
                     TAG,
-                    "Failed to revoke $accessKind access for $hospitalPersonnelIotaAddress index=$accessLogIndex",
+                    "Failed to revoke access grant id=${grant.id}",
                     err
                 )
                 _uiState.update {
-                    it.copy(errorMessage = err.message ?: "Unable to revoke access.")
+                    it.copy(errorMessage = err.toVerboseUserMessage("Unable to revoke access."))
                 }
             } finally {
                 _uiState.update { it.copy(isRevokingAccess = false) }
@@ -563,6 +628,17 @@ private fun List<PghdBatchEntity>.filterBatchesByDateRange(
         val beforeEnd = endMillis == null || batch.startTimestamp <= endMillis
         afterStart && beforeEnd
     }
+
+private fun Throwable.toVerboseUserMessage(prefix: String): String {
+    val chain = generateSequence(this as Throwable?) { it.cause }
+        .mapIndexed { index, throwable ->
+            val type = throwable::class.java.simpleName.ifBlank { throwable::class.java.name }
+            val message = throwable.message?.takeIf { it.isNotBlank() } ?: "(no message)"
+            if (index == 0) "$type: $message" else "caused by $index: $type: $message"
+        }
+        .joinToString(separator = "\n")
+    return "$prefix\n$chain"
+}
 
 enum class PatientGrantAccessKind(val displayLabel: String) {
     PGHD_READ("PGHD read access"),

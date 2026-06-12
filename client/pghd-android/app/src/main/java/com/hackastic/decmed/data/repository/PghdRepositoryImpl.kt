@@ -25,6 +25,9 @@ class PghdRepositoryImpl(
     override suspend fun getTotalCount(): Long =
         pghdRecordDao.getTotalCount()
 
+    override suspend fun getLatestHealthConnectEndTimeMillis(): Long? =
+        pghdRecordDao.getLatestEndTimeMillis()
+
     override suspend fun saveManualRecord(
         recordType: String,
         displayName: String,
@@ -52,7 +55,7 @@ class PghdRepositoryImpl(
     }
 
     override suspend fun saveHealthConnectRecords(records: List<PghdRecordEntity>) {
-        pghdRecordDao.upsertAll(records)
+        pghdRecordDao.insertAllIgnoringConflicts(records)
     }
 
     override suspend fun getUnbatchedRecords(): List<PghdRecordEntity> =

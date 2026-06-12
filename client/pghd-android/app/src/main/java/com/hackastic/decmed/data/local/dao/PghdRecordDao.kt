@@ -12,6 +12,9 @@ interface PghdRecordDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(records: List<PghdRecordEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAllIgnoringConflicts(records: List<PghdRecordEntity>)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(record: PghdRecordEntity)
 
@@ -48,6 +51,14 @@ interface PghdRecordDao {
 
     @Query("SELECT COUNT(*) FROM pghd_records")
     suspend fun getTotalCount(): Long
+
+    @Query(
+        """
+        SELECT MAX(endTimeEpochMillis) FROM pghd_records
+        WHERE sourceTag = :sourceTag
+        """
+    )
+    suspend fun getLatestEndTimeMillis(sourceTag: String = PghdRecordEntity.SOURCE_HEALTH_CONNECT): Long?
 
     @Query(
         """

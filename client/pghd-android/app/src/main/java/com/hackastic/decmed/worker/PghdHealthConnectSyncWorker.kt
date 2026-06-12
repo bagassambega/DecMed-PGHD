@@ -5,6 +5,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.hackastic.decmed.MainApplication
 import com.hackastic.decmed.config.Env
+import java.time.Instant
 
 class PghdHealthConnectSyncWorker(
     appContext: Context,
@@ -26,7 +27,11 @@ class PghdHealthConnectSyncWorker(
         } else {
             Env.pghdDefaultSyncDays
         }
-        val records = client.readRecentPghd(daysBack)
+        val latestHealthConnectEnd = container.pghdRepository.getLatestHealthConnectEndTimeMillis()
+        val syncStart = latestHealthConnectEnd
+            ?.let { Instant.ofEpochMilli(it + 1) }
+            ?: Instant.now().minusSeconds(daysBack * 24L * 60L * 60L)
+        val records = client.readPghdSince(syncStart)
         container.pghdRepository.saveHealthConnectRecords(records)
         return Result.success()
     }

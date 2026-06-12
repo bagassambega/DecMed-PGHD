@@ -14,22 +14,22 @@ import java.util.concurrent.TimeUnit
 object PghdWorkScheduler {
     private const val BATCH_WORK = "decmed_pghd_batch_work"
     private const val BATCH_NOW_WORK = "decmed_pghd_batch_now_work"
-    private const val RETRY_WORK = "decmed_pghd_retry_work"
+    private const val CONNECTIVITY_SUBMIT_WORK = "decmed_pghd_connectivity_submit_work"
     private const val HEALTH_CONNECT_SYNC_WORK = "decmed_pghd_health_connect_sync_work"
     private const val HEALTH_CONNECT_SYNC_NOW_WORK = "decmed_pghd_health_connect_sync_now_work"
 
     fun scheduleAll(context: Context) {
-        // Work is scheduled only after the patient explicitly starts collection.
+        PghdNetworkMonitor.start(context.applicationContext)
+        scheduleSubmitWhenConnected(context)
     }
 
-    fun scheduleRetry(context: Context) {
+    fun scheduleSubmitWhenConnected(context: Context) {
         val request = OneTimeWorkRequestBuilder<PghdSubmitWorker>()
-            .setInitialDelay(Env.pghdRetryIntervalMinutes, TimeUnit.MINUTES)
             .setConstraints(networkConstraints())
             .build()
 
         WorkManager.getInstance(context).enqueueUniqueWork(
-            RETRY_WORK,
+            CONNECTIVITY_SUBMIT_WORK,
             ExistingWorkPolicy.KEEP,
             request
         )
@@ -38,11 +38,11 @@ object PghdWorkScheduler {
     fun scheduleCollectionWork(context: Context) {
         scheduleHealthConnectSync(context)
         scheduleBatching(context)
-        scheduleRetry(context)
+        scheduleSubmitWhenConnected(context)
     }
 
     fun cancelCollectionWork(context: Context) {
-        WorkManager.getInstance(context).cancelUniqueWork(RETRY_WORK)
+        WorkManager.getInstance(context).cancelUniqueWork(CONNECTIVITY_SUBMIT_WORK)
         WorkManager.getInstance(context).cancelUniqueWork(HEALTH_CONNECT_SYNC_WORK)
         WorkManager.getInstance(context).cancelUniqueWork(HEALTH_CONNECT_SYNC_NOW_WORK)
         WorkManager.getInstance(context).cancelUniqueWork(BATCH_WORK)

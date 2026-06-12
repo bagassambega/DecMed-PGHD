@@ -2,8 +2,10 @@ package com.hackastic.decmed.data.local.database
 
 import android.content.Context
 import androidx.room.Database
+import androidx.room.migration.Migration
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.hackastic.decmed.data.local.dao.PghdBatchDao
 import com.hackastic.decmed.data.local.dao.SensorConfigDao
 import com.hackastic.decmed.data.local.dao.PghdRecordDao
@@ -29,6 +31,7 @@ import com.hackastic.decmed.data.local.entity.SensorData
  *   v5 — Added pghd_records table for encrypted Health Connect and manual PGHD.
  *   v7 — PGHD batch table now stores encrypted envelopes and retry state.
  *   v8 — PGHD batch table stores triggerReason for time/size based batching.
+ *   v9 — PGHD batch table stores the last submit trigger separately from creation trigger.
  */
 @Database(
     entities = [
@@ -38,7 +41,7 @@ import com.hackastic.decmed.data.local.entity.SensorData
         PghdBatchEntity::class,
         PghdBatchDataPointEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class SensorDatabase : RoomDatabase() {
@@ -59,6 +62,7 @@ abstract class SensorDatabase : RoomDatabase() {
                     SensorDatabase::class.java,
                     "sensor_pghd.db"
                 )
+                    .addMigrations(MIGRATION_8_9)
                     // Development convenience — replace with proper Migration objects
                     // before shipping to production.
                     .fallbackToDestructiveMigration()
@@ -66,6 +70,12 @@ abstract class SensorDatabase : RoomDatabase() {
 
                 INSTANCE = instance
                 instance
+            }
+        }
+
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE pghd_batches ADD COLUMN lastSubmitTriggerReason TEXT")
             }
         }
     }

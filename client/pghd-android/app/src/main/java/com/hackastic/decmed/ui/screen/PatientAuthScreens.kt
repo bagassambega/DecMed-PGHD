@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -157,7 +158,8 @@ fun PatientSignupScreen(
             },
             enabled = !uiState.isBusy
         ) {
-            Text("Generate Seed Words")
+            if (uiState.isBusy) SmallButtonProgress()
+            Text(if (uiState.isBusy) "Generating..." else "Generate Seed Words")
         }
         Spacer(modifier = Modifier.height(12.dp))
         NikField(value = nik, onValueChange = { nik = it })
@@ -178,7 +180,8 @@ fun PatientSignupScreen(
                 }
             }
         ) {
-            Text("Continue")
+            if (uiState.isBusy) SmallButtonProgress()
+            Text(if (uiState.isBusy) "Creating..." else "Continue")
         }
     }
 }
@@ -237,7 +240,8 @@ fun PatientSigninScreen(
                 }
             }
         ) {
-            Text("Recover")
+            if (uiState.isBusy) SmallButtonProgress()
+            Text(if (uiState.isBusy) "Recovering..." else "Recover")
         }
     }
 }
@@ -297,7 +301,8 @@ fun PatientCompleteProfileScreen(
                 }
             }
         ) {
-            Text("Save Profile")
+            if (uiState.isBusy) SmallButtonProgress()
+            Text(if (uiState.isBusy) "Saving..." else "Save Profile")
         }
     }
 }
@@ -334,7 +339,8 @@ fun PatientUnlockScreen(
                 }
             }
         ) {
-            Text("Unlock")
+            if (uiState.isBusy) SmallButtonProgress()
+            Text(if (uiState.isBusy) "Unlocking..." else "Unlock")
         }
     }
 }
@@ -419,6 +425,16 @@ private fun PatientAuthFormScaffold(
             content()
         }
     }
+}
+
+@Composable
+private fun SmallButtonProgress() {
+    CircularProgressIndicator(
+        modifier = Modifier
+            .padding(end = 8.dp)
+            .size(16.dp),
+        strokeWidth = 2.dp
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

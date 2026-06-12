@@ -59,25 +59,28 @@ class PghdBatchRepositoryImpl(
             patientProfile = patientProfile,
             triggerReason = PghdBatchPayload.TRIGGER_MANUAL_SUBMIT
         )
-        return submitBatch(batch)
+        return submitBatch(batch, PghdBatchEntity.TRIGGER_MANUAL_SUBMIT)
     }
 
-    override suspend fun submitBatch(batchId: String): PghdSubmitResult {
+    override suspend fun submitBatch(
+        batchId: String,
+        submitTriggerReason: String
+    ): PghdSubmitResult {
         val batch = pghdBatchDao.getBatch(batchId)
             ?: return PghdSubmitResult(
                 batchId = batchId,
                 accepted = false,
                 message = "PGHD batch was not found."
             )
-        return submitBatch(batch)
+        return submitBatch(batch, submitTriggerReason)
     }
 
-    override suspend fun submitPendingBatches(maxRetryCount: Int): List<PghdSubmitResult> {
+    override suspend fun submitPendingBatches(submitTriggerReason: String): List<PghdSubmitResult> {
         normalizeStalePendingBatches()
         val batches = pghdBatchDao.getBatchesByStatus(
             listOf(PghdBatchEntity.STATUS_WAITING_FOR_TRIGGER, PghdBatchEntity.STATUS_FAILED)
         )
-        return batches.map { submitBatch(it, maxRetryCount) }
+        return batches.map { submitBatch(it, submitTriggerReason) }
     }
 
     override suspend fun deleteBatch(batchId: String) {
@@ -90,14 +93,15 @@ class PghdBatchRepositoryImpl(
 
     private suspend fun submitBatch(
         batch: PghdBatchEntity,
-        maxRetryCount: Int = 3
+        submitTriggerReason: String
     ): PghdSubmitResult {
         normalizeStalePendingBatches()
         val attemptAt = System.currentTimeMillis()
         pghdBatchDao.markDeliveryInProgress(
             batchId = batch.batchId,
             status = PghdBatchEntity.STATUS_PENDING,
-            lastAttemptEpochMillis = attemptAt
+            lastAttemptEpochMillis = attemptAt,
+            lastSubmitTriggerReason = submitTriggerReason
         )
         return try {
             val result = prePghdClient.submitPghd(batch.toEnvelope())
@@ -105,21 +109,18 @@ class PghdBatchRepositoryImpl(
                 batchId = batch.batchId,
                 status = PghdBatchEntity.STATUS_SENT,
                 retryCount = batch.retryCount,
-                lastAttemptEpochMillis = attemptAt
+                lastAttemptEpochMillis = attemptAt,
+                lastSubmitTriggerReason = submitTriggerReason
             )
             result
         } catch (err: Exception) {
             val retryCount = batch.retryCount + 1
-            val status = if (retryCount >= maxRetryCount) {
-                PghdBatchEntity.STATUS_PERMANENT_FAILURE
-            } else {
-                PghdBatchEntity.STATUS_FAILED
-            }
             pghdBatchDao.updateDeliveryState(
                 batchId = batch.batchId,
-                status = status,
+                status = PghdBatchEntity.STATUS_FAILED,
                 retryCount = retryCount,
-                lastAttemptEpochMillis = attemptAt
+                lastAttemptEpochMillis = attemptAt,
+                lastSubmitTriggerReason = submitTriggerReason
             )
             PghdSubmitResult(
                 batchId = batch.batchId,
@@ -142,6 +143,10 @@ class PghdBatchRepositoryImpl(
         )
 
     private suspend fun normalizeStalePendingBatches() {
+        pghdBatchDao.updateBatchesWithStatus(
+            oldStatus = LEGACY_PERMANENT_FAILURE_STATUS,
+            newStatus = PghdBatchEntity.STATUS_FAILED
+        )
         pghdBatchDao.resetStalePendingBatches(
             pendingStatus = PghdBatchEntity.STATUS_PENDING,
             newStatus = PghdBatchEntity.STATUS_WAITING_FOR_TRIGGER,
@@ -150,6 +155,7 @@ class PghdBatchRepositoryImpl(
     }
 
     private companion object {
+        const val LEGACY_PERMANENT_FAILURE_STATUS = "permanent_failure"
         const val STALE_PENDING_TIMEOUT_MILLIS = 10 * 60 * 1000L
     }
 }

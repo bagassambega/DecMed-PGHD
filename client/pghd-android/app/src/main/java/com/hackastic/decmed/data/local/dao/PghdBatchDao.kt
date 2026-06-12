@@ -62,7 +62,8 @@ abstract class PghdBatchDao {
         UPDATE pghd_batches
         SET status = :status,
             retryCount = :retryCount,
-            lastAttemptEpochMillis = :lastAttemptEpochMillis
+            lastAttemptEpochMillis = :lastAttemptEpochMillis,
+            lastSubmitTriggerReason = :lastSubmitTriggerReason
         WHERE batchId = :batchId
         """
     )
@@ -70,21 +71,24 @@ abstract class PghdBatchDao {
         batchId: String,
         status: String,
         retryCount: Int,
-        lastAttemptEpochMillis: Long
+        lastAttemptEpochMillis: Long,
+        lastSubmitTriggerReason: String
     )
 
     @Query(
         """
         UPDATE pghd_batches
         SET status = :status,
-            lastAttemptEpochMillis = :lastAttemptEpochMillis
+            lastAttemptEpochMillis = :lastAttemptEpochMillis,
+            lastSubmitTriggerReason = :lastSubmitTriggerReason
         WHERE batchId = :batchId
         """
     )
     abstract suspend fun markDeliveryInProgress(
         batchId: String,
         status: String,
-        lastAttemptEpochMillis: Long
+        lastAttemptEpochMillis: Long,
+        lastSubmitTriggerReason: String
     )
 
     @Query(
@@ -100,4 +104,13 @@ abstract class PghdBatchDao {
         newStatus: String,
         staleBeforeEpochMillis: Long
     )
+
+    @Query(
+        """
+        UPDATE pghd_batches
+        SET status = :newStatus
+        WHERE status = :oldStatus
+        """
+    )
+    abstract suspend fun updateBatchesWithStatus(oldStatus: String, newStatus: String)
 }

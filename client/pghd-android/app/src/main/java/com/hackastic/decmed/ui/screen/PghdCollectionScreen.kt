@@ -8,7 +8,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,9 +19,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -34,8 +36,10 @@ import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -64,9 +68,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.health.connect.client.PermissionController
 import com.hackastic.decmed.data.local.entity.PghdRecordEntity
+import com.hackastic.decmed.data.repository.StoredPghdAccessGrant
 import com.hackastic.decmed.ui.components.PghdDateRangeFilter
 import com.hackastic.decmed.ui.components.toPghdSourceDisplayLabel
 import com.hackastic.decmed.viewmodel.PatientGrantAccessKind
@@ -169,7 +176,9 @@ fun PghdCollectionScreen(
                     available = uiState.isHealthConnectAvailable,
                     hasPermissions = uiState.hasHealthConnectPermissions,
                     hasHistoryPermission = uiState.hasHealthConnectHistoryPermission,
+                    isRefreshingHealthConnectState = uiState.isRefreshingHealthConnectState,
                     isSyncing = uiState.isSyncing,
+                    isSavingManualRecord = uiState.isSavingManualRecord,
                     isSubmitting = uiState.isSubmitting,
                     isGrantingAccess = uiState.isGrantingAccess,
                     isRevokingAccess = uiState.isRevokingAccess,
@@ -268,9 +277,11 @@ fun PghdCollectionScreen(
     if (showRevokeAccessDialog) {
         RevokePghdAccessDialog(
             isRevoking = uiState.isRevokingAccess,
+            activeGrants = uiState.activeAccessGrants,
+            dateFormatter = dateFormatter,
             onDismiss = { showRevokeAccessDialog = false },
-            onRevoke = { personnelAddress, accessLogIndex, accessKind ->
-                viewModel.revokeAccess(personnelAddress, accessLogIndex, accessKind)
+            onRevoke = { grant ->
+                viewModel.revokeAccess(grant)
                 showRevokeAccessDialog = false
             }
         )
@@ -304,7 +315,9 @@ private fun HealthConnectSummaryCard(
     available: Boolean,
     hasPermissions: Boolean,
     hasHistoryPermission: Boolean,
+    isRefreshingHealthConnectState: Boolean,
     isSyncing: Boolean,
+    isSavingManualRecord: Boolean,
     isSubmitting: Boolean,
     isGrantingAccess: Boolean,
     isRevokingAccess: Boolean,
@@ -320,6 +333,16 @@ private fun HealthConnectSummaryCard(
     onGrantAccess: () -> Unit,
     onRevokeAccess: () -> Unit
 ) {
+    val activeOperation = when {
+        isRefreshingHealthConnectState -> "Checking Health Connect..."
+        isSyncing -> "Syncing Health Connect data..."
+        isSavingManualRecord -> "Saving manual PGHD..."
+        isSubmitting -> "Submitting encrypted PGHD..."
+        isGrantingAccess -> "Granting access..."
+        isRevokingAccess -> "Revoking access..."
+        else -> null
+    }
+    val isBusy = activeOperation != null
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
@@ -355,38 +378,66 @@ private fun HealthConnectSummaryCard(
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                activeOperation?.let {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.height(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
                 OutlinedButton(
-                    enabled = available && (!hasPermissions || !hasHistoryPermission),
+                    enabled = !isBusy && available && (!hasPermissions || !hasHistoryPermission),
                     onClick = if (hasPermissions) onRequestHistoryPermission else onRequestDataPermission
                 ) {
                     Text(if (hasPermissions) "Approve Health History" else "Connect Health Connect")
                 }
                 Button(
-                    enabled = available && hasPermissions && !isSyncing && !isSubmitting,
+                    enabled = available && hasPermissions && !isBusy,
                     onClick = onSync
                 ) {
+                    if (isSyncing) SmallButtonProgress()
                     Text(if (isSyncing) "Syncing" else "Sync Now")
                 }
                 Button(
-                    enabled = !isSyncing && !isSubmitting && !isGrantingAccess && totalCount > 0,
+                    enabled = !isBusy && totalCount > 0,
                     onClick = onSubmit
                 ) {
-                    Icon(Icons.Default.CloudUpload, contentDescription = null)
+                    if (isSubmitting) {
+                        SmallButtonProgress()
+                    } else {
+                        Icon(Icons.Default.CloudUpload, contentDescription = null)
+                    }
                     Text(if (isSubmitting) "Submitting" else "Submit PGHD")
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         modifier = Modifier.weight(1f),
-                        enabled = !isSyncing && !isSubmitting && !isGrantingAccess && !isRevokingAccess,
+                        enabled = !isBusy,
                         onClick = onGrantAccess
                     ) {
+                        if (isGrantingAccess) SmallButtonProgress()
                         Text(if (isGrantingAccess) "Granting" else "Grant")
                     }
                     OutlinedButton(
                         modifier = Modifier.weight(1f),
-                        enabled = !isSyncing && !isSubmitting && !isGrantingAccess && !isRevokingAccess,
-                        onClick = onRevokeAccess
+                        enabled = !isBusy,
+                        onClick = onRevokeAccess,
+                        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.error),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        )
                     ) {
+                        if (isRevokingAccess) SmallButtonProgress()
                         Text(if (isRevokingAccess) "Revoking" else "Revoke")
                     }
                 }
@@ -424,6 +475,8 @@ private fun HealthConnectSummaryCard(
                 Text(
                     text = statusText,
                     style = MaterialTheme.typography.bodySmall,
+                    maxLines = 12,
+                    overflow = TextOverflow.Ellipsis,
                     color = if (error == null) {
                         MaterialTheme.colorScheme.onPrimaryContainer
                     } else {
@@ -433,6 +486,16 @@ private fun HealthConnectSummaryCard(
             }
         }
     }
+}
+
+@Composable
+private fun SmallButtonProgress() {
+    CircularProgressIndicator(
+        modifier = Modifier
+            .padding(end = 8.dp)
+            .size(16.dp),
+        strokeWidth = 2.dp
+    )
 }
 
 @Composable
@@ -504,6 +567,7 @@ private fun GrantPghdAccessDialog(
                 enabled = !isGranting && personnelAddress.isNotBlank() && personnelPrePublicKey.isNotBlank(),
                 onClick = { onGrant(personnelAddress, personnelPrePublicKey, selectedAccessKind) }
             ) {
+                if (isGranting) SmallButtonProgress()
                 Text(if (isGranting) "Granting" else "Grant")
             }
         },
@@ -616,21 +680,24 @@ private fun decodeHospitalPersonnelQrPayload(content: String): Pair<String, Stri
 @Composable
 private fun RevokePghdAccessDialog(
     isRevoking: Boolean,
+    activeGrants: List<StoredPghdAccessGrant>,
+    dateFormatter: SimpleDateFormat,
     onDismiss: () -> Unit,
-    onRevoke: (String, Long, PatientGrantAccessKind) -> Unit
+    onRevoke: (StoredPghdAccessGrant) -> Unit
 ) {
-    var personnelAddress by rememberSaveable { mutableStateOf("") }
-    var accessLogIndexText by rememberSaveable { mutableStateOf("") }
-    var selectedAccessKind by rememberSaveable { mutableStateOf(PatientGrantAccessKind.PGHD_READ) }
-    val accessLogIndex = accessLogIndexText.toLongOrNull()
+    var selectedGrantId by remember(activeGrants) {
+        mutableStateOf(activeGrants.firstOrNull()?.id)
+    }
+    val selectedGrant = activeGrants.firstOrNull { it.id == selectedGrantId }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
             Button(
-                enabled = !isRevoking && personnelAddress.isNotBlank() && accessLogIndex != null && accessLogIndex >= 0,
-                onClick = { onRevoke(personnelAddress, accessLogIndex ?: 0L, selectedAccessKind) }
+                enabled = !isRevoking && selectedGrant != null,
+                onClick = { selectedGrant?.let(onRevoke) }
             ) {
+                if (isRevoking) SmallButtonProgress()
                 Text(if (isRevoking) "Revoking" else "Revoke")
             }
         },
@@ -643,61 +710,76 @@ private fun RevokePghdAccessDialog(
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = "Select the access type and enter the access log index created when access was granted.",
+                    text = "Select an active access grant. The app will use the matching on-chain access log automatically.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = selectedAccessKind == PatientGrantAccessKind.PGHD_READ,
-                        onClick = { selectedAccessKind = PatientGrantAccessKind.PGHD_READ },
-                        label = { Text("PGHD Read") },
-                        enabled = !isRevoking
+                if (activeGrants.isEmpty()) {
+                    Text(
+                        text = "No active access grants saved on this device yet. Grant access from this app first before revoking it here.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    FilterChip(
-                        selected = selectedAccessKind == PatientGrantAccessKind.MEDICAL_RECORD_READ_UPDATE,
-                        onClick = {
-                            selectedAccessKind = PatientGrantAccessKind.MEDICAL_RECORD_READ_UPDATE
-                        },
-                        label = { Text("Medical Read/Update") },
-                        enabled = !isRevoking
-                    )
-                }
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = personnelAddress,
-                    onValueChange = { personnelAddress = it },
-                    label = { Text("Personnel IOTA address") },
-                    singleLine = true,
-                    enabled = !isRevoking
-                )
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = accessLogIndexText,
-                    onValueChange = { candidate ->
-                        accessLogIndexText = candidate.filter(Char::isDigit)
-                    },
-                    label = { Text("Access log index") },
-                    singleLine = true,
-                    enabled = !isRevoking,
-                    supportingText = {
-                        Text(
-                            if (selectedAccessKind == PatientGrantAccessKind.MEDICAL_RECORD_READ_UPDATE) {
-                                "Enter the medical read log index. The update log is created directly after it and will be revoked too."
-                            } else {
-                                "Use the PGHD read index shown in the patient's access log."
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        activeGrants.forEach { grant ->
+                            val selected = selectedGrantId == grant.id
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .selectable(
+                                        selected = selected,
+                                        enabled = !isRevoking,
+                                        onClick = { selectedGrantId = grant.id }
+                                    ),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (selected) {
+                                        MaterialTheme.colorScheme.primaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.surface
+                                    }
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = grant.accessKind.displayLabel,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Personnel: ${grant.hospitalPersonnelIotaAddress}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = "Granted: ${formatIsoDate(grant.grantedAt, dateFormatter)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = "Access entries: ${grant.accessLogIndexes.joinToString { "#$it" }}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
-                        )
-                    },
-                    isError = accessLogIndexText.isNotBlank() && accessLogIndex == null
-                )
+                        }
+                    }
+                }
             }
         }
     )
 }
+
+private fun formatIsoDate(value: String, dateFormatter: SimpleDateFormat): String =
+    runCatching { dateFormatter.format(Date(java.time.Instant.parse(value).toEpochMilli())) }
+        .getOrDefault(value)
 
 private fun decodeQrBitmap(bitmap: Bitmap): Result<String> = runCatching {
     val reader = MultiFormatReader().apply {

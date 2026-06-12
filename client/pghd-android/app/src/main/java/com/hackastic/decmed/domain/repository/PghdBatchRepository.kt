@@ -19,8 +19,13 @@ interface PghdBatchRepository {
         records: List<PghdRecordEntity>,
         patientProfile: PatientProfile
     ): PghdSubmitResult
-    suspend fun submitBatch(batchId: String): PghdSubmitResult
-    suspend fun submitPendingBatches(maxRetryCount: Int): List<PghdSubmitResult>
+    suspend fun submitBatch(
+        batchId: String,
+        submitTriggerReason: String = PghdBatchEntity.TRIGGER_MANUAL_SUBMIT
+    ): PghdSubmitResult
+    suspend fun submitPendingBatches(
+        submitTriggerReason: String = PghdBatchEntity.TRIGGER_NETWORK_AVAILABLE
+    ): List<PghdSubmitResult>
     suspend fun normalizeBatchStatuses()
     suspend fun deleteBatch(batchId: String)
 }

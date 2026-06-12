@@ -27,16 +27,17 @@ data class PghdBatchEntity(
     val status: String = STATUS_WAITING_FOR_TRIGGER,
     val retryCount: Int = 0,
     val createdAtEpochMillis: Long = System.currentTimeMillis(),
-    val lastAttemptEpochMillis: Long? = null
+    val lastAttemptEpochMillis: Long? = null,
+    val lastSubmitTriggerReason: String? = null
 ) {
     companion object {
         const val STATUS_WAITING_FOR_TRIGGER = "waiting_for_trigger"
         const val STATUS_PENDING = "pending"
         const val STATUS_SENT = "sent"
         const val STATUS_FAILED = "failed"
-        const val STATUS_PERMANENT_FAILURE = "permanent_failure"
         const val TRIGGER_TIME_BASED = "time_based"
         const val TRIGGER_SIZE_THRESHOLD = "size_threshold"
         const val TRIGGER_MANUAL_SUBMIT = "manual_submit"
+        const val TRIGGER_NETWORK_AVAILABLE = "network_available"
     }
 }

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -82,7 +84,14 @@ fun PghdBatchScreen(
                         enabled = !uiState.isSubmitting && uiState.records.isNotEmpty(),
                         onClick = viewModel::submitDisplayedPghd
                     ) {
-                        Icon(Icons.Default.CloudUpload, contentDescription = "Send current PGHD")
+                        if (uiState.isSubmitting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(Icons.Default.CloudUpload, contentDescription = "Send current PGHD")
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -205,7 +214,16 @@ private fun PghdBatchCard(
                     ) {
                         DropdownMenuItem(
                             text = { Text(if (isSubmitting) "Sending..." else "Send now") },
-                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) },
+                            leadingIcon = {
+                                if (isSubmitting) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null)
+                                }
+                            },
                             enabled = canSubmit,
                             onClick = {
                                 menuExpanded = false
@@ -224,12 +242,17 @@ private fun PghdBatchCard(
                 BatchStatusChip(status = batch.status)
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        text = "Trigger: ${batch.triggerReason.toTriggerLabel()}",
+                        text = "Created trigger: ${batch.triggerReason.toTriggerLabel()}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = "Retry count: ${batch.retryCount}",
+                        text = "Send trigger: ${(batch.lastSubmitTriggerReason ?: batch.triggerReason).toTriggerLabel()}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "Attempt count: ${batch.retryCount}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -263,6 +286,7 @@ private fun String.toTriggerLabel(): String =
     when (this) {
         PghdBatchEntity.TRIGGER_MANUAL_SUBMIT -> "manual submit"
         PghdBatchEntity.TRIGGER_SIZE_THRESHOLD -> "size threshold"
+        PghdBatchEntity.TRIGGER_NETWORK_AVAILABLE -> "network available"
         else -> "15-minute schedule"
     }
 
@@ -276,7 +300,6 @@ private fun BatchStatusChip(status: String) {
         PghdBatchEntity.STATUS_PENDING -> Triple("Sending", Icons.Default.CloudUpload, MaterialTheme.colorScheme.tertiary)
         PghdBatchEntity.STATUS_SENT -> Triple("Sent", Icons.Default.CheckCircle, MaterialTheme.colorScheme.primary)
         PghdBatchEntity.STATUS_FAILED -> Triple("Failed", Icons.Default.Error, MaterialTheme.colorScheme.error)
-        PghdBatchEntity.STATUS_PERMANENT_FAILURE -> Triple("Permanent failure", Icons.Default.Error, MaterialTheme.colorScheme.error)
         else -> Triple(status.replace('_', ' '), Icons.Default.CloudUpload, MaterialTheme.colorScheme.tertiary)
     }
     AssistChip(

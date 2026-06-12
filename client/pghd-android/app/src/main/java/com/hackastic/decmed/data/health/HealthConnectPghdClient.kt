@@ -121,7 +121,17 @@ class HealthConnectPghdClient(
     suspend fun readRecentPghd(daysBack: Long = 30): List<PghdRecordEntity> {
         val end = Instant.now()
         val start = end.minus(daysBack, ChronoUnit.DAYS)
+        return readPghdBetween(start, end)
+    }
+
+    suspend fun readPghdSince(start: Instant): List<PghdRecordEntity> {
+        val end = Instant.now()
+        return readPghdBetween(start, end)
+    }
+
+    suspend fun readPghdBetween(start: Instant, end: Instant): List<PghdRecordEntity> {
         val grantedPermissions = getGrantedPermissions()
+        DecmedLog.i(TAG, "Reading Health Connect PGHD records from $start to $end")
         return DESCRIPTORS.filter { it.readPermission in grantedPermissions }.flatMap { descriptor ->
             readRecordsForDescriptor(descriptor, start, end)
         }

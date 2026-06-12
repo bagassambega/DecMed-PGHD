@@ -45,7 +45,13 @@ class PghdBatchWorker(
         )
         container.pghdRepository.markRecordsBatched(records.map { it.uid }, batch.batchId)
         container.prePghdClient.pushRegistration(profile)
-        container.pghdBatchRepository.submitBatch(batch.batchId)
+        val submitResult = container.pghdBatchRepository.submitBatch(
+            batchId = batch.batchId,
+            submitTriggerReason = triggerReason
+        )
+        if (!submitResult.accepted) {
+            PghdWorkScheduler.scheduleSubmitWhenConnected(applicationContext)
+        }
         return Result.success()
     }
 }
