@@ -136,7 +136,10 @@ const explainPghdAccessError = (error: string) => {
 		error.toLowerCase().includes('invalid token') ||
 		error.toLowerCase().includes('unauthorized')
 	) {
-		return 'PGHD PRE access keys are missing or expired. Re-grant PGHD access from the Android patient app using this personnel QR, then refresh this page.';
+		return withRawError(
+			'PGHD PRE access keys are missing or expired. Re-grant PGHD access from the Android patient app using this personnel QR, then refresh this page.',
+			error
+		);
 	}
 
 	return error;
@@ -150,8 +153,13 @@ const explainMedicalRecordAccessError = (error: string) => {
 		error.toLowerCase().includes('unauthorized') ||
 		error.toLowerCase().includes('illegal action')
 	) {
-		return 'Medical record access is missing or expired. Re-grant medical read/update access from the Android patient app using this personnel QR, then refresh this page.';
+		return withRawError(
+			'Medical record access is missing or expired. Re-grant medical read/update access from the Android patient app using this personnel QR, then refresh this page.',
+			error
+		);
 	}
 
 	return error;
 };
+
+const withRawError = (summary: string, error: string) => `${summary}\n\nTechnical detail:\n${error}`;

@@ -235,9 +235,12 @@
 					{/each}
 				</div>
 			</div>
-		{:catch}
+		{:catch error}
 			<div class="bg-red-50 border border-red-200 rounded-md p-4 text-sm text-red-700">
-				PGHD could not be opened or failed verification.
+				<p class="font-semibold">PGHD integrity/access warning</p>
+				<p class="mt-1">
+					{error?.message ?? 'PGHD could not be opened or failed verification.'}
+				</p>
 			</div>
 		{/await}
 	</section>

@@ -87,14 +87,35 @@ export class PghdReadState {
 }
 
 const explainPghdAccessError = (error: string) => {
+	const lower = error.toLowerCase();
 	if (
 		error.includes('Keys not found') ||
-		error.toLowerCase().includes('expired') ||
-		error.toLowerCase().includes('invalid token') ||
-		error.toLowerCase().includes('unauthorized')
+		lower.includes('expired') ||
+		lower.includes('invalid token') ||
+		lower.includes('unauthorized')
 	) {
-		return 'PGHD PRE access keys are missing or expired. Re-grant PGHD access from the Android patient app using this personnel QR, then refresh this page.';
+		return withRawError(
+			'PGHD PRE access keys are missing or expired. Re-grant PGHD access from the Android patient app using this personnel QR, then refresh this page.',
+			error
+		);
+	}
+
+	if (
+		error.includes('ERR_DATA_CORRUPTED') ||
+		error.includes('INNER_SIGNATURE_INVALID') ||
+		lower.includes('signature error') ||
+		lower.includes('invalid pghd') ||
+		lower.includes('hash') ||
+		lower.includes('h_cipher') ||
+		lower.includes('corrupt')
+	) {
+		return withRawError(
+			'Integrity warning: this PGHD batch failed hash or digital signature verification. Treat this data as invalid and do not use it for clinical decisions.',
+			error
+		);
 	}
 
 	return error;
 };
+
+const withRawError = (summary: string, error: string) => `${summary}\n\nTechnical detail:\n${error}`;
