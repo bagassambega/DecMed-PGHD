@@ -29,6 +29,7 @@ use crate::{
         do_http_get_request_json, do_http_post_request_json, do_http_put_request_json,
         encode_activation_key_from_keys_entry, get_iota_address_from_keys_entry,
         get_iota_key_pair_from_keys_entry, get_pre_keys_from_keys_entry, parse_keys_entry,
+        sanitize_clinical_text, sanitize_identifier, sanitize_input_text,
         serde_deserialize_from_base64, serde_serialize_to_base64,
     },
 };
@@ -50,13 +51,7 @@ pub async fn new_medical_record(
         let patient_pre_public_key: PublicKey =
             serde_deserialize_from_base64(patient_pre_public_key).context(current_fn!())?;
 
-        let medical_data = MedicalData {
-            anamnesis: data.anamnesis,
-            diagnose: data.diagnose,
-            physical_check: data.physical_check,
-            psychological_check: data.psychological_check,
-            therapy: data.therapy,
-        };
+        let medical_data = sanitize_new_medical_record_payload(data).context(current_fn!())?;
         let (enc_medical_data, medical_data_key, medical_data_nonce) =
             aes_encrypt(&serde_json::to_vec(&medical_data).context(current_fn!())?)
                 .context(current_fn!())?;
@@ -541,6 +536,18 @@ pub async fn invalidate_pghd(
     patient_iota_address: String,
 ) -> Result<SuccessResponse<()>, HospitalError> {
     let req_client = reqwest::Client::new();
+    let cid = sanitize_identifier(&cid, 128);
+    if cid.is_empty() {
+        return Err(HospitalError::Anyhow(anyhow!("Invalid args: cid is invalid")));
+    }
+    let failure_reason = sanitize_input_text(&failure_reason, 256);
+    if failure_reason.is_empty() {
+        return Err(HospitalError::Anyhow(anyhow!(
+            "Invalid args: failure_reason is invalid"
+        )));
+    }
+    let patient_iota_address =
+        IotaAddress::from_str(&patient_iota_address).context(current_fn!())?;
     let _ = do_http_post_request_json::<
         _,
         ProxyReencryptionSuccessResponse<()>,
@@ -551,7 +558,7 @@ pub async fn invalidate_pghd(
         &json!({
             "cid": cid,
             "failure_reason": failure_reason,
-            "patient_iota_address": patient_iota_address,
+            "patient_iota_address": patient_iota_address.to_string(),
         }),
         &req_client,
         StatusCode::OK,
@@ -914,13 +921,7 @@ pub async fn update_medical_record(
         let patient_pre_public_key: PublicKey =
             serde_deserialize_from_base64(patient_pre_public_key).context(current_fn!())?;
 
-        let medical_data = MedicalData {
-            anamnesis: data.anamnesis,
-            diagnose: data.diagnose,
-            physical_check: data.physical_check,
-            psychological_check: data.psychological_check,
-            therapy: data.therapy,
-        };
+        let medical_data = sanitize_update_medical_record_payload(data).context(current_fn!())?;
         let (enc_medical_data, medical_data_key, medical_data_nonce) =
             aes_encrypt(&serde_json::to_vec(&medical_data).context(current_fn!())?)
                 .context(current_fn!())?;
@@ -966,4 +967,59 @@ pub async fn update_medical_record(
         status: ResponseStatus::Success,
         data: (),
     })
+}
+
+fn sanitize_new_medical_record_payload(
+    data: CommandNewMedicalRecordPayload,
+) -> Result<MedicalData, HospitalError> {
+    sanitize_medical_data(
+        data.anamnesis,
+        data.diagnose,
+        data.physical_check,
+        data.psychological_check,
+        data.therapy,
+    )
+}
+
+fn sanitize_update_medical_record_payload(
+    data: CommandUpdateMedicalRecordPayload,
+) -> Result<MedicalData, HospitalError> {
+    sanitize_medical_data(
+        data.anamnesis,
+        data.diagnose,
+        data.physical_check,
+        data.psychological_check,
+        data.therapy,
+    )
+}
+
+fn sanitize_medical_data(
+    anamnesis: String,
+    diagnose: String,
+    physical_check: String,
+    psychological_check: String,
+    therapy: String,
+) -> Result<MedicalData, HospitalError> {
+    let medical_data = MedicalData {
+        anamnesis: sanitize_required_clinical_field("anamnesis", &anamnesis)?,
+        diagnose: sanitize_required_clinical_field("diagnose", &diagnose)?,
+        physical_check: sanitize_required_clinical_field("physical_check", &physical_check)?,
+        psychological_check: sanitize_required_clinical_field(
+            "psychological_check",
+            &psychological_check,
+        )?,
+        therapy: sanitize_required_clinical_field("therapy", &therapy)?,
+    };
+
+    Ok(medical_data)
+}
+
+fn sanitize_required_clinical_field(field: &str, value: &str) -> Result<String, HospitalError> {
+    let sanitized = sanitize_clinical_text(value);
+    if sanitized.len() < 2 {
+        return Err(HospitalError::Anyhow(anyhow!(
+            "Invalid args: data.{field} is invalid after sanitization"
+        )));
+    }
+    Ok(sanitized)
 }

@@ -1,5 +1,5 @@
 import type { InvokeGetPghdListItem, InvokeGetPghdResponseData, SuccessResponse } from '$lib/types';
-import { tryCatchAsVal } from '$lib/utils';
+import { sanitizeInputText, tryCatchAsVal } from '$lib/utils';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'svelte-sonner';
 
@@ -66,8 +66,8 @@ export class PghdReadState {
 		const resInvalidatePghd = await tryCatchAsVal(async () => {
 			return (await invoke('invalidate_pghd', {
 				accessToken: this.accessToken,
-				cid,
-				failureReason,
+				cid: sanitizeInputText(cid, 256),
+				failureReason: sanitizeInputText(failureReason, 500),
 				patientIotaAddress: this.patientIotaAddress
 			})) as SuccessResponse<null>;
 		});

@@ -5,7 +5,7 @@ import type {
 	Role,
 	SuccessResponse
 } from '$lib/types';
-import { tryCatchAsVal } from '$lib/utils';
+import { sanitizeInputText, tryCatchAsVal } from '$lib/utils';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'svelte-sonner';
 import { superForm, type Infer, type SuperForm, type SuperValidated } from 'sveltekit-superforms';
@@ -37,7 +37,7 @@ export class CompleteProfileState {
 					const resultInvokeUpdateProfile = await tryCatchAsVal(async () => {
 						return (await invoke('update_profile', {
 							data: {
-								name: form.data.name
+								name: sanitizeInputText(form.data.name, 100)
 							}
 						})) as SuccessResponse<null>;
 					});
@@ -50,11 +50,12 @@ export class CompleteProfileState {
 
 					if (this.role === 'Admin') {
 						const adminData = form.data as Infer<CompleteProfileAdminSchema> & { hospital?: string };
+						const hospital = adminData.hospital;
 
-						if (adminData.hospital) {
+						if (hospital) {
 							await tryCatchAsVal(async () => {
 								return (await invoke('update_registered_hospital_name', {
-									hospitalName: adminData.hospital
+									hospitalName: sanitizeInputText(hospital, 100)
 								})) as SuccessResponse<null>;
 							});
 						}

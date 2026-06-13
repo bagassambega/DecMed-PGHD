@@ -17,6 +17,7 @@ import com.hackastic.decmed.config.Env
 import com.hackastic.decmed.data.local.database.SensorDatabase
 import com.hackastic.decmed.data.local.entity.SensorData
 import com.hackastic.decmed.data.pghd.AndroidSensorPghdMapper
+import com.hackastic.decmed.data.pghd.PghdInputSanitizer
 import com.hackastic.decmed.worker.PghdSizeThresholdTrigger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -192,7 +193,7 @@ class SensorCollectionService : Service(), SensorEventListener {
         serviceScope.launch {
             try {
                 database.sensorDao().insertAll(batch)
-                val pghdRecords = AndroidSensorPghdMapper.toPghdRecords(batch)
+                val pghdRecords = PghdInputSanitizer.sanitizeRecords(AndroidSensorPghdMapper.toPghdRecords(batch))
                 if (pghdRecords.isNotEmpty()) {
                     database.pghdRecordDao().upsertAll(pghdRecords)
                     PghdSizeThresholdTrigger.scheduleBatchIfExceeded(

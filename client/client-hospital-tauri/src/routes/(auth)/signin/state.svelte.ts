@@ -5,7 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { superForm, type Infer, type SuperForm, type SuperValidated } from 'sveltekit-superforms';
 import { zod } from 'sveltekit-superforms/adapters';
 import { getAuthContext } from '../../(context)/auth-context.svelte';
-import { tryCatchAsVal } from '$lib/utils';
+import { sanitizeInputText, tryCatchAsVal } from '$lib/utils';
 import { toast } from 'svelte-sonner';
 import { invalidateAll } from '$app/navigation';
 
@@ -40,7 +40,7 @@ export class SignInState {
 							const pin = formData.get('pin') as string;
 							const resInvokeValidatePin = await tryCatchAsVal(async () => {
 								return (await invoke('validate_pin', {
-									pin,
+									pin: sanitizeInputText(pin, 6),
 									authType: 'Signin'
 								})) as SuccessResponse<null>;
 							});
@@ -60,7 +60,7 @@ export class SignInState {
 							const confirmPin = formData.get('confirmPin') as string;
 							const resInvokeValidateConfirmPin = await tryCatchAsVal(async () => {
 								return (await invoke('validate_confirm_pin', {
-									confirmPin,
+									confirmPin: sanitizeInputText(confirmPin, 6),
 									authType: 'Signin'
 								})) as SuccessResponse<null>;
 							});
@@ -87,7 +87,7 @@ export class SignInState {
 				if (result.type === 'success') {
 					const resInvokeSignin = await tryCatchAsVal(async () => {
 						return (await invoke('signin', {
-							seedWords: form.data.seedWords
+							seedWords: sanitizeInputText(form.data.seedWords, 256)
 						})) as SuccessResponse<null>;
 					});
 

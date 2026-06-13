@@ -313,6 +313,34 @@ pub fn validate_by_regex(value: &str, regex: &str) -> Result<bool, HospitalError
     Ok(re.is_match(value))
 }
 
+pub fn sanitize_input_text(value: &str, max_len: usize) -> String {
+    value
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .chars()
+        .take(max_len)
+        .collect()
+}
+
+pub fn sanitize_identifier(value: &str, max_len: usize) -> String {
+    value
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | ':' | '@'))
+        .take(max_len)
+        .collect::<String>()
+        .trim_matches(['_', '-', '.', ':', '@'])
+        .to_string()
+}
+
+pub fn sanitize_clinical_text(value: &str) -> String {
+    sanitize_input_text(value, 1000)
+}
+
 pub fn compute_pre_keys(seed: &[u8]) -> Result<(SecretKey, PublicKey), HospitalError> {
     let secret_key = SecretKeyFactory::from_secure_randomness(seed)
         .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?

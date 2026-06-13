@@ -8,7 +8,7 @@ import type {
 	SuccessResponse,
 	UpdateMedicalRecordSchema
 } from '$lib/types';
-import { tryCatchAsVal } from '$lib/utils';
+import { sanitizeClinicalText, tryCatchAsVal } from '$lib/utils';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'svelte-sonner';
 import { superForm, type Infer, type SuperForm, type SuperValidated } from 'sveltekit-superforms';
@@ -78,11 +78,11 @@ export class EmrUpdateState {
 						return (await invoke('update_medical_record', {
 							accessToken,
 							data: {
-								anamnesis: form.data.anamnesis,
-								diagnose: form.data.diagnose,
-								physicalCheck: form.data.physicalCheck,
-								psychologicalCheck: form.data.psychologicalCheck,
-								therapy: form.data.therapy
+								anamnesis: sanitizeClinicalText(form.data.anamnesis),
+								diagnose: sanitizeClinicalText(form.data.diagnose),
+								physicalCheck: sanitizeClinicalText(form.data.physicalCheck),
+								psychologicalCheck: sanitizeClinicalText(form.data.psychologicalCheck),
+								therapy: sanitizeClinicalText(form.data.therapy)
 							},
 							patientIotaAddress,
 							patientPrePublicKey

@@ -1,6 +1,6 @@
 import { completeProfileAdminSchema } from '$lib/schema';
 import type { CompleteProfileAdminSchema, SuccessResponse } from '$lib/types';
-import { tryCatchAsVal } from '$lib/utils';
+import { sanitizeInputText, tryCatchAsVal } from '$lib/utils';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'svelte-sonner';
 import { superForm, type Infer, type SuperForm, type SuperValidated } from 'sveltekit-superforms';
@@ -23,7 +23,7 @@ export class CompleteProfileAdminState {
 					const resultInvokeUpdateProfile = await tryCatchAsVal(async () => {
 						return (await invoke('update_profile', {
 							data: {
-								name: form.data.name
+								name: sanitizeInputText(form.data.name, 100)
 							}
 						})) as SuccessResponse<null>;
 					});

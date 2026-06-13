@@ -15,7 +15,7 @@ use crate::{
         encode_activation_key_from_keys_entry, generate_64_bytes_seed, generate_iota_keys_ed,
         get_iota_address_from_keys_entry, get_iota_key_pair_from_keys_entry,
         get_pre_keys_from_keys_entry, parse_keys_entry, serde_deserialize_from_base64,
-        serde_serialize_to_base64, validate_by_regex,
+        sanitize_input_text, serde_serialize_to_base64, validate_by_regex,
     },
 };
 
@@ -220,7 +220,7 @@ pub async fn update_profile(
     let keys_entry = parse_keys_entry(&state.keys_entry.get_secret().context(current_fn!())?)
         .context(current_fn!())?;
 
-    let name = data.name.trim().to_string();
+    let name = sanitize_input_text(&data.name, 100);
 
     // Validate data
     if !validate_by_regex(&name, "^[a-zA-Z0-9 ]{2,100}$").context(current_fn!())? {

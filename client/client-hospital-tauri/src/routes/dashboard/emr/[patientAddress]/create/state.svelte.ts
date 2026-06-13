@@ -5,7 +5,7 @@ import type {
 	InvokeGetPatientAdministrativeDataResponseData,
 	SuccessResponse
 } from '$lib/types';
-import { tryCatchAsVal } from '$lib/utils';
+import { sanitizeClinicalText, tryCatchAsVal } from '$lib/utils';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'svelte-sonner';
 import { superForm, type Infer, type SuperForm, type SuperValidated } from 'sveltekit-superforms';
@@ -45,11 +45,11 @@ export class EmrCreateState {
 						return (await invoke('new_medical_record', {
 							accessToken,
 							data: {
-								anamnesis: form.data.anamnesis,
-								physicalCheck: form.data.physicalCheck,
-								psychologicalCheck: form.data.psychologicalCheck,
-								diagnose: form.data.diagnose,
-								therapy: form.data.therapy
+								anamnesis: sanitizeClinicalText(form.data.anamnesis),
+								physicalCheck: sanitizeClinicalText(form.data.physicalCheck),
+								psychologicalCheck: sanitizeClinicalText(form.data.psychologicalCheck),
+								diagnose: sanitizeClinicalText(form.data.diagnose),
+								therapy: sanitizeClinicalText(form.data.therapy)
 							},
 							patientIotaAddress,
 							patientPrePublicKey

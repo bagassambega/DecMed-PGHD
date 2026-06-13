@@ -1,27 +1,29 @@
 import { z } from 'zod';
 import { ADMINISTRATIVE_PERSONNEL_ROLE, MEDICAL_PERSONNEL_ROLE } from './constants';
 
-const pinSchema = {
-	pin: z
+const sanitizedString = (maxLength: number, errors: { required: string; invalid: string }) =>
+	z
 		.string({
-			required_error: 'PIN is required.',
-			invalid_type_error: 'PIN is invalid.'
+			required_error: errors.required,
+			invalid_type_error: errors.invalid
 		})
+		.trim()
+		.max(maxLength, { message: errors.invalid });
+
+const pinSchema = {
+	pin: sanitizedString(6, { required: 'PIN is required.', invalid: 'PIN is invalid.' })
 		.trim()
 		.regex(/^\d{6}$/, { message: 'PIN is invalid.' })
 		.min(1, { message: 'PIN is required.' })
 		.max(6, { message: 'PIN maximum 6 digits.' })
-		.transform((val) => val.trim())
 };
 
 const nameSchema = {
-	name: z
-		.string({ required_error: 'Name is required.', invalid_type_error: 'Name is invalid.' })
+	name: sanitizedString(100, { required: 'Name is required.', invalid: 'Name is invalid.' })
 		.trim()
 		.regex(/^[a-zA-Z0-9 ]{2,100}$/, {
 			message: 'Name must consist of alphanumeric characters only of length 2 - 100.'
 		})
-		.transform((val) => val.trim())
 };
 
 export const medicalDataMainCategory = {
@@ -33,68 +35,58 @@ export const medicalDataSubCategory = {
 };
 
 const anamnesisSchema = {
-	anamnesis: z
-		.string({
-			required_error: 'Anamnesis is required.',
-			invalid_type_error: 'Anamnesis is invalid.'
-		})
+	anamnesis: sanitizedString(1000, {
+		required: 'Anamnesis is required.',
+		invalid: 'Anamnesis is invalid.'
+	})
 		.trim()
 		.regex(/^[a-zA-Z0-9:,.\\ ]{2,1000}$/, {
 			message: 'Anamnesis must consist of alphanumeric characters only of length 2 - 100.'
 		})
-		.transform((val) => val.trim())
 };
 
 const physicalCheckSchema = {
-	physicalCheck: z
-		.string({
-			required_error: 'Physical check is required.',
-			invalid_type_error: 'Physical check is invalid.'
-		})
+	physicalCheck: sanitizedString(1000, {
+		required: 'Physical check is required.',
+		invalid: 'Physical check is invalid.'
+	})
 		.trim()
 		.regex(/^[a-zA-Z0-9:,.\\ ]{2,1000}$/, {
 			message: 'Physical check must consist of alphanumeric characters only of length 2 - 100.'
 		})
-		.transform((val) => val.trim())
 };
 
 const psychologicalCheckSchema = {
-	psychologicalCheck: z
-		.string({
-			required_error: 'Psychological check is required.',
-			invalid_type_error: 'Psychological check is invalid.'
-		})
+	psychologicalCheck: sanitizedString(1000, {
+		required: 'Psychological check is required.',
+		invalid: 'Psychological check is invalid.'
+	})
 		.trim()
 		.regex(/^[a-zA-Z0-9:,.\\ ]{2,1000}$/, {
 			message: 'Psychological check must consist of alphanumeric characters only of length 2 - 100.'
 		})
-		.transform((val) => val.trim())
 };
 
 const diagnoseSchema = {
-	diagnose: z
-		.string({
-			required_error: 'Diagnose is required.',
-			invalid_type_error: 'Diagnose is invalid.'
-		})
+	diagnose: sanitizedString(1000, {
+		required: 'Diagnose is required.',
+		invalid: 'Diagnose is invalid.'
+	})
 		.trim()
 		.regex(/^[a-zA-Z0-9:,.\\ ]{2,1000}$/, {
 			message: 'Diagnose must consist of alphanumeric characters only of length 2 - 100.'
 		})
-		.transform((val) => val.trim())
 };
 
 const therapySchema = {
-	therapy: z
-		.string({
-			required_error: 'Therapy is required.',
-			invalid_type_error: 'Therapy is invalid.'
-		})
+	therapy: sanitizedString(1000, {
+		required: 'Therapy is required.',
+		invalid: 'Therapy is invalid.'
+	})
 		.trim()
 		.regex(/^[a-zA-Z0-9:,.\\ ]{2,1000}$/, {
 			message: 'Therapy must consist of alphanumeric characters only of length 2 - 100.'
 		})
-		.transform((val) => val.trim())
 };
 
 // const _hospitalSchema = {
@@ -108,38 +100,29 @@ const therapySchema = {
 // };
 
 export const activationSchema = z.object({
-	id: z
-		.string({
-			required_error: 'ID is required.',
-			invalid_type_error: 'ID is invalid.'
-		})
+	id: sanitizedString(128, { required: 'ID is required.', invalid: 'ID is invalid.' })
 		.trim()
-		.min(1, { message: 'ID is required.' })
-		.transform((val) => val.trim()),
-	activationKey: z
-		.string({
-			required_error: 'Activation Key is required.',
-			invalid_type_error: 'Activation Key is invalid.'
-		})
+		.min(1, { message: 'ID is required.' }),
+	activationKey: sanitizedString(36, {
+		required: 'Activation Key is required.',
+		invalid: 'Activation Key is invalid.'
+	})
 		.trim()
 		.min(1, { message: 'Activation Key is required.' })
 		.max(36, { message: 'Activation Key is invalid.' })
-		.transform((val) => val.trim())
 });
 
 export const signInSchemaStep1 = z.object(pinSchema);
 
 export const signInSchemaStep2 = signInSchemaStep1.extend({
-	confirmPin: z
-		.string({
-			required_error: 'Confirm PIN is required.',
-			invalid_type_error: 'Confirm PIN is invalid.'
-		})
+	confirmPin: sanitizedString(6, {
+		required: 'Confirm PIN is required.',
+		invalid: 'Confirm PIN is invalid.'
+	})
 		.trim()
 		.regex(/^\d{6}$/, { message: 'Confirm PIN is invalid.' })
 		.min(1, { message: 'Confirm PIN is required.' })
 		.max(6, { message: 'Confirm PIN maximum 6 digits.' })
-		.transform((val) => val.trim())
 });
 
 export const signInSchemaStep3 = signInSchemaStep2
@@ -150,10 +133,10 @@ export const signInSchemaStep3 = signInSchemaStep2
 				invalid_type_error: 'Seed Words is invalid.'
 			})
 			.trim()
+			.max(256, { message: 'Seed Words is invalid.' })
 			.min(1, { message: 'Seed Words is required.' })
-			.transform((val) => val.trim())
 			.refine(
-				(val) => {
+				(val: string) => {
 					const words = val.split(' ');
 					return words.length === 12;
 				},
@@ -177,14 +160,9 @@ export const signUpSchemaStep2 = signInSchemaStep2;
 export const signUpSchemaStep4 = signInSchemaStep3;
 
 export const addPersonnelSchemaStep1 = z.object({
-	id: z
-		.string({
-			required_error: 'ID is required.',
-			invalid_type_error: 'ID is invalid.'
-		})
+	id: sanitizedString(128, { required: 'ID is required.', invalid: 'ID is invalid.' })
 		.trim()
-		.min(1, { message: 'ID is required.' })
-		.transform((val) => val.trim()),
+		.min(1, { message: 'ID is required.' }),
 	role: z.enum([ADMINISTRATIVE_PERSONNEL_ROLE, MEDICAL_PERSONNEL_ROLE], {
 		required_error: 'Role is required.',
 		invalid_type_error: 'Role is invalid.'

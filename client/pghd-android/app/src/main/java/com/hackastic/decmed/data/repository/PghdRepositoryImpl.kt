@@ -2,6 +2,7 @@ package com.hackastic.decmed.data.repository
 
 import com.hackastic.decmed.data.local.dao.PghdRecordDao
 import com.hackastic.decmed.data.local.entity.PghdRecordEntity
+import com.hackastic.decmed.data.pghd.PghdInputSanitizer
 import com.hackastic.decmed.domain.repository.PghdRepository
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
@@ -37,25 +38,32 @@ class PghdRepositoryImpl(
         notes: String?
     ) {
         val now = System.currentTimeMillis()
+        val input = PghdInputSanitizer.sanitizeManualInput(
+            recordType = recordType,
+            displayName = displayName,
+            valueText = valueText,
+            unit = unit,
+            notes = notes
+        )
         pghdRecordDao.upsert(
             PghdRecordEntity(
                 uid = "manual:${UUID.randomUUID()}",
-                recordType = recordType.trim(),
-                displayName = displayName.trim(),
+                recordType = input.recordType,
+                displayName = input.displayName,
                 startTimeEpochMillis = now,
                 endTimeEpochMillis = now,
-                unit = unit.trim(),
-                valueText = valueText.trim(),
-                numericValue = numericValue,
+                unit = input.unit,
+                valueText = input.valueText,
+                numericValue = input.numericValue ?: numericValue?.takeIf { it.isFinite() },
                 sourceTag = PghdRecordEntity.SOURCE_MANUAL,
-                notes = notes?.trim()?.takeIf { it.isNotEmpty() },
+                notes = input.notes,
                 syncedAtEpochMillis = now
             )
         )
     }
 
     override suspend fun saveHealthConnectRecords(records: List<PghdRecordEntity>) {
-        pghdRecordDao.insertAllIgnoringConflicts(records)
+        pghdRecordDao.insertAllIgnoringConflicts(PghdInputSanitizer.sanitizeRecords(records))
     }
 
     override suspend fun getUnbatchedRecords(): List<PghdRecordEntity> =

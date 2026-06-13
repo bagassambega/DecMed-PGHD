@@ -7,7 +7,7 @@ import type {
 	InvokeHospitalAdminAddActivationKeyResponse,
 	SuccessResponse
 } from '$lib/types';
-import { tryCatchAsVal } from '$lib/utils';
+import { sanitizeIdentifier, sanitizeInputText, tryCatchAsVal } from '$lib/utils';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'svelte-sonner';
 import { superForm, type Infer, type SuperForm, type SuperValidated } from 'sveltekit-superforms';
@@ -65,9 +65,9 @@ export class AdminHomeState {
 				if (result.type === 'success') {
 					const resInvokeHospitalAdminAddActivationKey = await tryCatchAsVal(async () => {
 						return (await invoke('hospital_admin_add_activation_key', {
-							personnelIdPart: form.data.id,
+							personnelIdPart: sanitizeIdentifier(form.data.id, 128),
 							role: form.data.role,
-							pin: form.data.pin
+							pin: sanitizeInputText(form.data.pin, 6)
 						})) as SuccessResponse<InvokeHospitalAdminAddActivationKeyResponse>;
 					});
 

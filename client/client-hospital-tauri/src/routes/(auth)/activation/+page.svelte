@@ -3,7 +3,7 @@
 	import { superForm } from 'sveltekit-superforms';
 	import { zod } from 'sveltekit-superforms/adapters';
 	import { activationSchema } from '$lib/schema';
-	import { cn, tryCatchAsVal } from '$lib/utils';
+	import { cn, sanitizeIdentifier, tryCatchAsVal } from '$lib/utils';
 	import { invoke } from '@tauri-apps/api/core';
 	import { toast } from 'svelte-sonner';
 	import type { InvokeGlobalAdminAddActivationKeyData, SuccessResponse } from '$lib/types.js';
@@ -24,8 +24,8 @@
 				console.log(form.data);
 				const resInvokeActivateApp = await tryCatchAsVal(async () => {
 					return (await invoke('activate_app', {
-						activationKey: form.data.activationKey,
-						id: form.data.id
+						activationKey: sanitizeIdentifier(form.data.activationKey, 36),
+						id: sanitizeIdentifier(form.data.id, 128)
 					})) as SuccessResponse<null>;
 				});
 

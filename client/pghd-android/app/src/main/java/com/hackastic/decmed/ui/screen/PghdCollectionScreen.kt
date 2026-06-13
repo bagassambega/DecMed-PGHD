@@ -74,6 +74,7 @@ import androidx.core.content.ContextCompat
 import androidx.health.connect.client.PermissionController
 import com.hackastic.decmed.data.local.entity.PghdRecordEntity
 import com.hackastic.decmed.data.repository.StoredPghdAccessGrant
+import com.hackastic.decmed.data.pghd.PghdInputSanitizer
 import com.hackastic.decmed.ui.components.PghdDateRangeFilter
 import com.hackastic.decmed.ui.components.toPghdSourceDisplayLabel
 import com.hackastic.decmed.viewmodel.PatientGrantAccessKind
@@ -1150,12 +1151,17 @@ private fun ManualPghdDialog(
     var valueText by rememberSaveable { mutableStateOf("") }
     var unit by rememberSaveable { mutableStateOf("") }
     var notes by rememberSaveable { mutableStateOf("") }
+    val canSave = remember(recordType, displayName, valueText, unit, notes) {
+        runCatching {
+            PghdInputSanitizer.sanitizeManualInput(recordType, displayName, valueText, unit, notes)
+        }.isSuccess
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
             Button(
-                enabled = valueText.isNotBlank(),
+                enabled = canSave,
                 onClick = { onSave(recordType, displayName, valueText, unit, notes) }
             ) {
                 Text("Save")
@@ -1175,31 +1181,31 @@ private fun ManualPghdDialog(
                 OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
                     value = recordType,
-                    onValueChange = { recordType = it },
+                    onValueChange = { recordType = it.take(64) },
                     label = { Text("Record type") }
                 )
                 OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
                     value = displayName,
-                    onValueChange = { displayName = it },
+                    onValueChange = { displayName = it.take(120) },
                     label = { Text("Display name") }
                 )
                 OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
                     value = valueText,
-                    onValueChange = { valueText = it },
+                    onValueChange = { valueText = it.take(2_000) },
                     label = { Text("Value") }
                 )
                 OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
                     value = unit,
-                    onValueChange = { unit = it },
+                    onValueChange = { unit = it.take(32) },
                     label = { Text("Unit") }
                 )
                 OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
                     value = notes,
-                    onValueChange = { notes = it },
+                    onValueChange = { notes = it.take(2_000) },
                     label = { Text("Notes") },
                     minLines = 2
                 )
