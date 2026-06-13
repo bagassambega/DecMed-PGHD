@@ -61,6 +61,9 @@ class PghdRepositoryImpl(
     override suspend fun getUnbatchedRecords(): List<PghdRecordEntity> =
         pghdRecordDao.getUnbatchedRecords()
 
+    override fun observeUnbatchedRecords(): Flow<List<PghdRecordEntity>> =
+        pghdRecordDao.observeUnbatchedRecords()
+
     override suspend fun markRecordsBatched(recordIds: List<String>, batchId: String) {
         if (recordIds.isNotEmpty()) {
             pghdRecordDao.markRecordsBatched(recordIds, batchId)

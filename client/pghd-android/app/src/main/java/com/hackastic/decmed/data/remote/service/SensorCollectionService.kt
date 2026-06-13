@@ -17,6 +17,7 @@ import com.hackastic.decmed.config.Env
 import com.hackastic.decmed.data.local.database.SensorDatabase
 import com.hackastic.decmed.data.local.entity.SensorData
 import com.hackastic.decmed.data.pghd.AndroidSensorPghdMapper
+import com.hackastic.decmed.worker.PghdSizeThresholdTrigger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -194,6 +195,11 @@ class SensorCollectionService : Service(), SensorEventListener {
                 val pghdRecords = AndroidSensorPghdMapper.toPghdRecords(batch)
                 if (pghdRecords.isNotEmpty()) {
                     database.pghdRecordDao().upsertAll(pghdRecords)
+                    PghdSizeThresholdTrigger.scheduleBatchIfExceeded(
+                        context = applicationContext,
+                        database = database,
+                        sourceLabel = "phone sensor flush"
+                    )
                 }
                 DecmedLog.d(TAG, "Wrote ${batch.size} raw phone sensor rows and ${pghdRecords.size} semantic phone_sensor PGHD records to local DB.")
             } catch (e: Exception) {

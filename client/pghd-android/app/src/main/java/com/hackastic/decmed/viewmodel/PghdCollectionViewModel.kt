@@ -51,7 +51,15 @@ data class PghdCollectionUiState(
     val errorMessage: String? = null,
     val healthConnectSourcePackages: List<String> = emptyList(),
     val hasDetectedXiaomiSource: Boolean = false,
-    val activeAccessGrants: List<StoredPghdAccessGrant> = emptyList()
+    val activeAccessGrants: List<StoredPghdAccessGrant> = emptyList(),
+    val activeCollectionWindow: ActivePghdCollectionWindow? = null
+)
+
+data class ActivePghdCollectionWindow(
+    val recordCount: Int,
+    val estimatedBytes: Long,
+    val startedAtEpochMillis: Long,
+    val latestRecordEpochMillis: Long
 )
 
 class PghdCollectionViewModel(application: Application) : AndroidViewModel(application) {
@@ -78,6 +86,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
         normalizeBatchStatuses()
         observeRecords()
         observeHomeRecords()
+        observeActiveCollectionWindow()
         observeBatches()
         observeRecordTypes()
         observeHealthConnectSourcePackages()
@@ -545,6 +554,16 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    private fun observeActiveCollectionWindow() {
+        viewModelScope.launch {
+            pghdRepository.observeUnbatchedRecords().collect { records ->
+                _uiState.update {
+                    it.copy(activeCollectionWindow = records.toActiveCollectionWindow())
+                }
+            }
+        }
+    }
+
     private fun observeBatches() {
         viewModelScope.launch {
             combine(
@@ -627,6 +646,31 @@ private fun List<PghdBatchEntity>.filterBatchesByDateRange(
         val afterStart = startMillis == null || batch.endTimestamp >= startMillis
         val beforeEnd = endMillis == null || batch.startTimestamp <= endMillis
         afterStart && beforeEnd
+    }
+
+private fun List<PghdRecordEntity>.toActiveCollectionWindow(): ActivePghdCollectionWindow? {
+    if (isEmpty()) return null
+    val sorted = sortedBy { it.endTimeEpochMillis }
+    return ActivePghdCollectionWindow(
+        recordCount = size,
+        estimatedBytes = estimatePghdPayloadBytes(this),
+        startedAtEpochMillis = sorted.first().startTimeEpochMillis,
+        latestRecordEpochMillis = sorted.last().endTimeEpochMillis
+    )
+}
+
+private fun estimatePghdPayloadBytes(records: List<PghdRecordEntity>): Long =
+    if (records.isEmpty()) {
+        0L
+    } else {
+        runCatching {
+            val payload = PghdPayloadConverter.recordsToBatchPayload(
+                records = records,
+                patientId = "local_patient",
+                triggerReason = PghdBatchPayload.TRIGGER_SIZE_THRESHOLD
+            )
+            PghdPayloadSerializer.toJson(payload).toByteArray(Charsets.UTF_8).size.toLong()
+        }.getOrDefault(0L)
     }
 
 private fun Throwable.toVerboseUserMessage(prefix: String): String {

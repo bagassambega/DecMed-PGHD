@@ -69,6 +69,15 @@ interface PghdRecordDao {
     )
     suspend fun getUnbatchedRecords(): List<PghdRecordEntity>
 
+    @Query(
+        """
+        SELECT * FROM pghd_records
+        WHERE batchId IS NULL
+        ORDER BY endTimeEpochMillis ASC
+        """
+    )
+    fun observeUnbatchedRecords(): Flow<List<PghdRecordEntity>>
+
     @Query("UPDATE pghd_records SET batchId = :batchId WHERE uid IN (:recordIds)")
     suspend fun markRecordsBatched(recordIds: List<String>, batchId: String)
 }

@@ -5,6 +5,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.hackastic.decmed.MainApplication
 import com.hackastic.decmed.config.Env
+import com.hackastic.decmed.data.local.database.SensorDatabase
 import java.time.Instant
 
 class PghdHealthConnectSyncWorker(
@@ -33,6 +34,11 @@ class PghdHealthConnectSyncWorker(
             ?: Instant.now().minusSeconds(daysBack * 24L * 60L * 60L)
         val records = client.readPghdSince(syncStart)
         container.pghdRepository.saveHealthConnectRecords(records)
+        PghdSizeThresholdTrigger.scheduleBatchIfExceeded(
+            context = applicationContext,
+            database = SensorDatabase.getDatabase(applicationContext),
+            sourceLabel = "Health Connect sync worker"
+        )
         return Result.success()
     }
 }

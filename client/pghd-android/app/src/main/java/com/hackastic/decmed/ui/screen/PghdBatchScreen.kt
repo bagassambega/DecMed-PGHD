@@ -47,7 +47,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.hackastic.decmed.data.local.entity.PghdBatchEntity
+import com.hackastic.decmed.config.Env
 import com.hackastic.decmed.ui.components.PghdDateRangeFilter
+import com.hackastic.decmed.viewmodel.ActivePghdCollectionWindow
 import com.hackastic.decmed.viewmodel.PghdCollectionViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -131,7 +133,8 @@ fun PghdBatchScreen(
             )
             Spacer(modifier = Modifier.height(8.dp))
 
-            if (uiState.visibleBatches.isEmpty()) {
+            val activeWindow = uiState.activeCollectionWindow
+            if (uiState.visibleBatches.isEmpty() && activeWindow == null) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
@@ -152,6 +155,14 @@ fun PghdBatchScreen(
                     contentPadding = PaddingValues(bottom = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    activeWindow?.let { window ->
+                        item {
+                            ActiveCollectionWindowCard(
+                                window = window,
+                                dateFormatter = dateFormatter
+                            )
+                        }
+                    }
                     items(uiState.visibleBatches) { batch ->
                         PghdBatchCard(
                             batch = batch,
@@ -162,6 +173,73 @@ fun PghdBatchScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ActiveCollectionWindowCard(
+    window: ActivePghdCollectionWindow,
+    dateFormatter: SimpleDateFormat
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Collecting data",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    Text(
+                        text = "Current data is still local and has not been encrypted into a batch yet.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+                AssistChip(
+                    onClick = {},
+                    label = { Text("Active") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.CloudUpload,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                )
+            }
+            Text(
+                text = "Started: ${dateFormatter.format(Date(window.startedAtEpochMillis))}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+            Text(
+                text = "Latest record: ${dateFormatter.format(Date(window.latestRecordEpochMillis))}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+            Text(
+                text = "Records collected: ${window.recordCount}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+            Text(
+                text = "Estimated batch size: ${window.estimatedBytes.toReadableBytes()} / ${Env.pghdEarlyTriggerBytes.toReadableBytes()}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
         }
     }
 }
@@ -292,6 +370,15 @@ private fun String.toTriggerLabel(): String =
 
 private fun Long.toEpochMillisForDisplay(): Long =
     if (this < 10_000_000_000L) this * 1000L else this
+
+private fun Long.toReadableBytes(): String {
+    val mib = this / (1024.0 * 1024.0)
+    return if (mib >= 1.0) {
+        String.format(Locale.getDefault(), "%.2f MB", mib)
+    } else {
+        String.format(Locale.getDefault(), "%.1f KB", this / 1024.0)
+    }
+}
 
 @Composable
 private fun BatchStatusChip(status: String) {
