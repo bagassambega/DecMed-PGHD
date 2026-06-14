@@ -393,6 +393,30 @@ entry fun submit_pghd(
     pghd_metadata.push_back(metadata);
 }
 
+#[test_only]
+public(package) fun submit_pghd_test(
+    address_id: &AddressId,
+    clock: &Clock,
+    cid: String,
+    h_cipher: String,
+    metadata: String,
+    patient_address: address,
+    patient_id_account: &mut PatientIdAccount,
+    proxy_cap: &ProxyCap,
+)
+{
+    submit_pghd(
+        address_id,
+        clock,
+        cid,
+        h_cipher,
+        metadata,
+        patient_address,
+        patient_id_account,
+        proxy_cap,
+    );
+}
+
 entry fun get_pghd_list(
     address_id: &AddressId,
     clock: &Clock,
@@ -434,6 +458,28 @@ entry fun get_pghd_list(
     };
 
     metadata_list
+}
+
+#[test_only]
+public(package) fun get_pghd_list_test(
+    address_id: &AddressId,
+    clock: &Clock,
+    hospital_personnel_address: address,
+    hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    patient_address: address,
+    patient_id_account: &PatientIdAccount,
+    proxy_cap: &ProxyCap,
+): vector<PatientPghdMetadata>
+{
+    get_pghd_list(
+        address_id,
+        clock,
+        hospital_personnel_address,
+        hospital_personnel_id_account,
+        patient_address,
+        patient_id_account,
+        proxy_cap,
+    )
 }
 
 entry fun get_pghd(
@@ -483,6 +529,30 @@ entry fun get_pghd(
     (*metadata, index, prev_index, next_index)
 }
 
+#[test_only]
+public(package) fun get_pghd_test(
+    address_id: &AddressId,
+    clock: &Clock,
+    hospital_personnel_address: address,
+    hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    index: u64,
+    patient_address: address,
+    patient_id_account: &PatientIdAccount,
+    proxy_cap: &ProxyCap,
+): (PatientPghdMetadata, u64, Option<u64>, Option<u64>)
+{
+    get_pghd(
+        address_id,
+        clock,
+        hospital_personnel_address,
+        hospital_personnel_id_account,
+        index,
+        patient_address,
+        patient_id_account,
+        proxy_cap,
+    )
+}
+
 entry fun invalidate_pghd_entry(
     address_id: &AddressId,
     clock: &Clock,
@@ -526,6 +596,32 @@ entry fun invalidate_pghd_entry(
     };
 
     abort EPGHDRecordNotFound
+}
+
+#[test_only]
+public(package) fun invalidate_pghd_entry_test(
+    address_id: &AddressId,
+    clock: &Clock,
+    hospital_personnel_address: address,
+    hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
+    cid: String,
+    failure_reason: String,
+    patient_address: address,
+    patient_id_account: &mut PatientIdAccount,
+    proxy_cap: &ProxyCap,
+)
+{
+    invalidate_pghd_entry(
+        address_id,
+        clock,
+        hospital_personnel_address,
+        hospital_personnel_id_account,
+        cid,
+        failure_reason,
+        patient_address,
+        patient_id_account,
+        proxy_cap,
+    );
 }
 
 fun assert_pghd_read_access(
