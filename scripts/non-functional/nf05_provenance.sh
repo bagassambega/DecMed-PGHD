@@ -3,7 +3,7 @@ set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
-info "NF04 Provenance"
+info "NF05 Provenance"
 
 if [[ -n "${PGHD_JSON:-}" ]]; then
   require_command python3
@@ -49,4 +49,4 @@ else
     "Healthcare client/PRE path exposes validation history"
 fi
 
-pass "NF04 provenance evaluation finished"
+pass "NF05 provenance evaluation finished"

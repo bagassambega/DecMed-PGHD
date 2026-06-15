@@ -4,8 +4,9 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 require_command cargo
+require_command npm
 
-info "NF05 Input Sanitization"
+info "NF03 Input Sanitization"
 info "Running Android PGHD sanitizer unit tests and hospital sanitizer compile checks."
 
 (
@@ -28,4 +29,4 @@ pass "Hospital frontend sanitization remains type-safe"
 )
 
 pass "Hospital backend sanitization compiles"
-pass "NF05 input sanitization evaluation finished"
+pass "NF03 input sanitization evaluation finished"

@@ -4,6 +4,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 require_command cargo
+require_command iota
 
 info "NF02 Integrity"
 info "Running PRE signature verification tests for valid and tampered PGHD payloads."
