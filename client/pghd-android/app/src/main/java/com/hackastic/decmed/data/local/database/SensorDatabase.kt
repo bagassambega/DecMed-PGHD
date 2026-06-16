@@ -32,6 +32,7 @@ import com.hackastic.decmed.data.local.entity.SensorData
  *   v7 — PGHD batch table now stores encrypted envelopes and retry state.
  *   v8 — PGHD batch table stores triggerReason for time/size based batching.
  *   v9 — PGHD batch table stores the last submit trigger separately from creation trigger.
+ *   v10 — PGHD batch table renames pghdOuterSignature to signature.
  */
 @Database(
     entities = [
@@ -41,7 +42,7 @@ import com.hackastic.decmed.data.local.entity.SensorData
         PghdBatchEntity::class,
         PghdBatchDataPointEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class SensorDatabase : RoomDatabase() {
@@ -62,7 +63,7 @@ abstract class SensorDatabase : RoomDatabase() {
                     SensorDatabase::class.java,
                     "sensor_pghd.db"
                 )
-                    .addMigrations(MIGRATION_8_9)
+                    .addMigrations(MIGRATION_8_9, MIGRATION_9_10)
                     // Development convenience — replace with proper Migration objects
                     // before shipping to production.
                     .fallbackToDestructiveMigration()
@@ -76,6 +77,12 @@ abstract class SensorDatabase : RoomDatabase() {
         private val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE pghd_batches ADD COLUMN lastSubmitTriggerReason TEXT")
+            }
+        }
+
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE pghd_batches RENAME COLUMN pghdOuterSignature TO signature")
             }
         }
     }

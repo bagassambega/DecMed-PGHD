@@ -46,7 +46,7 @@ class PrePghdClient(private val baseUrl: String) {
             .put("h_cipher", envelope.hCipher)
             .put("enc_aes_key_nonce", envelope.encAesKeyNonce)
             .put("capsule", envelope.capsule)
-            .put("pghd_outer_signature", envelope.pghdOuterSignature)
+            .put("signature", envelope.signature)
 
         postJson("/api/v1/pghd/submit", payload)
         return PghdSubmitResult(batchId = envelope.batchId, accepted = true)
@@ -207,11 +207,16 @@ class PrePghdClient(private val baseUrl: String) {
         purpose: String
     ): PghdAccessRevokeResult = withContext(Dispatchers.IO) {
         require(baseUrl.isNotBlank()) { "PRE_BASE_URL must be configured before revoking access." }
-        require(accessLogIndex >= 0) { "Access log index must be non-negative." }
         val patientIotaAddress = profile.iotaAddress.requireField("iota_address")
         val patientIotaKeyPair = profile.iotaKeyPair.requireField("iota_key_pair")
         val personnelAddress = hospitalPersonnelIotaAddress.trim()
         require(personnelAddress.isNotBlank()) { "Hospital personnel IOTA address is required." }
+
+        val accessLogIndexes = resolveActiveAccessLogIndexes(
+            patientIotaAddress = patientIotaAddress,
+            hospitalPersonnelIotaAddress = personnelAddress,
+            purpose = purpose
+        )
 
         val nonce = getNonce(patientIotaAddress)
         val signature = DecmedIotaNative.signPersonalMessage(patientIotaKeyPair, nonce)
@@ -222,11 +227,6 @@ class PrePghdClient(private val baseUrl: String) {
             .put("signature", signature)
         postJson("/api/v1/keys/revoke", payload)
 
-        val accessLogIndexes = if (purpose == "Update") {
-            listOf(accessLogIndex, accessLogIndex + 1)
-        } else {
-            listOf(accessLogIndex)
-        }
         accessLogIndexes.forEach { index ->
             DecmedIotaNative.revokePghdAccess(
                 hospitalPersonnelAddress = personnelAddress,
@@ -240,6 +240,60 @@ class PrePghdClient(private val baseUrl: String) {
             hospitalPersonnelIotaAddress = personnelAddress,
             accessLogIndexes = accessLogIndexes
         )
+    }
+
+    private fun resolveActiveAccessLogIndexes(
+        patientIotaAddress: String,
+        hospitalPersonnelIotaAddress: String,
+        purpose: String
+    ): List<Long> {
+        val logs = readRecentAccessLogs(patientIotaAddress)
+            .filter { log ->
+                !log.isRevoked && log.hospitalPersonnelAddress.equals(
+                    hospitalPersonnelIotaAddress,
+                    ignoreCase = true
+                )
+            }
+
+        val resolved = if (purpose == "Update") {
+            val medicalLogs = logs.filter { log ->
+                log.accessDataTypes.any { it.equals("Medical", ignoreCase = true) }
+            }
+            listOfNotNull(
+                medicalLogs.firstOrNull { it.accessType.equals("Read", ignoreCase = true) }?.index,
+                medicalLogs.firstOrNull { it.accessType.equals("Update", ignoreCase = true) }?.index
+            ).distinct()
+        } else {
+            logs.filter { log ->
+                log.accessDataTypes.any { it.equals("Pghd", ignoreCase = true) } &&
+                    log.accessType.equals("Read", ignoreCase = true)
+            }.map { it.index }.take(1)
+        }
+
+        if (resolved.isNotEmpty()) return resolved
+
+        throw IllegalStateException(
+            "No active on-chain access log found for personnel $hospitalPersonnelIotaAddress and purpose $purpose. " +
+                "The access may already be revoked, expired, or created before the local grant cache was refreshed."
+        )
+    }
+
+    private fun readRecentAccessLogs(patientIotaAddress: String): List<com.hackastic.decmed.iota.IotaPatientAccessLog> {
+        val logs = mutableListOf<com.hackastic.decmed.iota.IotaPatientAccessLog>()
+        var cursor = 0L
+        val pageSize = 10L
+        repeat(20) {
+            val page = DecmedIotaNative.getPatientAccessLogs(
+                cursor = cursor,
+                size = pageSize,
+                senderAddress = patientIotaAddress
+            )
+            if (page.isEmpty()) return logs
+            logs += page
+            cursor += page.size
+            if (page.size < pageSize) return logs
+        }
+        return logs
     }
 
     private fun encryptAccessMetadata(personnelPrePublicKey: String, accessData: JSONObject): String {

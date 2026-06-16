@@ -65,11 +65,17 @@ fn setup(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std::error::Er
     let new_keys_entry = KeysEntry {
         id: None,
         admin_address: Some(env_or_default(
-            &["DECMED_GLOBAL_ADMIN_IOTA_ADDRESS", "GLOBAL_ADMIN_IOTA_ADDRESS"],
+            &[
+                "DECMED_GLOBAL_ADMIN_IOTA_ADDRESS",
+                "GLOBAL_ADMIN_IOTA_ADDRESS",
+            ],
             DEFAULT_GLOBAL_ADMIN_ADDRESS,
         )),
         admin_secret_key: Some(env_or_default(
-            &["DECMED_GLOBAL_ADMIN_IOTA_KEY_PAIR", "GLOBAL_ADMIN_IOTA_KEY_PAIR"],
+            &[
+                "DECMED_GLOBAL_ADMIN_IOTA_KEY_PAIR",
+                "GLOBAL_ADMIN_IOTA_KEY_PAIR",
+            ],
             DEFAULT_GLOBAL_ADMIN_KEY_PAIR,
         )),
         activation_key: None,

@@ -1,6 +1,7 @@
 package com.hackastic.decmed.worker
 
 import android.content.Context
+import com.hackastic.decmed.MainApplication
 import com.hackastic.decmed.config.Env
 import com.hackastic.decmed.data.local.database.SensorDatabase
 import com.hackastic.decmed.data.local.entity.PghdRecordEntity
@@ -8,6 +9,7 @@ import com.hackastic.decmed.data.pghd.PghdPayloadConverter
 import com.hackastic.decmed.data.pghd.PghdPayloadSerializer
 import com.hackastic.decmed.domain.model.pghd.PghdBatchPayload
 import com.hackastic.decmed.utils.DecmedLog
+import kotlinx.coroutines.flow.first
 
 object PghdSizeThresholdTrigger {
     suspend fun scheduleBatchIfExceeded(
@@ -15,7 +17,17 @@ object PghdSizeThresholdTrigger {
         database: SensorDatabase,
         sourceLabel: String
     ) {
-        val records = database.pghdRecordDao().getUnbatchedRecords()
+        val collectionState = (context.applicationContext as? MainApplication)
+            ?.container
+            ?.pghdCollectionStateRepository
+            ?.state
+            ?.first()
+        val activeStartedAt = collectionState
+            ?.takeIf { it.enabled }
+            ?.startedAtEpochMillis
+        val records = activeStartedAt
+            ?.let { database.pghdRecordDao().getUnbatchedRecordsSince(it) }
+            ?: database.pghdRecordDao().getUnbatchedRecords()
         val estimatedBytes = estimatePayloadBytes(records)
         if (estimatedBytes > Env.pghdEarlyTriggerBytes) {
             DecmedLog.i(

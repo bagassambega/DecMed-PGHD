@@ -4,7 +4,7 @@ import com.hackastic.decmed.domain.model.pghd.PghdBatchPayload
 import com.hackastic.decmed.domain.model.pghd.PghdBatchPeriod
 import com.hackastic.decmed.domain.model.pghd.PghdDataGroupPayload
 import com.hackastic.decmed.domain.model.pghd.PghdDataPointPayload
-import com.hackastic.decmed.domain.model.pghd.PghdInnerPlaintext
+import com.hackastic.decmed.domain.model.pghd.PghdEncryptedPlaintext
 import com.hackastic.decmed.domain.model.pghd.PghdMeasurementValue
 import com.hackastic.decmed.domain.model.pghd.PghdSourceDevice
 import org.json.JSONArray
@@ -32,11 +32,11 @@ object PghdPayloadSerializer {
             is PghdMeasurementValue.ObjectValue -> JSONObject(value.values)
         }
 
-    fun innerPlaintextToJson(innerPlaintext: PghdInnerPlaintext): String =
+    fun encryptedPlaintextToJson(plaintext: PghdEncryptedPlaintext): String =
         JSONObject()
-            .put("pghd_data", JSONObject(innerPlaintext.pghdData))
-            .put("pghd_data_json", innerPlaintext.pghdData)
-            .put("inner_signature", innerPlaintext.innerSignature)
+            .put("pghd_data", JSONObject(plaintext.pghdData))
+            .put("pghd_data_json", plaintext.pghdData)
+            .put("h_plain", plaintext.hPlain)
             .toString()
 
     private fun sourceDeviceToJson(sourceDevice: PghdSourceDevice): JSONObject =

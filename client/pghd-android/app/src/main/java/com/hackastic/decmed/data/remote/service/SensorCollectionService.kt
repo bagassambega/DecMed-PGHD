@@ -19,8 +19,12 @@ import com.hackastic.decmed.data.local.entity.SensorData
 import com.hackastic.decmed.data.pghd.AndroidSensorPghdMapper
 import com.hackastic.decmed.data.pghd.PghdInputSanitizer
 import com.hackastic.decmed.worker.PghdSizeThresholdTrigger
+import com.hackastic.decmed.worker.PghdTimeThresholdTrigger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
@@ -56,6 +60,7 @@ class SensorCollectionService : Service(), SensorEventListener {
     private lateinit var database: SensorDatabase
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var periodicFlushJob: Job? = null
 
     private val sensorDataBuffer = mutableListOf<SensorData>()
     private val sensorIntervalsMs  = mutableMapOf<Int, Int>()
@@ -91,6 +96,7 @@ class SensorCollectionService : Service(), SensorEventListener {
     }
 
     override fun onDestroy() {
+        periodicFlushJob?.cancel()
         sensorManager.unregisterListener(this)
         flushBufferToDatabase()
         super.onDestroy()
@@ -102,6 +108,7 @@ class SensorCollectionService : Service(), SensorEventListener {
 
     private fun registerSensors(sensorTypes: List<Int>, intervals: List<Int>) {
         sensorManager.unregisterListener(this)
+        periodicFlushJob?.cancel()
         sensorIntervalsMs.clear()
         sensorLastEmitMs.clear()
         sensorAccuracy.clear()
@@ -132,7 +139,28 @@ class SensorCollectionService : Service(), SensorEventListener {
         if (sensorIntervalsMs.isEmpty()) {
             DecmedLog.w(TAG, "No sensors were registered successfully. Stopping service.")
             stopSelf()
+        } else {
+            startPeriodicFlush()
         }
+    }
+
+    private fun startPeriodicFlush() {
+        val flushIntervalMs = (sensorIntervalsMs.values
+            .minOrNull()
+            ?.coerceAtLeast(1_000)
+            ?: Env.pghdDefaultSensorIntervalMs).toLong()
+        periodicFlushJob = serviceScope.launch {
+            while (isActive) {
+                delay(flushIntervalMs)
+                flushBufferToDatabase()
+                PghdTimeThresholdTrigger.scheduleBatchIfElapsed(
+                    context = applicationContext,
+                    database = database,
+                    sourceLabel = "phone sensor periodic flush"
+                )
+            }
+        }
+        DecmedLog.i(TAG, "Started periodic sensor buffer flush every ${flushIntervalMs}ms")
     }
 
     // ── SensorEventListener ────────────────────────────────────────────────────
@@ -197,6 +225,11 @@ class SensorCollectionService : Service(), SensorEventListener {
                 if (pghdRecords.isNotEmpty()) {
                     database.pghdRecordDao().upsertAll(pghdRecords)
                     PghdSizeThresholdTrigger.scheduleBatchIfExceeded(
+                        context = applicationContext,
+                        database = database,
+                        sourceLabel = "phone sensor flush"
+                    )
+                    PghdTimeThresholdTrigger.scheduleBatchIfElapsed(
                         context = applicationContext,
                         database = database,
                         sourceLabel = "phone sensor flush"

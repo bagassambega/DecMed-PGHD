@@ -30,7 +30,7 @@ abstract class PghdBatchDao {
             encAesKeyNonce = envelope.encAesKeyNonce,
             capsule = envelope.capsule,
             hCipher = envelope.hCipher,
-            pghdOuterSignature = envelope.pghdOuterSignature
+            signature = envelope.signature
         ))
         deleteDataPointsForBatch(payload.batchId)
         insertDataPoints(PghdPayloadConverter.payloadToDataPointEntities(payload))

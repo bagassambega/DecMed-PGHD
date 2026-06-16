@@ -166,7 +166,7 @@ pub struct HandlerSubmitPghdPayload {
     pub h_cipher: String,
     pub enc_aes_key_nonce: String,
     pub capsule: String,
-    pub pghd_outer_signature: String,
+    pub signature: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -190,7 +190,7 @@ pub struct PghdMetadata {
     pub enc_aes_key_nonce: String,
     pub h_cipher: String,
     pub patient_iota_address: String,
-    pub pghd_outer_signature: String,
+    pub signature: String,
     pub verified_by_proxy: bool,
 }
 

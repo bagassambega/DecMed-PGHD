@@ -1,8 +1,8 @@
 package com.hackastic.decmed.domain.model.pghd
 
-data class PghdInnerPlaintext(
+data class PghdEncryptedPlaintext(
     val pghdData: String,
-    val innerSignature: String
+    val hPlain: String
 )
 
 data class PghdSecureEnvelope(
@@ -13,7 +13,7 @@ data class PghdSecureEnvelope(
     val hCipher: String,
     val encAesKeyNonce: String,
     val capsule: String,
-    val pghdOuterSignature: String
+    val signature: String
 )
 
 data class PghdSubmitResult(

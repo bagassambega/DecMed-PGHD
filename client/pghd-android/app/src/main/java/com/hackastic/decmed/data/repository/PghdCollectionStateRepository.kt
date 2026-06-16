@@ -31,6 +31,17 @@ class PghdCollectionStateRepository(
 
     suspend fun start(nowEpochMillis: Long = System.currentTimeMillis()) {
         dataStore.edit { prefs ->
+            val alreadyEnabled = prefs[Keys.enabled] ?: false
+            prefs[Keys.enabled] = true
+            if (!alreadyEnabled || prefs[Keys.startedAt] == null) {
+                prefs[Keys.startedAt] = nowEpochMillis
+            }
+            prefs.remove(Keys.stoppedAt)
+        }
+    }
+
+    suspend fun restartWindow(nowEpochMillis: Long = System.currentTimeMillis()) {
+        dataStore.edit { prefs ->
             prefs[Keys.enabled] = true
             prefs[Keys.startedAt] = nowEpochMillis
             prefs.remove(Keys.stoppedAt)
@@ -50,4 +61,3 @@ class PghdCollectionStateRepository(
         val stoppedAt = longPreferencesKey("pghd_collection_stopped_at")
     }
 }
-

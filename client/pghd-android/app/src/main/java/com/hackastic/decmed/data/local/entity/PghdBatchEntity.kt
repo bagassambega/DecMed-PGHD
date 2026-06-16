@@ -22,7 +22,7 @@ data class PghdBatchEntity(
     val encAesKeyNonce: String = "",
     val capsule: String = "",
     val hCipher: String = "",
-    val pghdOuterSignature: String = "",
+    val signature: String = "",
     val triggerReason: String = TRIGGER_TIME_BASED,
     val status: String = STATUS_WAITING_FOR_TRIGGER,
     val retryCount: Int = 0,

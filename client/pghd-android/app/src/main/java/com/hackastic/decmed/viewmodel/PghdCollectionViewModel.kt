@@ -9,6 +9,7 @@ import com.hackastic.decmed.MainApplication
 import com.hackastic.decmed.data.health.HealthConnectPghdClient
 import com.hackastic.decmed.data.local.entity.PghdBatchEntity
 import com.hackastic.decmed.data.local.entity.PghdRecordEntity
+import com.hackastic.decmed.data.repository.PghdCollectionState
 import com.hackastic.decmed.data.repository.StoredPghdAccessGrant
 import com.hackastic.decmed.data.pghd.PghdPayloadConverter
 import com.hackastic.decmed.data.pghd.PghdPayloadSerializer
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -44,6 +46,7 @@ data class PghdCollectionUiState(
     val isSyncing: Boolean = false,
     val isSavingManualRecord: Boolean = false,
     val isSubmitting: Boolean = false,
+    val isSubmittingActiveCollection: Boolean = false,
     val submittingBatchId: String? = null,
     val isGrantingAccess: Boolean = false,
     val isRevokingAccess: Boolean = false,
@@ -59,7 +62,8 @@ data class ActivePghdCollectionWindow(
     val recordCount: Int,
     val estimatedBytes: Long,
     val startedAtEpochMillis: Long,
-    val latestRecordEpochMillis: Long
+    val latestRecordEpochMillis: Long,
+    val isCollecting: Boolean
 )
 
 class PghdCollectionViewModel(application: Application) : AndroidViewModel(application) {
@@ -70,6 +74,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
     private val patientAuthRepository = container.patientAuthRepository
     private val healthConnectPghdClient = container.healthConnectPghdClient
     private val pghdAccessGrantRepository = container.pghdAccessGrantRepository
+    private val pghdCollectionStateRepository = container.pghdCollectionStateRepository
 
     private val selectedSourceTag = MutableStateFlow<String?>(null)
     private val selectedRecordType = MutableStateFlow<String?>(null)
@@ -376,6 +381,70 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    fun submitActiveCollection() {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isSubmittingActiveCollection = true,
+                    errorMessage = null,
+                    lastSyncMessage = null
+                )
+            }
+            try {
+                val collectionState = pghdCollectionStateRepository.state.first()
+                val records = pghdRepository.getActiveWindowUnbatchedRecords(collectionState)
+                if (records.isEmpty()) {
+                    DecmedLog.w(TAG, "Submit active PGHD collection skipped: no unbatched records")
+                    _uiState.update {
+                        it.copy(errorMessage = "No active PGHD collection is available to send.")
+                    }
+                    return@launch
+                }
+
+                DecmedLog.i(TAG, "Submitting active PGHD collection: count=${records.size}")
+                val patientProfile = patientAuthRepository.getUnlockedProfile()
+                prePghdClient.pushRegistration(patientProfile)
+                val batch = pghdBatchRepository.createEncryptedBatch(
+                    records = records,
+                    patientProfile = patientProfile,
+                    triggerReason = PghdBatchPayload.TRIGGER_MANUAL_SUBMIT
+                )
+                pghdRepository.markRecordsBatched(records.map { it.uid }, batch.batchId)
+                if (collectionState.enabled) {
+                    pghdCollectionStateRepository.restartWindow()
+                }
+                val result = pghdBatchRepository.submitBatch(
+                    batchId = batch.batchId,
+                    submitTriggerReason = PghdBatchEntity.TRIGGER_MANUAL_SUBMIT
+                )
+                if (!result.accepted) {
+                    PghdWorkScheduler.scheduleSubmitWhenConnected(getApplication())
+                }
+                DecmedLog.i(TAG, "Active PGHD collection submit finished: $result")
+                _uiState.update {
+                    if (result.accepted) {
+                        it.copy(
+                            lastSyncMessage = result.message ?: "Submitted active PGHD collection as batch ${batch.batchId}.",
+                            errorMessage = null
+                        )
+                    } else {
+                        it.copy(
+                            lastSyncMessage = null,
+                            errorMessage = result.message ?: "Created batch ${batch.batchId}, but sending failed. Use Send now to retry."
+                        )
+                    }
+                }
+            } catch (err: Exception) {
+                DecmedLog.e(TAG, "Failed to submit active PGHD collection", err)
+                _uiState.update {
+                    it.copy(errorMessage = err.toVerboseUserMessage("Unable to submit active PGHD collection."))
+                }
+            } finally {
+                _uiState.update { it.copy(isSubmittingActiveCollection = false) }
+            }
+        }
+    }
+
     fun grantAccess(
         hospitalPersonnelIotaAddress: String,
         hospitalPersonnelPrePublicKey: String,
@@ -556,11 +625,15 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
 
     private fun observeActiveCollectionWindow() {
         viewModelScope.launch {
-            pghdRepository.observeUnbatchedRecords().collect { records ->
-                _uiState.update {
-                    it.copy(activeCollectionWindow = records.toActiveCollectionWindow())
+            combine(
+                pghdRepository.observeUnbatchedRecords(),
+                pghdCollectionStateRepository.state
+            ) { records, collectionState -> records to collectionState }
+                .collect { (records, collectionState) ->
+                    _uiState.update {
+                        it.copy(activeCollectionWindow = records.toActiveCollectionWindow(collectionState))
+                    }
                 }
-            }
         }
     }
 
@@ -648,14 +721,40 @@ private fun List<PghdBatchEntity>.filterBatchesByDateRange(
         afterStart && beforeEnd
     }
 
-private fun List<PghdRecordEntity>.toActiveCollectionWindow(): ActivePghdCollectionWindow? {
-    if (isEmpty()) return null
-    val sorted = sortedBy { it.endTimeEpochMillis }
+private suspend fun com.hackastic.decmed.domain.repository.PghdRepository.getActiveWindowUnbatchedRecords(
+    collectionState: PghdCollectionState
+): List<PghdRecordEntity> =
+    if (collectionState.enabled && collectionState.startedAtEpochMillis != null) {
+        getUnbatchedRecordsSince(collectionState.startedAtEpochMillis)
+    } else {
+        getUnbatchedRecords()
+    }
+
+private fun List<PghdRecordEntity>.toActiveCollectionWindow(
+    collectionState: PghdCollectionState
+): ActivePghdCollectionWindow? {
+    val startedAt = collectionState.startedAtEpochMillis
+    val isCollecting = collectionState.enabled && startedAt != null
+    val windowRecords = if (isCollecting) {
+        filter { it.endTimeEpochMillis >= startedAt!! }
+    } else {
+        this
+    }
+    if (windowRecords.isEmpty() && !isCollecting) return null
+
+    val sorted = windowRecords.sortedBy { it.endTimeEpochMillis }
+    val startedAtEpochMillis = if (isCollecting) {
+        startedAt!!
+    } else {
+        sorted.first().startTimeEpochMillis
+    }
+    val latestRecordEpochMillis = sorted.lastOrNull()?.endTimeEpochMillis ?: startedAtEpochMillis
     return ActivePghdCollectionWindow(
-        recordCount = size,
-        estimatedBytes = estimatePghdPayloadBytes(this),
-        startedAtEpochMillis = sorted.first().startTimeEpochMillis,
-        latestRecordEpochMillis = sorted.last().endTimeEpochMillis
+        recordCount = windowRecords.size,
+        estimatedBytes = estimatePghdPayloadBytes(windowRecords),
+        startedAtEpochMillis = startedAtEpochMillis,
+        latestRecordEpochMillis = latestRecordEpochMillis,
+        isCollecting = isCollecting
     )
 }
 

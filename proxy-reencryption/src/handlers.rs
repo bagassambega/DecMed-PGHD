@@ -13,7 +13,7 @@ use iota_types::crypto::{
 };
 use jwt_simple::claims::Claims;
 use jwt_simple::prelude::{Duration, ECDSAP256KeyPairLike};
-use serde_json::json;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use shared_crypto::intent::{Intent, IntentMessage};
 use umbral_pre::{reencrypt, Capsule, KeyFrag, PublicKey};
@@ -88,13 +88,12 @@ impl Handlers {
             Self::get_patient_pghd_public_key(&state, &patient_iota_address, proxy_iota_address)
                 .await?;
 
-        Utils::verify_pghd_outer_signature(
-            &pghd_public_key,
-            &payload.pghd_outer_signature,
-            &enc_pghd_bytes,
-        )
-        .map_err(|e| anyhow!(e.to_string()))
-        .code(StatusCode::BAD_REQUEST)?;
+        let h_cipher_bytes = hex::decode(&payload.h_cipher)
+            .map_err(|_| anyhow!("Invalid h_cipher hex"))
+            .code(StatusCode::BAD_REQUEST)?;
+        Utils::verify_pghd_signature(&pghd_public_key, &payload.signature, &h_cipher_bytes)
+            .map_err(|e| anyhow!(e.to_string()))
+            .code(StatusCode::BAD_REQUEST)?;
 
         let cid = Utils::add_and_pin_to_ipfs(payload.enc_pghd.clone())
             .await
@@ -107,7 +106,7 @@ impl Handlers {
             enc_aes_key_nonce: payload.enc_aes_key_nonce,
             h_cipher: payload.h_cipher,
             patient_iota_address: patient_iota_address.to_string(),
-            pghd_outer_signature: payload.pghd_outer_signature,
+            signature: payload.signature,
             verified_by_proxy: true,
         };
 
@@ -168,22 +167,58 @@ impl Handlers {
             .await
             .context(current_fn!())?;
 
-        let res_data: Vec<_> = pghd_metadata
-            .into_iter()
-            .map(|move_metadata| {
-                let metadata: PghdMetadata =
-                    Utils::serde_deserialize_from_base64(move_metadata.metadata)?;
-                Ok(json!({
-                    "index": move_metadata.index,
-                    "cid": move_metadata.cid,
-                    "h_cipher": move_metadata.h_cipher,
-                    "status": move_metadata.status,
-                    "failure_reason": move_metadata.failure_reason,
-                    "timestamp": move_metadata.timestamp,
-                    "metadata": metadata,
-                }))
-            })
-            .collect::<Result<Vec<_>, ProxyError>>()?;
+        let mut res_data = Vec::new();
+        for move_metadata in pghd_metadata {
+            let metadata_value: Value =
+                match Utils::serde_deserialize_from_base64(move_metadata.metadata.clone()) {
+                    Ok(metadata) => metadata,
+                    Err(_) => {
+                        let proxy_iota_key_pair = IotaKeyPair::decode(&state.proxy_iota_key_pair)
+                            .map_err(|e| anyhow!(e.to_string()))
+                            .context(current_fn!())?;
+                        Self::invalidate_pghd_entry(
+                            &state,
+                            &hospital_personnel_iota_address,
+                            move_metadata.cid.clone(),
+                            "LEGACY_PGHD_SIGNATURE_SCHEMA".to_string(),
+                            &patient_iota_address,
+                            proxy_iota_address,
+                            proxy_iota_key_pair,
+                        )
+                        .await?;
+                        continue;
+                    }
+                };
+
+            if Self::is_legacy_pghd_signature_metadata(&metadata_value) {
+                let proxy_iota_key_pair = IotaKeyPair::decode(&state.proxy_iota_key_pair)
+                    .map_err(|e| anyhow!(e.to_string()))
+                    .context(current_fn!())?;
+                Self::invalidate_pghd_entry(
+                    &state,
+                    &hospital_personnel_iota_address,
+                    move_metadata.cid.clone(),
+                    "LEGACY_PGHD_SIGNATURE_SCHEMA".to_string(),
+                    &patient_iota_address,
+                    proxy_iota_address,
+                    proxy_iota_key_pair,
+                )
+                .await?;
+                continue;
+            }
+
+            let metadata: PghdMetadata =
+                serde_json::from_value(metadata_value).context(current_fn!())?;
+            res_data.push(json!({
+                "index": move_metadata.index,
+                "cid": move_metadata.cid,
+                "h_cipher": move_metadata.h_cipher,
+                "status": move_metadata.status,
+                "failure_reason": move_metadata.failure_reason,
+                "timestamp": move_metadata.timestamp,
+                "metadata": metadata,
+            }));
+        }
 
         Ok(Utils::build_success_response(res_data, StatusCode::OK))
     }
@@ -227,8 +262,29 @@ impl Handlers {
             )
             .await
             .context(current_fn!())?;
-        let metadata: PghdMetadata =
+        let metadata_value: Value =
             Utils::serde_deserialize_from_base64(move_metadata.metadata).context(current_fn!())?;
+        if Self::is_legacy_pghd_signature_metadata(&metadata_value) {
+            let proxy_iota_key_pair = IotaKeyPair::decode(&state.proxy_iota_key_pair)
+                .map_err(|e| anyhow!(e.to_string()))
+                .context(current_fn!())?;
+            Self::invalidate_pghd_entry(
+                &state,
+                &hospital_personnel_iota_address,
+                move_metadata.cid.clone(),
+                "LEGACY_PGHD_SIGNATURE_SCHEMA".to_string(),
+                &patient_iota_address,
+                proxy_iota_address,
+                proxy_iota_key_pair,
+            )
+            .await?;
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("LEGACY_PGHD_SIGNATURE_SCHEMA"),
+                code: StatusCode::CONFLICT,
+            });
+        }
+        let metadata: PghdMetadata =
+            serde_json::from_value(metadata_value).context(current_fn!())?;
         let enc_pghd = Utils::get_data_ipfs(metadata.cid.clone())
             .await
             .context(current_fn!())?;
@@ -253,6 +309,33 @@ impl Handlers {
             .await?;
             return Err(ProxyError::Anyhow {
                 source: anyhow!("ERR_DATA_CORRUPTED"),
+                code: StatusCode::CONFLICT,
+            });
+        }
+        let pghd_public_key =
+            Self::get_patient_pghd_public_key(&state, &patient_iota_address, proxy_iota_address)
+                .await?;
+        let h_cipher_bytes = hex::decode(&move_metadata.h_cipher)
+            .map_err(|_| anyhow!("Invalid h_cipher hex"))
+            .code(StatusCode::INTERNAL_SERVER_ERROR)?;
+        if let Err(err) =
+            Utils::verify_pghd_signature(&pghd_public_key, &metadata.signature, &h_cipher_bytes)
+        {
+            let proxy_iota_key_pair = IotaKeyPair::decode(&state.proxy_iota_key_pair)
+                .map_err(|e| anyhow!(e.to_string()))
+                .context(current_fn!())?;
+            Self::invalidate_pghd_entry(
+                &state,
+                &hospital_personnel_iota_address,
+                metadata.cid.clone(),
+                "SIGNATURE_INVALID".to_string(),
+                &patient_iota_address,
+                proxy_iota_address,
+                proxy_iota_key_pair,
+            )
+            .await?;
+            return Err(ProxyError::Anyhow {
+                source: anyhow!(err).context("SIGNATURE_INVALID"),
                 code: StatusCode::CONFLICT,
             });
         }
@@ -289,10 +372,6 @@ impl Handlers {
             )
             .map_err(|e| anyhow!(e.0.to_string()).context(current_fn!()))?;
         let c_frag = reencrypt(&capsule, verified_kfrag).unverify();
-        let pghd_public_key =
-            Self::get_patient_pghd_public_key(&state, &patient_iota_address, proxy_iota_address)
-                .await?;
-
         let res_data = json!({
             "current_index": current_index,
             "c_frag": Utils::serde_serialize_to_base64(&c_frag).context(current_fn!())?,
@@ -412,6 +491,15 @@ impl Handlers {
         }
 
         Ok(())
+    }
+
+    fn is_legacy_pghd_signature_metadata(metadata: &Value) -> bool {
+        metadata.get("pghd_outer_signature").is_some()
+            || metadata
+                .get("signature")
+                .and_then(Value::as_str)
+                .map(str::is_empty)
+                .unwrap_or(true)
     }
 
     fn ensure_pghd_read_access(

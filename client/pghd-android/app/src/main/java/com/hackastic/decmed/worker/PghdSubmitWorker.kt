@@ -18,7 +18,7 @@ class PghdSubmitWorker(
         if (!container.pghdCollectionStateRepository.isEnabled()) return Result.success()
 
         val profile = runCatching { container.patientAuthRepository.getUnlockedProfile() }
-            .getOrElse { return Result.retry() }
+            .getOrElse { return Result.success() }
         container.prePghdClient.pushRegistration(profile)
         val results = container.pghdBatchRepository.submitPendingBatches(
             submitTriggerReason = PghdBatchEntity.TRIGGER_NETWORK_AVAILABLE

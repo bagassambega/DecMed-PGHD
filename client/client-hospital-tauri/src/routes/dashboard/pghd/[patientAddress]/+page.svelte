@@ -90,8 +90,8 @@
 								<div class="min-w-0">
 									<div class="flex items-center gap-2">
 										<p class="font-medium">Batch #{item.index}</p>
-										<span class="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">
-											VALID
+										<span class="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+											Pending verification
 										</span>
 									</div>
 									<p class="text-sm text-zinc-500 truncate">CID: {item.cid}</p>
@@ -118,9 +118,9 @@
 					{/each}
 				</div>
 			{/if}
-		{:catch}
+		{:catch error}
 			<div class="bg-red-50 border border-red-200 rounded-md p-4 text-sm text-red-700">
-				Unable to load PGHD entries.
+				Unable to load PGHD entries. {error?.message ?? ''}
 			</div>
 		{/await}
 	</div>
@@ -236,7 +236,7 @@
 				</div>
 			</div>
 		{:catch error}
-			<div class="bg-red-50 border border-red-200 rounded-md p-4 text-sm text-red-700">
+			<div class="bg-red-50 border border-red-200 rounded-md p-4 text-sm text-red-700 whitespace-pre-wrap">
 				<p class="font-semibold">PGHD integrity/access warning</p>
 				<p class="mt-1">
 					{error?.message ?? 'PGHD could not be opened or failed verification.'}

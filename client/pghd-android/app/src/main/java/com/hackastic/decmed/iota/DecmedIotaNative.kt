@@ -3,6 +3,7 @@ package com.hackastic.decmed.iota
 import android.content.Context
 import com.hackastic.decmed.config.Env
 import com.hackastic.decmed.utils.DecmedLog
+import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
 
@@ -25,6 +26,7 @@ object DecmedIotaNative {
     ): String
     external fun ensureRegisteredJson(config: String, senderAddress: String): String
     external fun getPghdPublicKeyJson(config: String, patientAddress: String, senderAddress: String): String
+    external fun getPatientAccessLogsJson(config: String, cursor: Long, size: Long, senderAddress: String): String
     external fun createPghdAccessJson(
         config: String,
         date: String,
@@ -114,6 +116,42 @@ object DecmedIotaNative {
         ensureAndroidTlsInitialized()
         return decodeData(getPghdPublicKeyJson(iotaConfigJson(), patientAddress, senderAddress)) {
             it.getString("value")
+        }
+    }
+
+    fun getPatientAccessLogs(
+        cursor: Long,
+        size: Long,
+        senderAddress: String
+    ): List<IotaPatientAccessLog> {
+        ensureLoaded()
+        ensureAndroidTlsInitialized()
+        return decodeArrayData(
+            getPatientAccessLogsJson(
+                iotaConfigJson(requireGrantObjects = true),
+                cursor,
+                size,
+                senderAddress
+            )
+        ) { array ->
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.getJSONObject(index)
+                    add(
+                        IotaPatientAccessLog(
+                            accessDataTypes = item.optJSONArray("access_data_type").toStringList(),
+                            accessType = item.optString("access_type"),
+                            date = item.optString("date"),
+                            expDur = item.optLong("exp_dur"),
+                            hospitalName = item.optJSONObject("hospital_metadata")?.optString("name").orEmpty(),
+                            hospitalPersonnelAddress = item.optString("hospital_personnel_address"),
+                            hospitalPersonnelMetadata = item.optString("hospital_personnel_metadata"),
+                            index = item.optLong("index"),
+                            isRevoked = item.optBoolean("is_revoked")
+                        )
+                    )
+                }
+            }
         }
     }
 
@@ -251,6 +289,32 @@ object DecmedIotaNative {
         return mapper(dataJson)
     }
 
+    private fun <T> decodeArrayData(raw: String, mapper: (JSONArray) -> T): T {
+        DecmedLog.i(TAG, "Native IOTA raw response: $raw")
+        val wrapper = JSONObject(raw)
+        if (!wrapper.optBoolean("ok")) {
+            val message = wrapper.optString("error", "Native IOTA call failed.")
+            DecmedLog.e(TAG, "Native IOTA error response: $message\nFull native wrapper: $raw")
+            throw IllegalStateException(message)
+        }
+        val data = wrapper.opt("data")
+        val dataArray = when (data) {
+            is JSONArray -> data
+            JSONObject.NULL, null -> JSONArray()
+            else -> throw IllegalStateException("Native IOTA response data is not an array: $raw")
+        }
+        return mapper(dataArray)
+    }
+
+    private fun JSONArray?.toStringList(): List<String> {
+        if (this == null) return emptyList()
+        return buildList {
+            for (index in 0 until length()) {
+                add(optString(index))
+            }
+        }
+    }
+
     private const val TAG = "DecmedIotaNative"
 }
 
@@ -258,4 +322,16 @@ data class IotaIdentity(
     val idHash: String,
     val iotaAddress: String,
     val iotaKeyPair: String
+)
+
+data class IotaPatientAccessLog(
+    val accessDataTypes: List<String>,
+    val accessType: String,
+    val date: String,
+    val expDur: Long,
+    val hospitalName: String,
+    val hospitalPersonnelAddress: String,
+    val hospitalPersonnelMetadata: String,
+    val index: Long,
+    val isRevoked: Boolean
 )

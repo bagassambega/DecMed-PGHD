@@ -69,6 +69,9 @@ class PghdRepositoryImpl(
     override suspend fun getUnbatchedRecords(): List<PghdRecordEntity> =
         pghdRecordDao.getUnbatchedRecords()
 
+    override suspend fun getUnbatchedRecordsSince(minEndTimeEpochMillis: Long): List<PghdRecordEntity> =
+        pghdRecordDao.getUnbatchedRecordsSince(minEndTimeEpochMillis)
+
     override fun observeUnbatchedRecords(): Flow<List<PghdRecordEntity>> =
         pghdRecordDao.observeUnbatchedRecords()
 

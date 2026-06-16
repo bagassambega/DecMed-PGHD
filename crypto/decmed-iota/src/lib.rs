@@ -106,6 +106,37 @@ pub struct ExecuteTxResponse {
     pub error: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub enum AndroidHospitalPersonnelAccessDataType {
+    Administrative,
+    Medical,
+    Pghd,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum AndroidHospitalPersonnelAccessType {
+    Read,
+    Update,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct AndroidHospitalMetadata {
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct AndroidPatientAccessLog {
+    pub access_data_type: Vec<AndroidHospitalPersonnelAccessDataType>,
+    pub access_type: AndroidHospitalPersonnelAccessType,
+    pub date: String,
+    pub exp_dur: u64,
+    pub hospital_metadata: AndroidHospitalMetadata,
+    pub hospital_personnel_address: IotaAddress,
+    pub hospital_personnel_metadata: String,
+    pub index: u64,
+    pub is_revoked: bool,
+}
+
 pub fn derive_iota_identity(
     seed_words: &str,
     patient_id: &str,
@@ -204,6 +235,29 @@ pub async fn get_pghd_public_key(
                     bcs::to_bytes(&patient_address).context("serialize patient address")?,
                 ),
                 package.patient_id_account_arg(false),
+            ],
+            sender,
+        )
+        .await?;
+    parse_move_read_only_result(response, 0)
+}
+
+pub async fn get_patient_access_logs(
+    config: AndroidIotaConfig,
+    cursor: u64,
+    size: u64,
+    sender_address: String,
+) -> anyhow::Result<Vec<AndroidPatientAccessLog>> {
+    let sender = IotaAddress::from_str(&sender_address).context("invalid sender address")?;
+    let package = AndroidMovePackage::from_config(config)?;
+    let response = package
+        .read_patient_call(
+            "get_access_log",
+            vec![
+                package.address_id_arg(false),
+                CallArg::Pure(bcs::to_bytes(&cursor).context("serialize access log cursor")?),
+                package.patient_id_account_arg(false),
+                CallArg::Pure(bcs::to_bytes(&size).context("serialize access log size")?),
             ],
             sender,
         )
@@ -836,6 +890,33 @@ pub extern "system" fn Java_com_hackastic_decmed_iota_DecmedIotaNative_getPghdPu
         let patient_address = jstring_to_string(env, patient_address)?;
         let sender_address = jstring_to_string(env, sender_address)?;
         block_on(get_pghd_public_key(config, patient_address, sender_address))
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_hackastic_decmed_iota_DecmedIotaNative_getPatientAccessLogsJson(
+    env: JNIEnv,
+    _class: JClass,
+    config: JString,
+    cursor: jni::sys::jlong,
+    size: jni::sys::jlong,
+    sender_address: JString,
+) -> jstring {
+    jni_result(env, |env| {
+        if cursor < 0 {
+            return Err(anyhow!("access log cursor must be non-negative"));
+        }
+        if size <= 0 {
+            return Err(anyhow!("access log size must be positive"));
+        }
+        let config = parse_config(&jstring_to_string(env, config)?)?;
+        let sender_address = jstring_to_string(env, sender_address)?;
+        block_on(get_patient_access_logs(
+            config,
+            cursor as u64,
+            size as u64,
+            sender_address,
+        ))
     })
 }
 

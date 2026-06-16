@@ -349,9 +349,37 @@ pub async fn get_pghd(
             &patient_iota_address,
         )
         .await?;
-        return Err(anyhow!("OUTER_SIGNATURE_MISMATCH")
+        return Err(anyhow!("OUTER_HASH_MISMATCH").context(current_fn!()).into());
+    }
+    let signature = metadata.get("signature").and_then(Value::as_str);
+    if metadata.get("pghd_outer_signature").is_some()
+        || signature.map(str::is_empty).unwrap_or(true)
+    {
+        request_pghd_invalidation(
+            &req_client,
+            &access_token,
+            &cid,
+            "LEGACY_PGHD_SIGNATURE_SCHEMA",
+            &patient_iota_address,
+        )
+        .await?;
+        return Err(anyhow!("LEGACY_PGHD_SIGNATURE_SCHEMA")
             .context(current_fn!())
             .into());
+    }
+    let signature = signature.unwrap_or_default();
+    let h_cipher_bytes =
+        hex::decode(h_cipher).map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
+    if let Err(err) = verify_pghd_signature(&res.data.pghd_public_key, signature, &h_cipher_bytes) {
+        request_pghd_invalidation(
+            &req_client,
+            &access_token,
+            &cid,
+            "SIGNATURE_INVALID",
+            &patient_iota_address,
+        )
+        .await?;
+        return Err(err);
     }
 
     let patient_pre_public_key: PublicKey =
@@ -420,33 +448,20 @@ pub async fn get_pghd(
         batch_id.as_bytes(),
     )?;
     let inner: Value = serde_json::from_slice(&pghd_plaintext).context(current_fn!())?;
-    let pghd_data = inner
-        .get("pghd_data")
-        .ok_or(anyhow!("PGHD plaintext missing pghd_data").context(current_fn!()))?;
-    let inner_signature = inner
-        .get("inner_signature")
-        .and_then(Value::as_str)
-        .ok_or(anyhow!("PGHD plaintext missing inner_signature").context(current_fn!()))?;
-    let signed_pghd_data = inner
-        .get("pghd_data_json")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .unwrap_or(serde_json::to_string(pghd_data).context(current_fn!())?);
-    if let Err(err) = verify_pghd_inner_signature(
-        &res.data.pghd_public_key,
-        inner_signature,
-        signed_pghd_data.as_bytes(),
-    ) {
-        request_pghd_invalidation(
-            &req_client,
-            &access_token,
-            &cid,
-            "INNER_SIGNATURE_INVALID",
-            &patient_iota_address,
-        )
-        .await?;
-        return Err(err);
-    }
+    let pghd_data = match verify_decrypted_pghd_plain_hash(&inner) {
+        Ok(pghd_data) => pghd_data,
+        Err(err) => {
+            request_pghd_invalidation(
+                &req_client,
+                &access_token,
+                &cid,
+                "PLAIN_HASH_MISMATCH",
+                &patient_iota_address,
+            )
+            .await?;
+            return Err(err);
+        }
+    };
 
     Ok(SuccessResponse {
         status: ResponseStatus::Success,
@@ -511,10 +526,10 @@ fn aes_decrypt_with_aad(
         .map_err(|e| anyhow!(e.to_string()).context(current_fn!()).into())
 }
 
-fn verify_pghd_inner_signature(
+fn verify_pghd_signature(
     public_key_base64: &str,
     signature_base64: &str,
-    signed_pghd_data: &[u8],
+    h_cipher_bytes: &[u8],
 ) -> Result<(), HospitalError> {
     let public_key_der = STANDARD.decode(public_key_base64).context(current_fn!())?;
     let verifying_key = VerifyingKey::from_public_key_der(&public_key_der)
@@ -522,10 +537,64 @@ fn verify_pghd_inner_signature(
     let signature_der = STANDARD.decode(signature_base64).context(current_fn!())?;
     let signature = P256Signature::from_der(&signature_der)
         .map_err(|e| anyhow!(e.to_string()).context(current_fn!()))?;
-    let digest = Sha256::digest(signed_pghd_data);
     verifying_key
-        .verify_prehash(&digest, &signature)
+        .verify_prehash(h_cipher_bytes, &signature)
         .map_err(|e| anyhow!(e.to_string()).context(current_fn!()).into())
+}
+
+fn verify_decrypted_pghd_plain_hash(inner: &Value) -> Result<Value, HospitalError> {
+    let pghd_data = inner
+        .get("pghd_data")
+        .ok_or(anyhow!("PGHD plaintext missing pghd_data").context(current_fn!()))?;
+    let h_plain = inner
+        .get("h_plain")
+        .and_then(Value::as_str)
+        .ok_or(anyhow!("PGHD plaintext missing h_plain").context(current_fn!()))?;
+    let signed_pghd_data = inner
+        .get("pghd_data_json")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .unwrap_or(serde_json::to_string(pghd_data).context(current_fn!())?);
+    let computed_h_plain = hex::encode(Sha256::digest(signed_pghd_data.as_bytes()));
+    if computed_h_plain != h_plain.to_lowercase() {
+        return Err(anyhow!("PLAIN_HASH_MISMATCH").context(current_fn!()).into());
+    }
+    Ok(pghd_data.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::verify_decrypted_pghd_plain_hash;
+    use serde_json::json;
+    use sha2::{Digest, Sha256};
+
+    #[test]
+    fn verifies_decrypted_pghd_plain_hash() {
+        let pghd_data = json!({"source": "Health Connect", "steps": 1200});
+        let pghd_data_json = serde_json::to_string(&pghd_data).unwrap();
+        let h_plain = hex::encode(Sha256::digest(pghd_data_json.as_bytes()));
+        let inner = json!({
+            "pghd_data": pghd_data,
+            "pghd_data_json": pghd_data_json,
+            "h_plain": h_plain,
+        });
+
+        assert!(verify_decrypted_pghd_plain_hash(&inner).is_ok());
+    }
+
+    #[test]
+    fn rejects_tampered_pghd_plain_hash() {
+        let pghd_data = json!({"source": "Health Connect", "steps": 1200});
+        let pghd_data_json = serde_json::to_string(&pghd_data).unwrap();
+        let inner = json!({
+            "pghd_data": pghd_data,
+            "pghd_data_json": pghd_data_json,
+            "h_plain": "00",
+        });
+
+        let err = verify_decrypted_pghd_plain_hash(&inner).unwrap_err();
+        assert!(format!("{err:?}").contains("PLAIN_HASH_MISMATCH"));
+    }
 }
 
 #[tauri::command]
@@ -538,7 +607,9 @@ pub async fn invalidate_pghd(
     let req_client = reqwest::Client::new();
     let cid = sanitize_identifier(&cid, 128);
     if cid.is_empty() {
-        return Err(HospitalError::Anyhow(anyhow!("Invalid args: cid is invalid")));
+        return Err(HospitalError::Anyhow(anyhow!(
+            "Invalid args: cid is invalid"
+        )));
     }
     let failure_reason = sanitize_input_text(&failure_reason, 256);
     if failure_reason.is_empty() {

@@ -73,6 +73,16 @@ interface PghdRecordDao {
         """
         SELECT * FROM pghd_records
         WHERE batchId IS NULL
+          AND endTimeEpochMillis >= :minEndTimeEpochMillis
+        ORDER BY endTimeEpochMillis ASC
+        """
+    )
+    suspend fun getUnbatchedRecordsSince(minEndTimeEpochMillis: Long): List<PghdRecordEntity>
+
+    @Query(
+        """
+        SELECT * FROM pghd_records
+        WHERE batchId IS NULL
         ORDER BY endTimeEpochMillis ASC
         """
     )

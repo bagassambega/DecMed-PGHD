@@ -2,7 +2,7 @@ package com.hackastic.decmed.data.pghd
 
 import com.hackastic.decmed.domain.model.patient.PatientProfile
 import com.hackastic.decmed.domain.model.pghd.PghdBatchPayload
-import com.hackastic.decmed.domain.model.pghd.PghdInnerPlaintext
+import com.hackastic.decmed.domain.model.pghd.PghdEncryptedPlaintext
 import com.hackastic.decmed.domain.model.pghd.PghdSecureEnvelope
 import com.hackastic.decmed.crypto.DecmedCryptoNative
 import java.security.KeyFactory
@@ -24,24 +24,23 @@ object PghdSecureEnvelopeBuilder {
 
         val pghdPlaintext = PghdPayloadSerializer.toJson(payload)
         val hPlain = sha256(pghdPlaintext.toByteArray(Charsets.UTF_8))
-        val innerSignature = signPrehashed(hPlain, privateKey)
-        val innerPlaintext = PghdInnerPlaintext(
+        val encryptedPlaintext = PghdEncryptedPlaintext(
             pghdData = pghdPlaintext,
-            innerSignature = Base64.getEncoder().encodeToString(innerSignature)
+            hPlain = hPlain.toHex()
         )
-        val innerPlaintextJson = PghdPayloadSerializer.innerPlaintextToJson(innerPlaintext)
+        val encryptedPlaintextJson = PghdPayloadSerializer.encryptedPlaintextToJson(encryptedPlaintext)
 
         val aesKey = randomBytes(AES_KEY_BYTES)
         val aesNonce = randomBytes(GCM_NONCE_BYTES)
         val encPghdBytes = aesGcmEncrypt(
             key = aesKey,
             nonce = aesNonce,
-            plaintext = innerPlaintextJson.toByteArray(Charsets.UTF_8),
+            plaintext = encryptedPlaintextJson.toByteArray(Charsets.UTF_8),
             aad = payload.batchId.toByteArray(Charsets.UTF_8)
         )
 
         val hCipher = sha256(encPghdBytes)
-        val outerSignature = signPrehashed(hCipher, privateKey)
+        val signature = signPrehashed(hCipher, privateKey)
         val wrappedKeyNonce = DecmedCryptoNative.encryptForPublicKey(
             pghdPrePublicKey,
             aesKey + aesNonce
@@ -55,7 +54,7 @@ object PghdSecureEnvelopeBuilder {
             hCipher = hCipher.toHex(),
             encAesKeyNonce = wrappedKeyNonce.ciphertext,
             capsule = wrappedKeyNonce.capsule,
-            pghdOuterSignature = Base64.getEncoder().encodeToString(outerSignature)
+            signature = Base64.getEncoder().encodeToString(signature)
         )
     }
 

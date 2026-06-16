@@ -8,6 +8,7 @@ import com.hackastic.decmed.config.Env
 import com.hackastic.decmed.data.pghd.PghdPayloadConverter
 import com.hackastic.decmed.data.pghd.PghdPayloadSerializer
 import com.hackastic.decmed.domain.model.pghd.PghdBatchPayload
+import kotlinx.coroutines.flow.first
 
 class PghdBatchWorker(
     appContext: Context,
@@ -15,13 +16,16 @@ class PghdBatchWorker(
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         val container = (applicationContext as MainApplication).container
-        if (!container.pghdCollectionStateRepository.isEnabled()) return Result.success()
+        val collectionState = container.pghdCollectionStateRepository.state.first()
+        if (!collectionState.enabled) return Result.success()
 
-        val records = container.pghdRepository.getUnbatchedRecords()
+        val records = collectionState.startedAtEpochMillis
+            ?.let { container.pghdRepository.getUnbatchedRecordsSince(it) }
+            ?: container.pghdRepository.getUnbatchedRecords()
         if (records.isEmpty()) return Result.success()
 
         val profile = runCatching { container.patientAuthRepository.getUnlockedProfile() }
-            .getOrElse { return Result.retry() }
+            .getOrElse { return Result.success() }
         val patientId = profile.iotaAddress ?: profile.idHash ?: profile.id
 
         val estimatedPayload = PghdPayloadConverter.recordsToBatchPayload(
@@ -44,6 +48,9 @@ class PghdBatchWorker(
             triggerReason = triggerReason
         )
         container.pghdRepository.markRecordsBatched(records.map { it.uid }, batch.batchId)
+        if (collectionState.enabled) {
+            container.pghdCollectionStateRepository.restartWindow()
+        }
         container.prePghdClient.pushRegistration(profile)
         val submitResult = container.pghdBatchRepository.submitBatch(
             batchId = batch.batchId,

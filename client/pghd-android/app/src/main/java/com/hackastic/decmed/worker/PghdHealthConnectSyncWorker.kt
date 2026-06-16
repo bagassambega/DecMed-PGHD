@@ -39,6 +39,11 @@ class PghdHealthConnectSyncWorker(
             database = SensorDatabase.getDatabase(applicationContext),
             sourceLabel = "Health Connect sync worker"
         )
+        PghdTimeThresholdTrigger.scheduleBatchIfElapsed(
+            context = applicationContext,
+            database = SensorDatabase.getDatabase(applicationContext),
+            sourceLabel = "Health Connect sync worker"
+        )
         return Result.success()
     }
 }

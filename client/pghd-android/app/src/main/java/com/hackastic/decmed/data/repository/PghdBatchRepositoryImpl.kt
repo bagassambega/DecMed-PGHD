@@ -45,7 +45,7 @@ class PghdBatchRepositoryImpl(
             encAesKeyNonce = envelope.encAesKeyNonce,
             capsule = envelope.capsule,
             hCipher = envelope.hCipher,
-            pghdOuterSignature = envelope.pghdOuterSignature
+            signature = envelope.signature
         )
     }
 
@@ -139,7 +139,7 @@ class PghdBatchRepositoryImpl(
             hCipher = hCipher,
             encAesKeyNonce = encAesKeyNonce,
             capsule = capsule,
-            pghdOuterSignature = pghdOuterSignature
+            signature = signature
         )
 
     private suspend fun normalizeStalePendingBatches() {

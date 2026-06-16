@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -159,7 +160,9 @@ fun PghdBatchScreen(
                         item {
                             ActiveCollectionWindowCard(
                                 window = window,
-                                dateFormatter = dateFormatter
+                                dateFormatter = dateFormatter,
+                                isSubmitting = uiState.isSubmittingActiveCollection,
+                                onSubmit = viewModel::submitActiveCollection
                             )
                         }
                     }
@@ -180,7 +183,9 @@ fun PghdBatchScreen(
 @Composable
 private fun ActiveCollectionWindowCard(
     window: ActivePghdCollectionWindow,
-    dateFormatter: SimpleDateFormat
+    dateFormatter: SimpleDateFormat,
+    isSubmitting: Boolean,
+    onSubmit: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -197,20 +202,24 @@ private fun ActiveCollectionWindowCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Collecting data",
+                        text = if (window.isCollecting) "Collecting data" else "Collected data waiting for trigger",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                     Text(
-                        text = "Current data is still local and has not been encrypted into a batch yet.",
+                        text = if (window.isCollecting) {
+                            "Current data is still local and has not been encrypted into a batch yet."
+                        } else {
+                            "These local records are not encrypted into a batch yet. Send manually or start collection again."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
                 AssistChip(
                     onClick = {},
-                    label = { Text("Active") },
+                    label = { Text(if (window.isCollecting) "Active" else "Waiting") },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.CloudUpload,
@@ -240,6 +249,25 @@ private fun ActiveCollectionWindowCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer
             )
+            Button(
+                modifier = Modifier.align(Alignment.End),
+                enabled = !isSubmitting && window.recordCount > 0,
+                onClick = onSubmit
+            ) {
+                if (isSubmitting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Text("Sending...")
+                } else {
+                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null)
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Text("Send current collection")
+                }
+            }
         }
     }
 }

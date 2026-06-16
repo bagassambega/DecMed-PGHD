@@ -66,7 +66,7 @@ object PghdWorkScheduler {
 
         WorkManager.getInstance(context).enqueueUniqueWork(
             BATCH_NOW_WORK,
-            ExistingWorkPolicy.REPLACE,
+            ExistingWorkPolicy.KEEP,
             request
         )
     }

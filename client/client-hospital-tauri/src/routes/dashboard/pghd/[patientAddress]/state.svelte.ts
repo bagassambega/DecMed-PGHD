@@ -48,6 +48,9 @@ export class PghdReadState {
 		if (!resInvokeGetPghd.success) {
 			const errorMessage = explainPghdAccessError(resInvokeGetPghd.error);
 			toast.error(errorMessage);
+			if (isPghdIntegrityError(resInvokeGetPghd.error)) {
+				this.refreshPghdList();
+			}
 			throw new Error(errorMessage);
 		}
 
@@ -116,6 +119,21 @@ const explainPghdAccessError = (error: string) => {
 	}
 
 	return error;
+};
+
+const isPghdIntegrityError = (error: string) => {
+	const lower = error.toLowerCase();
+	return (
+		error.includes('ERR_DATA_CORRUPTED') ||
+		error.includes('SIGNATURE_INVALID') ||
+		error.includes('PLAIN_HASH_MISMATCH') ||
+		error.includes('OUTER_HASH_MISMATCH') ||
+		error.includes('LEGACY_PGHD_SIGNATURE_SCHEMA') ||
+		lower.includes('signature') ||
+		lower.includes('hash') ||
+		lower.includes('h_cipher') ||
+		lower.includes('corrupt')
+	);
 };
 
 const withRawError = (summary: string, error: string) => `${summary}\n\nTechnical detail:\n${error}`;

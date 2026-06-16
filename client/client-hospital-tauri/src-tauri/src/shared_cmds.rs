@@ -14,8 +14,8 @@ use crate::{
         aes_decrypt, aes_encrypt, decode_hospital_personnel_id_to_argon,
         encode_activation_key_from_keys_entry, generate_64_bytes_seed, generate_iota_keys_ed,
         get_iota_address_from_keys_entry, get_iota_key_pair_from_keys_entry,
-        get_pre_keys_from_keys_entry, parse_keys_entry, serde_deserialize_from_base64,
-        sanitize_input_text, serde_serialize_to_base64, validate_by_regex,
+        get_pre_keys_from_keys_entry, parse_keys_entry, sanitize_input_text,
+        serde_deserialize_from_base64, serde_serialize_to_base64, validate_by_regex,
     },
 };
 

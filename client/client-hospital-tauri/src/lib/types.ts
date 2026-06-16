@@ -105,6 +105,7 @@ export type PghdMetadata = {
 	created_at?: string;
 	h_cipher?: string;
 	patient_iota_address?: string;
+	signature?: string;
 	[key: string]: unknown;
 };
 

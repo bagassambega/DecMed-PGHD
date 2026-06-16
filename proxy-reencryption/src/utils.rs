@@ -39,7 +39,6 @@ use serde::{
     Deserialize, Deserializer, Serialize,
 };
 use serde_json::json;
-use sha2::Digest;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 
@@ -139,10 +138,10 @@ impl Utils {
             .into_response()
     }
 
-    pub fn verify_pghd_outer_signature(
+    pub fn verify_pghd_signature(
         public_key_base64: &str,
         signature_base64: &str,
-        enc_pghd: &[u8],
+        h_cipher_bytes: &[u8],
     ) -> anyhow::Result<()> {
         let public_key_der = STANDARD
             .decode(public_key_base64)
@@ -156,9 +155,8 @@ impl Utils {
             .context("PGHD public key is not an EC key")?;
         let signature =
             EcdsaSig::from_der(&signature_der).context("invalid PGHD ECDSA signature DER")?;
-        let digest = sha2::Sha256::digest(enc_pghd);
         if !signature
-            .verify(digest.as_slice(), &public_key)
+            .verify(h_cipher_bytes, &public_key)
             .context("failed to verify PGHD ECDSA signature")?
         {
             anyhow::bail!("invalid PGHD ECDSA signature");
@@ -632,35 +630,36 @@ mod tests {
     }
 
     #[test]
-    fn verifies_android_style_pghd_outer_signature() {
+    fn verifies_android_style_pghd_signature() {
         let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap();
         let key = EcKey::generate(&group).unwrap();
         let enc_pghd = b"android-aes-gcm-ciphertext-bytes";
-        let digest = Sha256::digest(enc_pghd);
-        let signature = EcdsaSig::sign(digest.as_slice(), &key).unwrap();
+        let h_cipher = Sha256::digest(enc_pghd);
+        let signature = EcdsaSig::sign(h_cipher.as_slice(), &key).unwrap();
 
         let public_key_base64 = STANDARD.encode(key.public_key_to_der().unwrap());
         let signature_base64 = STANDARD.encode(signature.to_der().unwrap());
 
-        Utils::verify_pghd_outer_signature(&public_key_base64, &signature_base64, enc_pghd)
+        Utils::verify_pghd_signature(&public_key_base64, &signature_base64, h_cipher.as_slice())
             .unwrap();
     }
 
     #[test]
-    fn rejects_tampered_pghd_outer_signature_payload() {
+    fn rejects_tampered_pghd_signature_payload() {
         let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap();
         let key = EcKey::generate(&group).unwrap();
         let enc_pghd = b"android-aes-gcm-ciphertext-bytes";
-        let digest = Sha256::digest(enc_pghd);
-        let signature = EcdsaSig::sign(digest.as_slice(), &key).unwrap();
+        let h_cipher = Sha256::digest(enc_pghd);
+        let signature = EcdsaSig::sign(h_cipher.as_slice(), &key).unwrap();
 
         let public_key_base64 = STANDARD.encode(key.public_key_to_der().unwrap());
         let signature_base64 = STANDARD.encode(signature.to_der().unwrap());
+        let tampered_h_cipher = Sha256::digest(b"tampered-ciphertext");
 
-        assert!(Utils::verify_pghd_outer_signature(
+        assert!(Utils::verify_pghd_signature(
             &public_key_base64,
             &signature_base64,
-            b"tampered-ciphertext",
+            tampered_h_cipher.as_slice(),
         )
         .is_err());
     }
