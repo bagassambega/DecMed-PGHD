@@ -1,0 +1,7 @@
+{
+  "batch_id": "d0de09d0-bc2d-4a65-b462-7569ead66100",
+  "expected_original_h_cipher": "bec21388503520e0005f74e4e413ada83b941a14e70c54022a425a8e57363459",
+  "expected_original_signature": "MEUCIQDpMH1jDxMRsg5hK6r+CduTPxYfJPud30e8tbjnikJzcwIgHAnFgPAdohLh041G/NQwkWu6+5uBUFUTRsekY1hNupk=",
+  "tampered_ipfs_object_file": "tmp/test-tampered-ipfs/tampered_ipfs_enc_pghd.txt",
+  "test_expectation": "If PGHD metadata points to this tampered object while keeping the original h_cipher/signature, PRE or hospital client must reject it with OUTER_HASH_MISMATCH or SIGNATURE_INVALID and then invalidate the PGHD entry."
+}
