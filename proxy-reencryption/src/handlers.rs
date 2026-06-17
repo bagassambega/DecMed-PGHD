@@ -209,9 +209,32 @@ impl Handlers {
 
             let metadata: PghdMetadata =
                 serde_json::from_value(metadata_value).context(current_fn!())?;
+            if metadata.cid != move_metadata.cid {
+                let proxy_iota_key_pair = IotaKeyPair::decode(&state.proxy_iota_key_pair)
+                    .map_err(|e| anyhow!(e.to_string()))
+                    .context(current_fn!())?;
+                Self::invalidate_pghd_entry(
+                    &state,
+                    &hospital_personnel_iota_address,
+                    move_metadata.cid.clone(),
+                    "METADATA_CID_MISMATCH".to_string(),
+                    &patient_iota_address,
+                    proxy_iota_address,
+                    proxy_iota_key_pair,
+                )
+                .await?;
+                if let Err(err) = Utils::unpin_ipfs(&metadata.cid).await {
+                    eprintln!(
+                        "failed to unpin mismatched PGHD payload CID {}: {:?}",
+                        metadata.cid, err
+                    );
+                }
+                continue;
+            }
             res_data.push(json!({
                 "index": move_metadata.index,
                 "cid": move_metadata.cid,
+                "payload_cid": metadata.cid.clone(),
                 "h_cipher": move_metadata.h_cipher,
                 "status": move_metadata.status,
                 "failure_reason": move_metadata.failure_reason,
@@ -285,7 +308,32 @@ impl Handlers {
         }
         let metadata: PghdMetadata =
             serde_json::from_value(metadata_value).context(current_fn!())?;
-        let enc_pghd = Utils::get_data_ipfs(metadata.cid.clone())
+        if metadata.cid != move_metadata.cid {
+            let proxy_iota_key_pair = IotaKeyPair::decode(&state.proxy_iota_key_pair)
+                .map_err(|e| anyhow!(e.to_string()))
+                .context(current_fn!())?;
+            Self::invalidate_pghd_entry(
+                &state,
+                &hospital_personnel_iota_address,
+                move_metadata.cid.clone(),
+                "METADATA_CID_MISMATCH".to_string(),
+                &patient_iota_address,
+                proxy_iota_address,
+                proxy_iota_key_pair,
+            )
+            .await?;
+            if let Err(err) = Utils::unpin_ipfs(&metadata.cid).await {
+                eprintln!(
+                    "failed to unpin mismatched PGHD payload CID {}: {:?}",
+                    metadata.cid, err
+                );
+            }
+            return Err(ProxyError::Anyhow {
+                source: anyhow!("METADATA_CID_MISMATCH"),
+                code: StatusCode::CONFLICT,
+            });
+        }
+        let enc_pghd = Utils::get_data_ipfs(move_metadata.cid.clone())
             .await
             .context(current_fn!())?;
         let enc_pghd_bytes = base64::engine::general_purpose::STANDARD
@@ -300,7 +348,7 @@ impl Handlers {
             Self::invalidate_pghd_entry(
                 &state,
                 &hospital_personnel_iota_address,
-                metadata.cid.clone(),
+                move_metadata.cid.clone(),
                 "OUTER_HASH_MISMATCH".to_string(),
                 &patient_iota_address,
                 proxy_iota_address,
@@ -327,7 +375,7 @@ impl Handlers {
             Self::invalidate_pghd_entry(
                 &state,
                 &hospital_personnel_iota_address,
-                metadata.cid.clone(),
+                move_metadata.cid.clone(),
                 "SIGNATURE_INVALID".to_string(),
                 &patient_iota_address,
                 proxy_iota_address,
@@ -373,6 +421,7 @@ impl Handlers {
             .map_err(|e| anyhow!(e.0.to_string()).context(current_fn!()))?;
         let c_frag = reencrypt(&capsule, verified_kfrag).unverify();
         let res_data = json!({
+            "cid": move_metadata.cid,
             "current_index": current_index,
             "c_frag": Utils::serde_serialize_to_base64(&c_frag).context(current_fn!())?,
             "data_pre_secret_key_seed_capsule": access_keys.data_pre_secret_key_seed_capsule,
@@ -380,6 +429,7 @@ impl Handlers {
             "enc_aes_key_nonce": metadata.enc_aes_key_nonce,
             "enc_data_pre_secret_key_seed": access_keys.enc_data_pre_secret_key_seed,
             "data_pre_public_key": access_keys.data_pre_public_key,
+            "payload_cid": metadata.cid.clone(),
             "metadata": metadata,
             "next_index": next_index,
             "patient_pre_public_key": access_keys.patient_pre_public_key,
@@ -434,6 +484,28 @@ impl Handlers {
             )
             .await
             .context(current_fn!())?;
+
+        let remaining_valid_metadata = state
+            .move_call
+            .get_pghd_list(
+                &hospital_personnel_iota_address,
+                &patient_iota_address,
+                proxy_iota_address,
+            )
+            .await
+            .context(current_fn!())?;
+        if remaining_valid_metadata
+            .iter()
+            .any(|metadata| metadata.cid == payload.cid)
+        {
+            return Err(ProxyError::Anyhow {
+                source: anyhow!(
+                    "PGHD invalidation transaction succeeded but CID {} is still returned as valid on-chain",
+                    payload.cid
+                ),
+                code: StatusCode::CONFLICT,
+            });
+        }
 
         if let Err(err) = Utils::unpin_ipfs(&payload.cid).await {
             eprintln!(

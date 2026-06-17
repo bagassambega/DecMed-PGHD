@@ -11,15 +11,55 @@
 
 	let selectedPghd = $state<Promise<NonNullable<InvokeGetPghdResponseData>> | null>(null);
 	let selectedPghdIndex = $state<number | null>(null);
+	let selectedPghdCid = $state<string | null>(null);
+	let pendingIntegrityInvalidation = $state<{
+		cid: string;
+		reason: string;
+		detail: string;
+	} | null>(null);
+	let integrityInvalidationTimer: ReturnType<typeof setTimeout> | null = null;
 
-	const openPghd = (index: number) => {
+	const openPghd = (index: number, cid?: string) => {
+		pendingIntegrityInvalidation = null;
+		if (integrityInvalidationTimer) {
+			clearTimeout(integrityInvalidationTimer);
+			integrityInvalidationTimer = null;
+		}
 		selectedPghdIndex = index;
-		selectedPghd = pghdReadState.getPghd(data.accessToken, index, data.patientIotaAddress);
+		selectedPghdCid = cid ?? null;
+		selectedPghd = pghdReadState
+			.getPghd(data.accessToken, index, data.patientIotaAddress)
+			.catch((error) => {
+				const message = error?.message ?? String(error);
+				if (cid && isIntegrityWarning(message)) {
+					integrityInvalidationTimer = setTimeout(() => {
+						pendingIntegrityInvalidation = {
+							cid,
+							reason: inferIntegrityFailureReason(message),
+							detail: message
+						};
+						integrityInvalidationTimer = null;
+					}, 5000);
+				}
+				throw error;
+			});
 	};
 
 	const refreshSelectedPghd = () => {
 		if (selectedPghdIndex !== null) {
-			openPghd(selectedPghdIndex);
+			openPghd(selectedPghdIndex, selectedPghdCid ?? undefined);
+		}
+	};
+
+	const confirmIntegrityInvalidation = async () => {
+		if (!pendingIntegrityInvalidation) return;
+		const invalidation = pendingIntegrityInvalidation;
+		const success = await pghdReadState.invalidatePghd(invalidation.cid, invalidation.reason);
+		if (success) {
+			pendingIntegrityInvalidation = null;
+			selectedPghd = null;
+			selectedPghdIndex = null;
+			selectedPghdCid = null;
 		}
 	};
 
@@ -47,6 +87,30 @@
 
 	const formatUnknown = (value: unknown) =>
 		value === undefined || value === null || value === '' ? '-' : String(value);
+
+	const isIntegrityWarning = (message: string) => {
+		const lower = message.toLowerCase();
+		return (
+			lower.includes('integrity warning') ||
+			lower.includes('signature_invalid') ||
+			lower.includes('plain_hash_mismatch') ||
+			lower.includes('outer_hash_mismatch') ||
+			lower.includes('legacy_pghd_signature_schema') ||
+			lower.includes('err_data_corrupted') ||
+			lower.includes('hash') ||
+			lower.includes('signature')
+		);
+	};
+
+	const inferIntegrityFailureReason = (message: string) => {
+		if (message.includes('SIGNATURE_INVALID')) return 'SIGNATURE_INVALID';
+		if (message.includes('PLAIN_HASH_MISMATCH')) return 'PLAIN_HASH_MISMATCH';
+		if (message.includes('OUTER_HASH_MISMATCH') || message.includes('ERR_DATA_CORRUPTED')) {
+			return 'OUTER_HASH_MISMATCH';
+		}
+		if (message.includes('LEGACY_PGHD_SIGNATURE_SCHEMA')) return 'LEGACY_PGHD_SIGNATURE_SCHEMA';
+		return 'MANUAL_INTEGRITY_INVALIDATION';
+	};
 </script>
 
 <div class="flex items-start justify-between gap-4 mb-4">
@@ -101,14 +165,24 @@
 									<button
 										type="button"
 										class="bg-zinc-800 text-zinc-100 px-3 py-1.5 rounded-md text-sm"
-										onclick={() => openPghd(item.index)}
+										onclick={() => openPghd(item.index, item.cid)}
 									>
 										Open
 									</button>
 									<button
 										type="button"
 										class="border border-zinc-300 px-3 py-1.5 rounded-md text-sm"
-										onclick={() => pghdReadState.invalidatePghd(item.cid, 'MANUAL_REVIEW_INVALIDATION')}
+										onclick={async () => {
+											const success = await pghdReadState.invalidatePghd(
+												item.cid,
+												'MANUAL_REVIEW_INVALIDATION'
+											);
+											if (success && selectedPghdIndex === item.index) {
+												selectedPghd = null;
+												selectedPghdIndex = null;
+												selectedPghdCid = null;
+											}
+										}}
 									>
 										Invalidate
 									</button>
@@ -164,10 +238,28 @@
 						</button>
 						<button
 							type="button"
+							class="border border-red-300 text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-md text-sm"
+							onclick={async () => {
+								const success = await pghdReadState.invalidatePghd(
+									pghd.cid,
+									'MANUAL_REVIEW_INVALIDATION'
+								);
+								if (success) {
+									selectedPghd = null;
+									selectedPghdIndex = null;
+									selectedPghdCid = null;
+								}
+							}}
+						>
+							Invalidate
+						</button>
+						<button
+							type="button"
 							class="border border-zinc-300 px-3 py-1.5 rounded-md text-sm"
 							onclick={() => {
 								selectedPghd = null;
 								selectedPghdIndex = null;
+								selectedPghdCid = null;
 							}}
 						>
 							Close
@@ -244,4 +336,42 @@
 			</div>
 		{/await}
 	</section>
+{/if}
+
+{#if pendingIntegrityInvalidation}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+		<div class="w-full max-w-lg rounded-md border border-red-200 bg-white p-5 shadow-xl">
+			<p class="text-base font-semibold text-red-700">
+				Apakah Anda ingin menginvalidasi/menghapus data ini?
+			</p>
+			<p class="mt-2 text-sm text-zinc-700">
+				Data PGHD ini sudah terdeteksi rusak atau tidak sesuai integritasnya karena
+				<span class="font-semibold">{pendingIntegrityInvalidation.reason}</span>. Data tidak boleh
+				digunakan untuk keputusan klinis.
+			</p>
+			<div class="mt-3 rounded-md border border-red-100 bg-red-50 p-3 text-xs text-red-800 whitespace-pre-wrap">
+				CID: {pendingIntegrityInvalidation.cid}
+				<br />
+				{pendingIntegrityInvalidation.detail}
+			</div>
+			<div class="mt-5 flex justify-end gap-2">
+				<button
+					type="button"
+					class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm"
+					onclick={() => {
+						pendingIntegrityInvalidation = null;
+					}}
+				>
+					Nanti saja
+				</button>
+				<button
+					type="button"
+					class="rounded-md bg-red-700 px-3 py-1.5 text-sm text-white"
+					onclick={confirmIntegrityInvalidation}
+				>
+					Invalidate PGHD
+				</button>
+			</div>
+		</div>
+	</div>
 {/if}

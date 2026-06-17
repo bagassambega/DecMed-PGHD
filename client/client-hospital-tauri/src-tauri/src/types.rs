@@ -336,6 +336,8 @@ pub struct ProxyReencryptionPghdListItem {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ProxyReencryptionGetPghdResponseData {
     pub c_frag: String,
+    #[serde(default)]
+    pub cid: Option<String>,
     pub current_index: u64,
     pub data_pre_public_key: String,
     pub data_pre_secret_key_seed_capsule: String,
@@ -344,6 +346,7 @@ pub struct ProxyReencryptionGetPghdResponseData {
     pub enc_pghd: String,
     pub metadata: serde_json::Value,
     pub next_index: Option<u64>,
+    pub payload_cid: Option<String>,
     pub patient_pre_public_key: String,
     pub pghd_public_key: String,
     pub prev_index: Option<u64>,

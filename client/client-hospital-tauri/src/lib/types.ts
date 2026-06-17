@@ -150,9 +150,11 @@ export type InvokeGetPghdListItem = {
 };
 
 export type InvokeGetPghdResponseData = {
+	cid: string;
 	current_index: number;
 	metadata: PghdMetadata;
 	next_index?: number | null;
+	payload_cid?: string | null;
 	pghd_data: PghdBatchData;
 	prev_index?: number | null;
 	verified: boolean;

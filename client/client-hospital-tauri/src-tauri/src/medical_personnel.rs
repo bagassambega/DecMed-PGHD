@@ -329,11 +329,17 @@ pub async fn get_pghd(
         .get("batch_id")
         .and_then(Value::as_str)
         .ok_or(anyhow!("PGHD metadata missing batch_id").context(current_fn!()))?;
-    let cid = metadata
-        .get("cid")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
+    let cid = res
+        .data
+        .cid
+        .clone()
+        .or_else(|| {
+            metadata
+                .get("cid")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_default();
     let h_cipher = metadata
         .get("h_cipher")
         .and_then(Value::as_str)
@@ -467,8 +473,10 @@ pub async fn get_pghd(
         status: ResponseStatus::Success,
         data: json!({
             "current_index": res.data.current_index,
+            "cid": cid,
             "metadata": metadata,
             "next_index": res.data.next_index,
+            "payload_cid": res.data.payload_cid,
             "pghd_data": pghd_data,
             "prev_index": res.data.prev_index,
             "verified": true,

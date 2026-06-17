@@ -12,6 +12,7 @@ export class PghdReadState {
 	accessToken = $state('');
 	patientIotaAddress = $state('');
 	fetchPghdList = $state<Promise<InvokeGetPghdListItem[]>>(Promise.resolve([]));
+	invalidatedCids = $state<string[]>([]);
 
 	constructor({ accessToken, patientIotaAddress }: Props) {
 		this.accessToken = accessToken;
@@ -33,7 +34,8 @@ export class PghdReadState {
 			throw new Error(errorMessage);
 		}
 
-		return resInvokeGetPghdList.data.data;
+		const invalidated = new Set(this.invalidatedCids);
+		return resInvokeGetPghdList.data.data.filter((item) => !invalidated.has(item.cid));
 	};
 
 	getPghd = async (accessToken: string, index: number, patientIotaAddress: string) => {
@@ -76,12 +78,20 @@ export class PghdReadState {
 		});
 
 		if (!resInvalidatePghd.success) {
-			toast.error(resInvalidatePghd.error);
-			return;
+			const message = withRawError(
+				'Failed to invalidate PGHD entry. The entry may already be invalid, the access token may be expired, or the CID does not match an on-chain PGHD metadata entry.',
+				resInvalidatePghd.error
+			);
+			toast.error(message);
+			return false;
 		}
 
 		toast.success('PGHD entry invalidated.');
+		if (!this.invalidatedCids.includes(cid)) {
+			this.invalidatedCids = [...this.invalidatedCids, cid];
+		}
 		this.refreshPghdList();
+		return true;
 	};
 
 	refreshPghdList = () => {

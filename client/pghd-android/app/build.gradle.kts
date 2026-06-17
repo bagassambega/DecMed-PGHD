@@ -111,6 +111,7 @@ dependencies {
 
     // Navigation, ViewModel, DataStore
     implementation(libs.navigation.compose)
+    implementation(libs.lifecycle.runtime.compose)
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.datastore.preferences)
     implementation(libs.material.icons.extended)
@@ -125,6 +126,10 @@ dependencies {
 
     // QR decoding for hospital personnel access grants
     implementation(libs.zxing.core)
+    implementation(libs.camera.core)
+    implementation(libs.camera.camera2)
+    implementation(libs.camera.lifecycle)
+    implementation(libs.camera.view)
 
     // Background work
     implementation(libs.work.runtime.ktx)

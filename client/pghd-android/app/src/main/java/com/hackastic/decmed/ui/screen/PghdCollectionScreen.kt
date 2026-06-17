@@ -8,6 +8,12 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
+import androidx.camera.view.CameraController
+import androidx.camera.view.LifecycleCameraController
+import androidx.camera.view.PreviewView
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -57,6 +64,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -67,6 +75,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -81,8 +91,10 @@ import com.hackastic.decmed.viewmodel.PatientGrantAccessKind
 import com.hackastic.decmed.viewmodel.PghdCollectionViewModel
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
+import com.google.zxing.LuminanceSource
 import com.google.zxing.MultiFormatReader
 import com.google.zxing.NotFoundException
+import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.RGBLuminanceSource
 import com.google.zxing.common.HybridBinarizer
 import org.json.JSONObject
@@ -90,6 +102,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.EnumMap
 import java.util.Locale
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -510,6 +524,7 @@ private fun GrantPghdAccessDialog(
     var personnelPrePublicKey by rememberSaveable { mutableStateOf("") }
     var selectedAccessKind by rememberSaveable { mutableStateOf(PatientGrantAccessKind.PGHD_READ) }
     var scanError by rememberSaveable { mutableStateOf<String?>(null) }
+    var showLiveScanner by rememberSaveable { mutableStateOf(false) }
     val applyQrContent: (String) -> Unit = { content ->
         val decoded = decodeHospitalPersonnelQrPayload(content)
         if (decoded == null) {
@@ -520,23 +535,11 @@ private fun GrantPghdAccessDialog(
             scanError = null
         }
     }
-    val cameraLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.TakePicturePreview()
-    ) { bitmap ->
-        if (bitmap == null) {
-            scanError = "No camera image captured."
-        } else {
-            decodeQrBitmap(bitmap).fold(
-                onSuccess = applyQrContent,
-                onFailure = { scanError = it.message ?: "Unable to read QR image." }
-            )
-        }
-    }
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            cameraLauncher.launch(null)
+            showLiveScanner = true
         } else {
             scanError = "Camera permission is required to scan QR directly."
         }
@@ -612,7 +615,7 @@ private fun GrantPghdAccessDialog(
                                 ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
                                 PackageManager.PERMISSION_GRANTED
                             ) {
-                                cameraLauncher.launch(null)
+                                showLiveScanner = true
                             } else {
                                 cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
                             }
@@ -649,6 +652,80 @@ private fun GrantPghdAccessDialog(
                     value = personnelPrePublicKey,
                     onValueChange = { personnelPrePublicKey = it },
                     label = { Text("Personnel PRE public key") }
+                )
+            }
+        }
+    )
+
+    if (showLiveScanner) {
+        QrScannerDialog(
+            onDismiss = { showLiveScanner = false },
+            onQrDetected = { content ->
+                showLiveScanner = false
+                applyQrContent(content)
+            }
+        )
+    }
+}
+
+@Composable
+private fun QrScannerDialog(
+    onDismiss: () -> Unit,
+    onQrDetected: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
+    val detected = remember { AtomicBoolean(false) }
+
+    DisposableEffect(Unit) {
+        onDispose { analysisExecutor.shutdown() }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {},
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+        title = { Text("Scan Personnel QR") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Point the camera at the personnel QR. The QR can occupy only part of the frame.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                AndroidView(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(360.dp)
+                        .widthIn(min = 280.dp),
+                    factory = { viewContext ->
+                        PreviewView(viewContext).apply {
+                            scaleType = PreviewView.ScaleType.FILL_CENTER
+                            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                            val cameraController = LifecycleCameraController(viewContext).apply {
+                                cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+                                setEnabledUseCases(CameraController.IMAGE_ANALYSIS)
+                                imageAnalysisBackpressureStrategy = ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST
+                                setImageAnalysisAnalyzer(analysisExecutor) { imageProxy ->
+                                    decodeQrImageProxy(imageProxy).onSuccess { content ->
+                                        if (detected.compareAndSet(false, true)) {
+                                            clearImageAnalysisAnalyzer()
+                                            ContextCompat.getMainExecutor(context).execute {
+                                                onQrDetected(content)
+                                            }
+                                        }
+                                    }
+                                }
+                                bindToLifecycle(lifecycleOwner)
+                            }
+                            controller = cameraController
+                        }
+                    }
                 )
             }
         }
@@ -783,6 +860,70 @@ private fun formatIsoDate(value: String, dateFormatter: SimpleDateFormat): Strin
         .getOrDefault(value)
 
 private fun decodeQrBitmap(bitmap: Bitmap): Result<String> = runCatching {
+    var lastError: Throwable? = null
+    for (candidate in qrBitmapCandidates(bitmap)) {
+        val pixels = IntArray(candidate.width * candidate.height)
+        candidate.getPixels(pixels, 0, candidate.width, 0, 0, candidate.width, candidate.height)
+        val source = RGBLuminanceSource(candidate.width, candidate.height, pixels)
+        decodeQrLuminanceSource(source)
+            .recoverCatching { decodeQrLuminanceSource(source.invert()).getOrThrow() }
+            .fold(
+                onSuccess = { return@runCatching it },
+                onFailure = { lastError = it }
+            )
+    }
+    throw lastError ?: IllegalArgumentException("No QR code was detected in the selected image.")
+}
+
+private fun decodeQrImageProxy(imageProxy: ImageProxy): Result<String> = runCatching {
+    try {
+        val width = imageProxy.width
+        val height = imageProxy.height
+        val plane = imageProxy.planes.first()
+        val buffer = plane.buffer
+        buffer.rewind()
+        val yBytes = if (plane.rowStride == width) {
+            ByteArray(width * height).also { buffer.get(it, 0, it.size) }
+        } else {
+            val row = ByteArray(plane.rowStride)
+            val compact = ByteArray(width * height)
+            var targetOffset = 0
+            repeat(height) {
+                buffer.get(row, 0, minOf(row.size, buffer.remaining()))
+                System.arraycopy(row, 0, compact, targetOffset, width)
+                targetOffset += width
+            }
+            compact
+        }
+        val source = PlanarYUVLuminanceSource(yBytes, width, height, 0, 0, width, height, false)
+        decodeQrLuminanceSource(source).getOrThrow()
+    } finally {
+        imageProxy.close()
+    }
+}
+
+private fun qrBitmapCandidates(bitmap: Bitmap): List<Bitmap> {
+    val candidates = mutableListOf(bitmap)
+    if (bitmap.width > 1600 || bitmap.height > 1600) {
+        candidates += Bitmap.createScaledBitmap(bitmap, bitmap.width / 2, bitmap.height / 2, true)
+    }
+    val cropRatios = listOf(0.75f, 0.55f, 0.4f)
+    for (ratio in cropRatios) {
+        val cropWidth = (bitmap.width * ratio).toInt().coerceAtLeast(160)
+        val cropHeight = (bitmap.height * ratio).toInt().coerceAtLeast(160)
+        if (cropWidth >= bitmap.width || cropHeight >= bitmap.height) continue
+        val xPositions = listOf(0, (bitmap.width - cropWidth) / 2, bitmap.width - cropWidth).distinct()
+        val yPositions = listOf(0, (bitmap.height - cropHeight) / 2, bitmap.height - cropHeight).distinct()
+        for (x in xPositions) {
+            for (y in yPositions) {
+                candidates += Bitmap.createBitmap(bitmap, x, y, cropWidth, cropHeight)
+            }
+        }
+    }
+    return candidates
+}
+
+private fun decodeQrLuminanceSource(source: LuminanceSource): Result<String> = runCatching {
     val reader = MultiFormatReader().apply {
         setHints(
             EnumMap<DecodeHintType, Any>(DecodeHintType::class.java).apply {
@@ -791,27 +932,13 @@ private fun decodeQrBitmap(bitmap: Bitmap): Result<String> = runCatching {
             }
         )
     }
-    val variants = listOf(bitmap) + if (bitmap.width > 1600 || bitmap.height > 1600) {
-        listOf(Bitmap.createScaledBitmap(bitmap, bitmap.width / 2, bitmap.height / 2, true))
-    } else {
-        emptyList()
+    try {
+        reader.decodeWithState(BinaryBitmap(HybridBinarizer(source))).text
+    } catch (err: NotFoundException) {
+        throw err
+    } finally {
+        reader.reset()
     }
-    var lastError: Throwable? = null
-    for (candidate in variants) {
-        val pixels = IntArray(candidate.width * candidate.height)
-        candidate.getPixels(pixels, 0, candidate.width, 0, 0, candidate.width, candidate.height)
-        val source = RGBLuminanceSource(candidate.width, candidate.height, pixels)
-        for (luminance in listOf(source, source.invert())) {
-            try {
-                return@runCatching reader.decodeWithState(BinaryBitmap(HybridBinarizer(luminance))).text
-            } catch (err: NotFoundException) {
-                lastError = err
-            } finally {
-                reader.reset()
-            }
-        }
-    }
-    throw lastError ?: IllegalArgumentException("No QR code was detected in the selected image.")
 }
 
 @Composable
