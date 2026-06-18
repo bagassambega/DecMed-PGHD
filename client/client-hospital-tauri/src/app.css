@@ -14,13 +14,26 @@
 	user-select: none; /* Standard syntax */
 }
 
+button,
+a,
+[role='button'] {
+	cursor: pointer;
+}
+
+button:disabled,
+a[aria-disabled='true'],
+[role='button'][aria-disabled='true'] {
+	cursor: not-allowed;
+	opacity: 0.65;
+}
+
 @layer components {
 	.button-light {
-		@apply bg-zinc-100 p-2 rounded-md  border border-zinc-200 w-full font-medium;
+		@apply bg-zinc-100 p-2 rounded-md border border-zinc-200 w-full font-medium disabled:opacity-65 disabled:cursor-not-allowed;
 	}
 
 	.button-dark {
-		@apply bg-zinc-800 py-1.5 border border-zinc-900 w-full font-medium text-zinc-200 rounded-lg;
+		@apply bg-zinc-800 py-1.5 border border-zinc-900 w-full font-medium text-zinc-200 rounded-lg disabled:opacity-65 disabled:cursor-not-allowed;
 	}
 
 	.input-text {

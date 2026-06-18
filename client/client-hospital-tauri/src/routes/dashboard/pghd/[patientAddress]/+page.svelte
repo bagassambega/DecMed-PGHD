@@ -12,19 +12,25 @@
 	let selectedPghd = $state<Promise<NonNullable<InvokeGetPghdResponseData>> | null>(null);
 	let selectedPghdIndex = $state<number | null>(null);
 	let selectedPghdCid = $state<string | null>(null);
-	let pendingIntegrityInvalidation = $state<{
+	let pendingInvalidation = $state<{
 		cid: string;
 		reason: string;
 		detail: string;
 	} | null>(null);
 	let integrityInvalidationTimer: ReturnType<typeof setTimeout> | null = null;
+	let openingIndex = $state<number | null>(null);
+	let isRefreshingList = $state(false);
+	let isRefreshingSelected = $state(false);
+	let invalidatingCid = $state<string | null>(null);
 
 	const openPghd = (index: number, cid?: string) => {
-		pendingIntegrityInvalidation = null;
+		if (openingIndex !== null) return;
+		pendingInvalidation = null;
 		if (integrityInvalidationTimer) {
 			clearTimeout(integrityInvalidationTimer);
 			integrityInvalidationTimer = null;
 		}
+		openingIndex = index;
 		selectedPghdIndex = index;
 		selectedPghdCid = cid ?? null;
 		selectedPghd = pghdReadState
@@ -33,7 +39,7 @@
 				const message = error?.message ?? String(error);
 				if (cid && isIntegrityWarning(message)) {
 					integrityInvalidationTimer = setTimeout(() => {
-						pendingIntegrityInvalidation = {
+						pendingInvalidation = {
 							cid,
 							reason: inferIntegrityFailureReason(message),
 							detail: message
@@ -42,24 +48,49 @@
 					}, 5000);
 				}
 				throw error;
+			})
+			.finally(() => {
+				openingIndex = null;
+				isRefreshingSelected = false;
 			});
 	};
 
 	const refreshSelectedPghd = () => {
 		if (selectedPghdIndex !== null) {
+			isRefreshingSelected = true;
 			openPghd(selectedPghdIndex, selectedPghdCid ?? undefined);
 		}
 	};
 
+	const refreshPghdList = async () => {
+		if (isRefreshingList) return;
+		isRefreshingList = true;
+		try {
+			await pghdReadState.refreshPghdList();
+		} finally {
+			isRefreshingList = false;
+		}
+	};
+
+	const requestInvalidation = (cid: string, reason: string, detail: string) => {
+		if (invalidatingCid) return;
+		pendingInvalidation = { cid, reason, detail };
+	};
+
 	const confirmIntegrityInvalidation = async () => {
-		if (!pendingIntegrityInvalidation) return;
-		const invalidation = pendingIntegrityInvalidation;
-		const success = await pghdReadState.invalidatePghd(invalidation.cid, invalidation.reason);
-		if (success) {
-			pendingIntegrityInvalidation = null;
-			selectedPghd = null;
-			selectedPghdIndex = null;
-			selectedPghdCid = null;
+		if (!pendingInvalidation || invalidatingCid) return;
+		const invalidation = pendingInvalidation;
+		invalidatingCid = invalidation.cid;
+		try {
+			const success = await pghdReadState.invalidatePghd(invalidation.cid, invalidation.reason);
+			if (success) {
+				pendingInvalidation = null;
+				selectedPghd = null;
+				selectedPghdIndex = null;
+				selectedPghdCid = null;
+			}
+		} finally {
+			invalidatingCid = null;
 		}
 	};
 
@@ -122,9 +153,10 @@
 		<button
 			type="button"
 			class="border border-zinc-300 px-3 py-1.5 rounded-md text-sm"
-			onclick={() => pghdReadState.refreshPghdList()}
+			disabled={isRefreshingList}
+			onclick={refreshPghdList}
 		>
-			Refresh
+			{isRefreshingList ? 'Refreshing...' : 'Refresh'}
 		</button>
 		<a href="/dashboard" class="border border-zinc-300 px-3 py-1.5 rounded-md text-sm">Back</a>
 	</div>
@@ -165,26 +197,24 @@
 									<button
 										type="button"
 										class="bg-zinc-800 text-zinc-100 px-3 py-1.5 rounded-md text-sm"
+										disabled={openingIndex !== null || invalidatingCid !== null}
 										onclick={() => openPghd(item.index, item.cid)}
 									>
-										Open
+										{openingIndex === item.index ? 'Opening...' : 'Open'}
 									</button>
 									<button
 										type="button"
 										class="border border-zinc-300 px-3 py-1.5 rounded-md text-sm"
-										onclick={async () => {
-											const success = await pghdReadState.invalidatePghd(
+										disabled={openingIndex !== null || invalidatingCid !== null}
+										onclick={() => {
+											requestInvalidation(
 												item.cid,
-												'MANUAL_REVIEW_INVALIDATION'
+												'MANUAL_REVIEW_INVALIDATION',
+												`Manual invalidation requested for PGHD batch #${item.index}.`
 											);
-											if (success && selectedPghdIndex === item.index) {
-												selectedPghd = null;
-												selectedPghdIndex = null;
-												selectedPghdCid = null;
-											}
 										}}
 									>
-										Invalidate
+										{invalidatingCid === item.cid ? 'Invalidating...' : 'Invalidate'}
 									</button>
 								</div>
 							</div>
@@ -232,30 +262,29 @@
 						<button
 							type="button"
 							class="border border-zinc-300 px-3 py-1.5 rounded-md text-sm"
+							disabled={isRefreshingSelected || invalidatingCid !== null}
 							onclick={refreshSelectedPghd}
 						>
-							Refresh
+							{isRefreshingSelected ? 'Refreshing...' : 'Refresh'}
 						</button>
 						<button
 							type="button"
 							class="border border-red-300 text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-md text-sm"
-							onclick={async () => {
-								const success = await pghdReadState.invalidatePghd(
+							disabled={isRefreshingSelected || invalidatingCid !== null}
+							onclick={() => {
+								requestInvalidation(
 									pghd.cid,
-									'MANUAL_REVIEW_INVALIDATION'
+									'MANUAL_REVIEW_INVALIDATION',
+									`Manual invalidation requested for PGHD batch ${pghd.pghd_data.batch_id}.`
 								);
-								if (success) {
-									selectedPghd = null;
-									selectedPghdIndex = null;
-									selectedPghdCid = null;
-								}
 							}}
 						>
-							Invalidate
+							{invalidatingCid === pghd.cid ? 'Invalidating...' : 'Invalidate'}
 						</button>
 						<button
 							type="button"
 							class="border border-zinc-300 px-3 py-1.5 rounded-md text-sm"
+							disabled={invalidatingCid !== null}
 							onclick={() => {
 								selectedPghd = null;
 								selectedPghdIndex = null;
@@ -338,28 +367,29 @@
 	</section>
 {/if}
 
-{#if pendingIntegrityInvalidation}
+{#if pendingInvalidation}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
 		<div class="w-full max-w-lg rounded-md border border-red-200 bg-white p-5 shadow-xl">
 			<p class="text-base font-semibold text-red-700">
 				Apakah Anda ingin menginvalidasi/menghapus data ini?
 			</p>
 			<p class="mt-2 text-sm text-zinc-700">
-				Data PGHD ini sudah terdeteksi rusak atau tidak sesuai integritasnya karena
-				<span class="font-semibold">{pendingIntegrityInvalidation.reason}</span>. Data tidak boleh
-				digunakan untuk keputusan klinis.
+				Anda akan menandai entri PGHD ini sebagai invalid dengan alasan
+				<span class="font-semibold">{pendingInvalidation.reason}</span>. Setelah invalidasi berhasil,
+				entri ini tidak akan ditampilkan sebagai data valid dan tidak boleh digunakan untuk keputusan klinis.
 			</p>
 			<div class="mt-3 rounded-md border border-red-100 bg-red-50 p-3 text-xs text-red-800 whitespace-pre-wrap">
-				CID: {pendingIntegrityInvalidation.cid}
+				CID: {pendingInvalidation.cid}
 				<br />
-				{pendingIntegrityInvalidation.detail}
+				{pendingInvalidation.detail}
 			</div>
 			<div class="mt-5 flex justify-end gap-2">
 				<button
 					type="button"
 					class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm"
+					disabled={invalidatingCid !== null}
 					onclick={() => {
-						pendingIntegrityInvalidation = null;
+						pendingInvalidation = null;
 					}}
 				>
 					Nanti saja
@@ -367,9 +397,10 @@
 				<button
 					type="button"
 					class="rounded-md bg-red-700 px-3 py-1.5 text-sm text-white"
+					disabled={invalidatingCid !== null}
 					onclick={confirmIntegrityInvalidation}
 				>
-					Invalidate PGHD
+					{invalidatingCid ? 'Invalidating...' : 'Invalidate PGHD'}
 				</button>
 			</div>
 		</div>

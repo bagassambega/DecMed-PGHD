@@ -95,7 +95,9 @@ export class PghdReadState {
 	};
 
 	refreshPghdList = () => {
-		this.fetchPghdList = this.getPghdList(this.accessToken, this.patientIotaAddress);
+		const fetchPghdList = this.getPghdList(this.accessToken, this.patientIotaAddress);
+		this.fetchPghdList = fetchPghdList;
+		return fetchPghdList;
 	};
 }
 
