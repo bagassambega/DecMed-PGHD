@@ -100,16 +100,19 @@ const therapySchema = {
 // };
 
 export const activationSchema = z.object({
-	id: sanitizedString(128, { required: 'ID is required.', invalid: 'ID is invalid.' })
-		.trim()
-		.min(1, { message: 'ID is required.' }),
-	activationKey: sanitizedString(36, {
-		required: 'Activation Key is required.',
-		invalid: 'Activation Key is invalid.'
+	id: sanitizedString(128, {
+		required: 'Credential ID is required.',
+		invalid: 'Credential ID is invalid.'
 	})
 		.trim()
-		.min(1, { message: 'Activation Key is required.' })
-		.max(36, { message: 'Activation Key is invalid.' })
+		.min(1, { message: 'Credential ID is required.' }),
+	activationKey: sanitizedString(36, {
+		required: 'Key is required.',
+		invalid: 'Key is invalid.'
+	})
+		.trim()
+		.min(1, { message: 'Key is required.' })
+		.max(36, { message: 'Key is invalid.' })
 });
 
 export const signInSchemaStep1 = z.object(pinSchema);

@@ -357,12 +357,11 @@ pub async fn auth_status(
 
     if keys_entry.activation_key.is_none() || keys_entry.id.is_none() {
         return Err(HospitalError::Anyhow(
-            anyhow!("Activation key or id not found").context("$<0>$"),
+            anyhow!("Key or Credential ID not found").context("$<0>$"),
         ));
     }
 
-    // With the following iota call we can check if the activation key exist
-    // and id is registered
+    // Check whether the key exists and the Credential ID is registered.
 
     let (
         activation_key,

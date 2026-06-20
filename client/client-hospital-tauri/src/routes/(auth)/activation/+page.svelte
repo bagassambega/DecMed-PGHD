@@ -74,7 +74,7 @@
 			<Label.Root
 				for="id"
 				class="font-medium text-sm after:content-['*'] after:text-red-500 p-2 border-b border-zinc-200"
-				>CID</Label.Root
+				>Credential ID</Label.Root
 			>
 			<input
 				type="text"
@@ -100,7 +100,7 @@
 			<Label.Root
 				for="activationKey"
 				class="font-medium text-sm after:content-['*'] after:text-red-500 p-2 border-b border-zinc-200"
-				>Activation Key</Label.Root
+				>Key</Label.Root
 			>
 			<input
 				type="text"

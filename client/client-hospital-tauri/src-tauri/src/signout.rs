@@ -16,6 +16,8 @@ pub async fn signout(
 
     let mut keys_entry = parse_keys_entry(&state.keys_entry.get_secret().context(current_fn!())?)
         .context(current_fn!())?;
+    keys_entry.activation_key = None;
+    keys_entry.id = None;
     keys_entry.iota_address = None;
     keys_entry.iota_key_pair = None;
     keys_entry.iota_nonce = None;
