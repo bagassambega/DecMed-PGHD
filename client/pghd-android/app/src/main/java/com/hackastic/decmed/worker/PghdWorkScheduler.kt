@@ -2,6 +2,7 @@ package com.hackastic.decmed.worker
 
 import android.content.Context
 import androidx.work.Constraints
+import androidx.work.Data
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
@@ -17,6 +18,8 @@ object PghdWorkScheduler {
     private const val CONNECTIVITY_SUBMIT_WORK = "decmed_pghd_connectivity_submit_work"
     private const val HEALTH_CONNECT_SYNC_WORK = "decmed_pghd_health_connect_sync_work"
     private const val HEALTH_CONNECT_SYNC_NOW_WORK = "decmed_pghd_health_connect_sync_now_work"
+    private const val KEY_SHOW_TOAST = "show_toast"
+    private const val KEY_RESCHEDULE = "reschedule"
 
     fun scheduleAll(context: Context) {
         PghdNetworkMonitor.start(context.applicationContext)
@@ -51,6 +54,7 @@ object PghdWorkScheduler {
 
     fun scheduleHealthConnectSyncNow(context: Context) {
         val request = OneTimeWorkRequestBuilder<PghdHealthConnectSyncWorker>()
+            .setInputData(syncInputData(showToast = true, reschedule = false))
             .setInitialDelay(2, TimeUnit.SECONDS)
             .build()
 
@@ -72,14 +76,33 @@ object PghdWorkScheduler {
     }
 
     private fun scheduleHealthConnectSync(context: Context) {
-        val request = PeriodicWorkRequestBuilder<PghdHealthConnectSyncWorker>(
-            Env.pghdBatchIntervalMinutes.coerceAtLeast(15),
-            TimeUnit.MINUTES
-        ).build()
+        val request = OneTimeWorkRequestBuilder<PghdHealthConnectSyncWorker>()
+            .setInputData(syncInputData(showToast = true, reschedule = true))
+            .setInitialDelay(
+                Env.pghdHealthConnectSyncIntervalMinutes.coerceAtLeast(1),
+                TimeUnit.MINUTES
+            )
+            .build()
 
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+        WorkManager.getInstance(context).enqueueUniqueWork(
             HEALTH_CONNECT_SYNC_WORK,
-            ExistingPeriodicWorkPolicy.KEEP,
+            ExistingWorkPolicy.REPLACE,
+            request
+        )
+    }
+
+    fun scheduleNextHealthConnectSync(context: Context) {
+        val request = OneTimeWorkRequestBuilder<PghdHealthConnectSyncWorker>()
+            .setInputData(syncInputData(showToast = true, reschedule = true))
+            .setInitialDelay(
+                Env.pghdHealthConnectSyncIntervalMinutes.coerceAtLeast(1),
+                TimeUnit.MINUTES
+            )
+            .build()
+
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            HEALTH_CONNECT_SYNC_WORK,
+            ExistingWorkPolicy.REPLACE,
             request
         )
     }
@@ -101,4 +124,16 @@ object PghdWorkScheduler {
         Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
+
+    private fun syncInputData(showToast: Boolean, reschedule: Boolean): Data =
+        Data.Builder()
+            .putBoolean(KEY_SHOW_TOAST, showToast)
+            .putBoolean(KEY_RESCHEDULE, reschedule)
+            .build()
+
+    fun shouldShowToast(inputData: Data): Boolean =
+        inputData.getBoolean(KEY_SHOW_TOAST, false)
+
+    fun shouldReschedule(inputData: Data): Boolean =
+        inputData.getBoolean(KEY_RESCHEDULE, false)
 }

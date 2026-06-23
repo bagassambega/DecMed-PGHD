@@ -19,18 +19,36 @@ import com.hackastic.decmed.utils.SensorHealthDataMap
 class GetAvailableSensorsUseCase {
 
     operator fun invoke(sensorManager: SensorManager): List<SensorInfo> {
-        return SensorHealthDataMap.allSensorTypes.map { (sensorType, healthInfo) ->
+        val mappedSensors = SensorHealthDataMap.allSensorTypes.map { (sensorType, healthInfo) ->
             val sensor = sensorManager.getDefaultSensor(sensorType)
             SensorInfo(
                 type = sensorType,
                 name = sensor?.name ?: healthInfo.displayName,
                 isAvailable = sensor != null,
                 healthDataCapabilities = healthInfo.healthData,
+                healthDataTypes = healthInfo.healthDataTypes,
                 clinicalRelevance = healthInfo.clinicalRelevance
             )
-        }.sortedWith(
-            // Available sensors first, then alphabetical by name
+        }
+
+        val mappedTypes = SensorHealthDataMap.allSensorTypes.keys
+        val unmappedAvailableSensors = sensorManager.getSensorList(Sensor.TYPE_ALL)
+            .filter { sensor -> sensor.type !in mappedTypes }
+            .distinctBy { it.type }
+            .map { sensor ->
+                SensorInfo(
+                    type = sensor.type,
+                    name = sensor.name,
+                    isAvailable = true,
+                    healthDataCapabilities = emptyList(),
+                    healthDataTypes = emptyList(),
+                    clinicalRelevance = "No PGHD health-data conversion is defined for this sensor."
+                )
+            }
+
+        return (mappedSensors + unmappedAvailableSensors).sortedWith(
             compareByDescending<SensorInfo> { it.isAvailable }
+                .thenBy { it.healthDataTypes.isEmpty() }
                 .thenBy { it.name }
         )
     }

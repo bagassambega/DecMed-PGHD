@@ -12,20 +12,32 @@ object AndroidSensorPghdMapper {
     private var lastStepCounterTimeMillis: Long? = null
     private var lastPressureAltitudeMeters: Double? = null
 
-    fun toPghdRecords(batch: List<SensorData>): List<PghdRecordEntity> =
-        batch.sortedBy { it.endTimeEpochMillis }.flatMap(::toPghdRecords)
+    fun toPghdRecords(
+        batch: List<SensorData>,
+        enabledRecordTypesBySensor: Map<Int, Set<String>> = emptyMap()
+    ): List<PghdRecordEntity> =
+        batch.sortedBy { it.endTimeEpochMillis }.flatMap { sensorData ->
+            toPghdRecords(sensorData, enabledRecordTypesBySensor[sensorData.sensorType])
+        }
 
-    fun toPghdRecords(sensorData: SensorData): List<PghdRecordEntity> {
+    fun toPghdRecords(
+        sensorData: SensorData,
+        enabledRecordTypes: Set<String>? = null
+    ): List<PghdRecordEntity> {
         val scalarValue = sensorData.value?.toDouble()
 
-        return when (sensorData.sensorType) {
+        val records = when (sensorData.sensorType) {
             Sensor.TYPE_HEART_RATE -> scalarValue?.let {
                 listOf(sensorData.toRecord("heart_rate", "Heart rate", it, "bpm", direct("TYPE_HEART_RATE")))
             }.orEmpty()
 
-            Sensor.TYPE_HEART_BEAT -> scalarValue?.let {
-                listOf(sensorData.toRecord("heart_beat", "Heart beat", it, "event", estimated("TYPE_HEART_BEAT", "android_heartbeat_event")))
-            }.orEmpty()
+            Sensor.TYPE_HEART_BEAT -> {
+                val eventRecords = listOf(sensorData.toRecord("heart_beat", "Heart beat", 1.0, "event", direct("TYPE_HEART_BEAT")))
+                val hrvRecords = scalarValue?.let {
+                    listOf(sensorData.toRecord("heart_rate_variability", "Heart rate variability", it, "ms", estimated("TYPE_HEART_BEAT", "android_heartbeat_interval_estimate")))
+                }.orEmpty()
+                eventRecords + hrvRecords
+            }
 
             Sensor.TYPE_STEP_DETECTOR ->
                 listOf(sensorData.toRecord("steps", "Steps", 1.0, "count", direct("TYPE_STEP_DETECTOR")))
@@ -66,32 +78,30 @@ object AndroidSensorPghdMapper {
 
             Sensor.TYPE_ACCELEROMETER,
             Sensor.TYPE_ACCELEROMETER_UNCALIBRATED,
-            Sensor.TYPE_LINEAR_ACCELERATION -> vectorMagnitude(sensorData)?.let {
-                listOf(sensorData.toRecord("movement_intensity", "Movement intensity", it, "m/s^2", estimated(sensorData.sensorName(), "vector_magnitude")))
-            }.orEmpty()
+            Sensor.TYPE_LINEAR_ACCELERATION -> accelerationRecords(sensorData)
 
-            Sensor.TYPE_GRAVITY -> gravityTilt(sensorData)?.let {
-                listOf(sensorData.toRecord("tilt_angle", "Tilt angle", it, "degrees", estimated("TYPE_GRAVITY", "atan2_horizontal_vs_vertical_gravity")))
-            }.orEmpty()
+            Sensor.TYPE_GRAVITY -> gravityRecords(sensorData)
 
             Sensor.TYPE_GYROSCOPE,
-            Sensor.TYPE_GYROSCOPE_UNCALIBRATED -> vectorMagnitude(sensorData)?.let {
-                listOf(sensorData.toRecord("rotation_intensity", "Rotation intensity", it, "rad/s", estimated(sensorData.sensorName(), "angular_velocity_magnitude")))
-            }.orEmpty()
+            Sensor.TYPE_GYROSCOPE_UNCALIBRATED -> gyroscopeRecords(sensorData)
 
             Sensor.TYPE_MAGNETIC_FIELD,
-            Sensor.TYPE_MAGNETIC_FIELD_UNCALIBRATED -> vectorMagnitude(sensorData)?.let {
-                listOf(sensorData.toRecord("magnetic_field_strength", "Magnetic field strength", it, "uT", estimated(sensorData.sensorName(), "magnetic_vector_magnitude")))
-            }.orEmpty()
+            Sensor.TYPE_MAGNETIC_FIELD_UNCALIBRATED -> emptyList()
 
             Sensor.TYPE_ROTATION_VECTOR,
             Sensor.TYPE_GAME_ROTATION_VECTOR,
-            Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR -> vectorMagnitude(sensorData)?.let {
-                listOf(sensorData.toRecord("orientation_change", "Orientation change", it, "unitless", estimated(sensorData.sensorName(), "rotation_vector_magnitude")))
+            Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR -> rotationVectorRecords(sensorData)
+
+            Sensor.TYPE_HINGE_ANGLE -> scalarValue?.let {
+                listOf(sensorData.toRecord("device_hinge_angle", "Device hinge angle", it, "degrees", direct("TYPE_HINGE_ANGLE")))
             }.orEmpty()
 
             else -> emptyList()
         }
+
+        if (enabledRecordTypes == null) return records
+        if (enabledRecordTypes.isEmpty()) return emptyList()
+        return records.filter { it.recordType in enabledRecordTypes }
     }
 
     private fun stepCounterRecords(sensorData: SensorData, value: Double?): List<PghdRecordEntity> {
@@ -181,6 +191,31 @@ object AndroidSensorPghdMapper {
         return sqrt((x * x + y * y + z * z).toDouble())
     }
 
+    private fun accelerationRecords(sensorData: SensorData): List<PghdRecordEntity> {
+        val unit = "m/s^2"
+        return vectorMagnitude(sensorData)?.let {
+            listOf(sensorData.toRecord("movement_intensity", "Movement intensity", it, unit, estimated(sensorData.sensorName(), "vector_magnitude")))
+        }.orEmpty()
+    }
+
+    private fun gravityRecords(sensorData: SensorData): List<PghdRecordEntity> {
+        return gravityTilt(sensorData)?.let {
+            listOf(sensorData.toRecord("tilt_angle", "Tilt angle", it, "degrees", estimated("TYPE_GRAVITY", "atan2_horizontal_vs_vertical_gravity")))
+        }.orEmpty()
+    }
+
+    private fun gyroscopeRecords(sensorData: SensorData): List<PghdRecordEntity> {
+        return vectorMagnitude(sensorData)?.let {
+            listOf(sensorData.toRecord("rotation_intensity", "Rotation intensity", it, "rad/s", estimated(sensorData.sensorName(), "angular_velocity_magnitude")))
+        }.orEmpty()
+    }
+
+    private fun rotationVectorRecords(sensorData: SensorData): List<PghdRecordEntity> {
+        return vectorMagnitude(sensorData)?.let {
+            listOf(sensorData.toRecord("orientation_change", "Orientation change", it, "unitless", estimated(sensorData.sensorName(), "rotation_vector_magnitude")))
+        }.orEmpty()
+    }
+
     private fun gravityTilt(sensorData: SensorData): Double? {
         val x = sensorData.valueX?.toDouble() ?: return null
         val y = sensorData.valueY?.toDouble() ?: return null
@@ -237,6 +272,7 @@ object AndroidSensorPghdMapper {
         Sensor.TYPE_ROTATION_VECTOR -> "TYPE_ROTATION_VECTOR"
         Sensor.TYPE_GAME_ROTATION_VECTOR -> "TYPE_GAME_ROTATION_VECTOR"
         Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR -> "TYPE_GEOMAGNETIC_ROTATION_VECTOR"
+        Sensor.TYPE_HINGE_ANGLE -> "TYPE_HINGE_ANGLE"
         else -> "TYPE_$sensorType"
     }
 

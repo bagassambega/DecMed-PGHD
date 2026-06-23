@@ -12,4 +12,18 @@ data class SensorConfigModel(
     val isApproved: Boolean,
     val healthDataDescription: String,
     val collectionIntervalMs: Int = Env.pghdDefaultSensorIntervalMs
-)
+) {
+    val selectedHealthRecordTypes: Set<String>
+        get() = healthDataDescription
+            .split(SELECTED_RECORD_TYPE_SEPARATOR)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !it.contains(" ") }
+            .toSet()
+
+    companion object {
+        const val SELECTED_RECORD_TYPE_SEPARATOR = "|"
+
+        fun encodeSelectedHealthRecordTypes(recordTypes: Set<String>): String =
+            recordTypes.sorted().joinToString(SELECTED_RECORD_TYPE_SEPARATOR)
+    }
+}

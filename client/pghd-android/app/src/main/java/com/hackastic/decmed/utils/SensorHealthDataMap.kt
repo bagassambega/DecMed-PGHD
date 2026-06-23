@@ -1,243 +1,210 @@
 package com.hackastic.decmed.utils
 
 import android.hardware.Sensor
+import com.hackastic.decmed.domain.model.HealthDataTypeOption
 
-/**
- * Comprehensive mapping of Android sensor types to health data capabilities.
- *
- * Design rationale:
- * - This is a static lookup table, not a database table, because the mapping is
- *   determined by Android API definitions and clinical literature, not user data.
- * - Only sensor types available from API 30+ (the project's minSdk) are included.
- * - Deprecated sensor types (TYPE_ORIENTATION, TYPE_TEMPERATURE) are excluded.
- *
- * Sources:
- * - Android Sensor API documentation (developer.android.com)
- * - WHO Digital Health Guidelines for PGHD
- */
 object SensorHealthDataMap {
 
     data class SensorHealthInfo(
         val displayName: String,
-        val healthData: List<String>,
+        val healthDataTypes: List<HealthDataTypeOption>,
         val clinicalRelevance: String
-    )
+    ) {
+        val healthData: List<String>
+            get() = healthDataTypes.map { option ->
+                val method = if (option.isEstimated) "derived" else "direct"
+                "${option.displayName} (${option.unit}, $method)"
+            }
+    }
+
+    fun healthDataTypesFor(sensorType: Int): List<HealthDataTypeOption> =
+        allSensorTypes[sensorType]?.healthDataTypes.orEmpty()
+
+    fun recordTypesFor(sensorType: Int): Set<String> =
+        healthDataTypesFor(sensorType).map { it.recordType }.toSet()
+
+    private fun direct(recordType: String, displayName: String, unit: String) =
+        HealthDataTypeOption(recordType, displayName, unit, isEstimated = false)
+
+    private fun derived(recordType: String, displayName: String, unit: String) =
+        HealthDataTypeOption(recordType, displayName, unit, isEstimated = true)
 
     val allSensorTypes: Map<Int, SensorHealthInfo> = mapOf(
-        Sensor.TYPE_ACCELEROMETER to SensorHealthInfo(
-            displayName = "Accelerometer",
-            healthData = listOf(
-                "Step counting",
-                "Fall detection",
-                "Gait analysis",
-                "Tremor detection",
-                "Physical activity intensity"
-            ),
-            clinicalRelevance = "Movement disorders, rehabilitation monitoring, sedentary behavior assessment"
-        ),
-        Sensor.TYPE_GYROSCOPE to SensorHealthInfo(
-            displayName = "Gyroscope",
-            healthData = listOf(
-                "Balance assessment",
-                "Posture analysis",
-                "Tremor characterization",
-                "Rotation-based gesture detection"
-            ),
-            clinicalRelevance = "Neurological assessment, fall risk evaluation, vestibular function"
-        ),
-        Sensor.TYPE_MAGNETIC_FIELD to SensorHealthInfo(
-            displayName = "Magnetometer",
-            healthData = listOf(
-                "Compass heading",
-                "Geomagnetic field strength",
-                "Location context for activity tracking"
-            ),
-            clinicalRelevance = "Contextual data for outdoor activity and navigation patterns"
-        ),
-        Sensor.TYPE_LIGHT to SensorHealthInfo(
-            displayName = "Ambient Light Sensor",
-            healthData = listOf(
-                "Ambient light exposure level",
-                "Circadian rhythm estimation",
-                "Screen brightness context"
-            ),
-            clinicalRelevance = "Sleep hygiene analysis, light therapy monitoring, seasonal affective disorder tracking"
-        ),
-        Sensor.TYPE_PRESSURE to SensorHealthInfo(
-            displayName = "Barometric Pressure Sensor",
-            healthData = listOf(
-                "Atmospheric pressure",
-                "Altitude estimation",
-                "Floor/stair climbing detection"
-            ),
-            clinicalRelevance = "Activity context enrichment, environmental condition monitoring, respiratory trigger tracking"
-        ),
-        Sensor.TYPE_PROXIMITY to SensorHealthInfo(
-            displayName = "Proximity Sensor",
-            healthData = listOf(
-                "Screen-to-face proximity events",
-                "Phone usage duration patterns"
-            ),
-            clinicalRelevance = "Phone usage behavior, sleep quality estimation (phone-near-face during sleep)"
-        ),
-        Sensor.TYPE_GRAVITY to SensorHealthInfo(
-            displayName = "Gravity Sensor",
-            healthData = listOf(
-                "Device orientation relative to gravity",
-                "Body tilt angle estimation",
-                "Lying/standing/sitting posture inference"
-            ),
-            clinicalRelevance = "Posture monitoring, bed positioning detection, activity classification"
-        ),
-        Sensor.TYPE_LINEAR_ACCELERATION to SensorHealthInfo(
-            displayName = "Linear Acceleration Sensor",
-            healthData = listOf(
-                "Impact detection (gravity-compensated)",
-                "Vibration analysis",
-                "Sudden movement detection"
-            ),
-            clinicalRelevance = "Fall detection, seizure detection, impact injury assessment"
-        ),
-        Sensor.TYPE_ROTATION_VECTOR to SensorHealthInfo(
-            displayName = "Rotation Vector Sensor",
-            healthData = listOf(
-                "3D device orientation",
-                "Head tracking (when phone is head-mounted)",
-                "Complex motion pattern recognition"
-            ),
-            clinicalRelevance = "Balance and vestibular assessment, complex movement analysis"
-        ),
-        Sensor.TYPE_RELATIVE_HUMIDITY to SensorHealthInfo(
-            displayName = "Relative Humidity Sensor",
-            healthData = listOf(
-                "Environmental humidity level",
-                "Heat index estimation (combined with temperature)"
-            ),
-            clinicalRelevance = "Respiratory condition trigger monitoring, environmental comfort assessment"
-        ),
-        Sensor.TYPE_AMBIENT_TEMPERATURE to SensorHealthInfo(
-            displayName = "Ambient Temperature Sensor",
-            healthData = listOf(
-                "Environmental temperature",
-                "Heat stress risk estimation"
-            ),
-            clinicalRelevance = "Hypothermia/heat stress risk, environmental health factor tracking"
-        ),
-        Sensor.TYPE_MAGNETIC_FIELD_UNCALIBRATED to SensorHealthInfo(
-            displayName = "Magnetometer (Uncalibrated)",
-            healthData = listOf(
-                "Raw magnetic field data",
-                "Magnetic interference detection"
-            ),
-            clinicalRelevance = "Higher-fidelity geomagnetic data for research-grade location context"
-        ),
-        Sensor.TYPE_GAME_ROTATION_VECTOR to SensorHealthInfo(
-            displayName = "Game Rotation Vector",
-            healthData = listOf(
-                "Drift-free relative orientation",
-                "Short-term motion tracking"
-            ),
-            clinicalRelevance = "Exercise form analysis, rehabilitation movement tracking"
-        ),
-        Sensor.TYPE_GYROSCOPE_UNCALIBRATED to SensorHealthInfo(
-            displayName = "Gyroscope (Uncalibrated)",
-            healthData = listOf(
-                "Raw angular velocity with drift estimate",
-                "High-fidelity rotation data"
-            ),
-            clinicalRelevance = "Research-grade tremor analysis, precise rotation measurement"
-        ),
-        Sensor.TYPE_SIGNIFICANT_MOTION to SensorHealthInfo(
-            displayName = "Significant Motion Detector",
-            healthData = listOf(
-                "Motion trigger events (walking, driving, etc.)",
-                "Sedentary-to-active state transitions"
-            ),
-            clinicalRelevance = "Sedentary behavior monitoring, activity bout detection"
-        ),
-        Sensor.TYPE_STEP_DETECTOR to SensorHealthInfo(
-            displayName = "Step Detector",
-            healthData = listOf(
-                "Individual step events with timestamps",
-                "Walking bout identification",
-                "Cadence estimation"
-            ),
-            clinicalRelevance = "Gait analysis, walking pattern irregularity detection, sedentary behavior"
-        ),
-        Sensor.TYPE_STEP_COUNTER to SensorHealthInfo(
-            displayName = "Step Counter",
-            healthData = listOf(
-                "Cumulative step count since last reboot",
-                "Daily step totals",
-                "Weekly activity trends"
-            ),
-            clinicalRelevance = "Physical activity level tracking, WHO activity guideline compliance"
-        ),
-        Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR to SensorHealthInfo(
-            displayName = "Geomagnetic Rotation Vector",
-            healthData = listOf(
-                "Low-power orientation estimation",
-                "Heading relative to magnetic north"
-            ),
-            clinicalRelevance = "Battery-efficient orientation for long-term posture monitoring"
-        ),
         Sensor.TYPE_HEART_RATE to SensorHealthInfo(
             displayName = "Heart Rate Sensor",
-            healthData = listOf(
-                "Heart rate in BPM",
-                "Resting heart rate trends",
-                "Heart rate during activity"
+            healthDataTypes = listOf(
+                direct("heart_rate", "Heart rate", "bpm")
             ),
-            clinicalRelevance = "Cardiovascular health monitoring, arrhythmia screening, fitness assessment"
-        ),
-        Sensor.TYPE_STATIONARY_DETECT to SensorHealthInfo(
-            displayName = "Stationary Detector",
-            healthData = listOf(
-                "Device stationary state detection",
-                "Prolonged inactivity detection"
-            ),
-            clinicalRelevance = "Sedentary behavior monitoring, inactivity alerts"
-        ),
-        Sensor.TYPE_MOTION_DETECT to SensorHealthInfo(
-            displayName = "Motion Detector",
-            healthData = listOf(
-                "Motion onset detection",
-                "Activity state changes"
-            ),
-            clinicalRelevance = "Activity onset detection, wake-from-rest monitoring"
+            clinicalRelevance = "Cardiovascular health monitoring, activity response, and resting heart-rate trends."
         ),
         Sensor.TYPE_HEART_BEAT to SensorHealthInfo(
             displayName = "Heart Beat Sensor",
-            healthData = listOf(
-                "Individual heartbeat events",
-                "Inter-beat interval estimation",
-                "Heart rate variability (HRV) data"
+            healthDataTypes = listOf(
+                direct("heart_beat", "Heart beat event", "event"),
+                derived("heart_rate_variability", "Heart rate variability", "ms")
             ),
-            clinicalRelevance = "Arrhythmia screening, stress level assessment, autonomic nervous system analysis"
+            clinicalRelevance = "Arrhythmia screening, stress assessment, and autonomic nervous system monitoring."
+        ),
+        Sensor.TYPE_STEP_DETECTOR to SensorHealthInfo(
+            displayName = "Step Detector",
+            healthDataTypes = listOf(
+                direct("steps", "Steps", "count")
+            ),
+            clinicalRelevance = "Physical activity tracking, gait monitoring, and walking-bout detection."
+        ),
+        Sensor.TYPE_STEP_COUNTER to SensorHealthInfo(
+            displayName = "Step Counter",
+            healthDataTypes = listOf(
+                direct("steps", "Steps", "count"),
+                derived("steps_cadence", "Steps cadence", "steps/min")
+            ),
+            clinicalRelevance = "Daily activity level, longitudinal mobility trends, and cadence-based gait monitoring."
+        ),
+        Sensor.TYPE_SIGNIFICANT_MOTION to SensorHealthInfo(
+            displayName = "Significant Motion Detector",
+            healthDataTypes = listOf(
+                direct("activity_event", "Activity event", "event")
+            ),
+            clinicalRelevance = "Sedentary-to-active transitions and activity bout detection."
+        ),
+        Sensor.TYPE_STATIONARY_DETECT to SensorHealthInfo(
+            displayName = "Stationary Detector",
+            healthDataTypes = listOf(
+                direct("activity_event", "Activity event", "event")
+            ),
+            clinicalRelevance = "Sedentary behavior monitoring and prolonged inactivity detection."
+        ),
+        Sensor.TYPE_MOTION_DETECT to SensorHealthInfo(
+            displayName = "Motion Detector",
+            healthDataTypes = listOf(
+                direct("activity_event", "Activity event", "event")
+            ),
+            clinicalRelevance = "Activity onset detection and rest-to-motion monitoring."
+        ),
+        Sensor.TYPE_PRESSURE to SensorHealthInfo(
+            displayName = "Barometric Pressure Sensor",
+            healthDataTypes = listOf(
+                direct("barometric_pressure", "Barometric pressure", "hPa"),
+                derived("elevation_estimate", "Elevation estimate", "m"),
+                derived("elevation_gained", "Elevation gained", "m"),
+                derived("floors_climbed", "Floors climbed", "floors")
+            ),
+            clinicalRelevance = "Stair climbing, activity context enrichment, and environmental trigger monitoring."
+        ),
+        Sensor.TYPE_LIGHT to SensorHealthInfo(
+            displayName = "Ambient Light Sensor",
+            healthDataTypes = listOf(
+                direct("ambient_light", "Ambient light", "lux")
+            ),
+            clinicalRelevance = "Light exposure, sleep hygiene context, and circadian rhythm estimation."
+        ),
+        Sensor.TYPE_AMBIENT_TEMPERATURE to SensorHealthInfo(
+            displayName = "Ambient Temperature Sensor",
+            healthDataTypes = listOf(
+                direct("environmental_temperature", "Environmental temperature", "C")
+            ),
+            clinicalRelevance = "Environmental health factors, heat stress risk, and respiratory trigger context."
+        ),
+        Sensor.TYPE_RELATIVE_HUMIDITY to SensorHealthInfo(
+            displayName = "Relative Humidity Sensor",
+            healthDataTypes = listOf(
+                direct("environmental_humidity", "Environmental humidity", "%")
+            ),
+            clinicalRelevance = "Respiratory condition trigger monitoring and environmental comfort assessment."
+        ),
+        Sensor.TYPE_PROXIMITY to SensorHealthInfo(
+            displayName = "Proximity Sensor",
+            healthDataTypes = listOf(
+                direct("proximity", "Proximity", "cm")
+            ),
+            clinicalRelevance = "Phone-near-body context and usage behavior around sleep or activity sessions."
         ),
         Sensor.TYPE_LOW_LATENCY_OFFBODY_DETECT to SensorHealthInfo(
             displayName = "Off-Body Detector",
-            healthData = listOf(
-                "On-body vs. off-body state",
-                "Wear compliance tracking"
+            healthDataTypes = listOf(
+                direct("wear_status", "Wear status", "state")
             ),
-            clinicalRelevance = "Ensuring continuous data collection, wear-time compliance for clinical studies"
+            clinicalRelevance = "Wear-time compliance and confidence in continuous sensor collection."
+        ),
+        Sensor.TYPE_ACCELEROMETER to SensorHealthInfo(
+            displayName = "Accelerometer",
+            healthDataTypes = listOf(
+                derived("movement_intensity", "Movement intensity", "m/s^2")
+            ),
+            clinicalRelevance = "Physical activity intensity, fall screening, gait analysis, and tremor monitoring."
         ),
         Sensor.TYPE_ACCELEROMETER_UNCALIBRATED to SensorHealthInfo(
             displayName = "Accelerometer (Uncalibrated)",
-            healthData = listOf(
-                "Raw acceleration with bias estimate",
-                "High-fidelity motion data"
+            healthDataTypes = listOf(
+                derived("movement_intensity", "Movement intensity", "m/s^2")
             ),
-            clinicalRelevance = "Research-grade motion analysis, precise vibration characterization"
+            clinicalRelevance = "Research-grade motion analysis after conversion into interpretable movement indicators."
+        ),
+        Sensor.TYPE_LINEAR_ACCELERATION to SensorHealthInfo(
+            displayName = "Linear Acceleration Sensor",
+            healthDataTypes = listOf(
+                derived("movement_intensity", "Movement intensity", "m/s^2")
+            ),
+            clinicalRelevance = "Impact detection, sudden movement detection, and exercise movement intensity."
+        ),
+        Sensor.TYPE_GRAVITY to SensorHealthInfo(
+            displayName = "Gravity Sensor",
+            healthDataTypes = listOf(
+                derived("tilt_angle", "Tilt angle", "degrees")
+            ),
+            clinicalRelevance = "Posture monitoring, body tilt estimation, and lying or sitting context inference."
+        ),
+        Sensor.TYPE_GYROSCOPE to SensorHealthInfo(
+            displayName = "Gyroscope",
+            healthDataTypes = listOf(
+                derived("rotation_intensity", "Rotation intensity", "rad/s")
+            ),
+            clinicalRelevance = "Balance assessment, tremor characterization, and rotational movement monitoring."
+        ),
+        Sensor.TYPE_GYROSCOPE_UNCALIBRATED to SensorHealthInfo(
+            displayName = "Gyroscope (Uncalibrated)",
+            healthDataTypes = listOf(
+                derived("rotation_intensity", "Rotation intensity", "rad/s")
+            ),
+            clinicalRelevance = "Rotation measurement after conversion into interpretable motion indicators."
+        ),
+        Sensor.TYPE_MAGNETIC_FIELD to SensorHealthInfo(
+            displayName = "Magnetometer",
+            healthDataTypes = emptyList(),
+            clinicalRelevance = "No patient-facing PGHD conversion is enabled because raw magnetic-field values are not directly interpretable as health data."
+        ),
+        Sensor.TYPE_MAGNETIC_FIELD_UNCALIBRATED to SensorHealthInfo(
+            displayName = "Magnetometer (Uncalibrated)",
+            healthDataTypes = emptyList(),
+            clinicalRelevance = "No patient-facing PGHD conversion is enabled because raw magnetic-field values are not directly interpretable as health data."
+        ),
+        Sensor.TYPE_ROTATION_VECTOR to SensorHealthInfo(
+            displayName = "Rotation Vector Sensor",
+            healthDataTypes = listOf(
+                derived("orientation_change", "Orientation change", "unitless")
+            ),
+            clinicalRelevance = "Complex motion pattern recognition, balance analysis, and device orientation context."
+        ),
+        Sensor.TYPE_GAME_ROTATION_VECTOR to SensorHealthInfo(
+            displayName = "Game Rotation Vector",
+            healthDataTypes = listOf(
+                derived("orientation_change", "Orientation change", "unitless")
+            ),
+            clinicalRelevance = "Short-term exercise form analysis and rehabilitation movement tracking."
+        ),
+        Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR to SensorHealthInfo(
+            displayName = "Geomagnetic Rotation Vector",
+            healthDataTypes = listOf(
+                derived("orientation_change", "Orientation change", "unitless")
+            ),
+            clinicalRelevance = "Battery-efficient orientation tracking for long-running posture monitoring."
         ),
         Sensor.TYPE_HINGE_ANGLE to SensorHealthInfo(
             displayName = "Hinge Angle Sensor",
-            healthData = listOf(
-                "Device fold angle",
-                "Usage posture inference"
+            healthDataTypes = listOf(
+                direct("device_hinge_angle", "Device hinge angle", "degrees")
             ),
-            clinicalRelevance = "Device usage ergonomics, foldable device interaction patterns"
+            clinicalRelevance = "Device usage posture and ergonomic context on foldable devices."
         )
     )
 }

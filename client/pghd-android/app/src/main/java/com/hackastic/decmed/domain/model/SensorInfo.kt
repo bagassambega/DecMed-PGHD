@@ -13,5 +13,6 @@ data class SensorInfo(
     val name: String,
     val isAvailable: Boolean,
     val healthDataCapabilities: List<String>,
+    val healthDataTypes: List<HealthDataTypeOption>,
     val clinicalRelevance: String
 )

@@ -68,15 +68,17 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
                 delay(500)
 
                 val allSensors = getAvailableSensorsUseCase(sensorManager)
-                val available = allSensors.filter { it.isAvailable }
-                val unavailable = allSensors.filter { !it.isAvailable }
+                val available = allSensors.filter { it.isAvailable && it.healthDataTypes.isNotEmpty() }
+                val unavailable = allSensors.filter { !it.isAvailable || it.healthDataTypes.isEmpty() }
 
                 val configs = available.map { sensor ->
                     SensorConfigModel(
                         sensorType = sensor.type,
                         sensorName = sensor.name,
                         isApproved = true,
-                        healthDataDescription = sensor.healthDataCapabilities.joinToString(", "),
+                        healthDataDescription = SensorConfigModel.encodeSelectedHealthRecordTypes(
+                            sensor.healthDataTypes.map { it.recordType }.toSet()
+                        ),
                         collectionIntervalMs = DEFAULT_COLLECTION_INTERVAL_MS
                     )
                 }
@@ -113,7 +115,16 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.update { state ->
             val updatedConfigs = state.sensorConfigs.map { config ->
                 if (config.sensorType == sensorType) {
-                    config.copy(isApproved = approved)
+                    val sensor = state.availableSensors.find { it.type == sensorType }
+                    val selectedRecordTypes = if (approved) {
+                        sensor?.healthDataTypes?.map { it.recordType }?.toSet().orEmpty()
+                    } else {
+                        emptySet()
+                    }
+                    config.copy(
+                        isApproved = approved && selectedRecordTypes.isNotEmpty(),
+                        healthDataDescription = SensorConfigModel.encodeSelectedHealthRecordTypes(selectedRecordTypes)
+                    )
                 } else {
                     config
                 }
@@ -129,12 +140,51 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setAllSensorApproval(approved: Boolean) {
         _uiState.update { state ->
-            val updatedConfigs = state.sensorConfigs.map { it.copy(isApproved = approved) }
+            val updatedConfigs = state.sensorConfigs.map { config ->
+                val sensor = state.availableSensors.find { it.type == config.sensorType }
+                val selectedRecordTypes = if (approved) {
+                    sensor?.healthDataTypes?.map { it.recordType }?.toSet().orEmpty()
+                } else {
+                    emptySet()
+                }
+                config.copy(
+                    isApproved = approved && selectedRecordTypes.isNotEmpty(),
+                    healthDataDescription = SensorConfigModel.encodeSelectedHealthRecordTypes(selectedRecordTypes)
+                )
+            }
             state.copy(
                 sensorConfigs = updatedConfigs,
-                collectionSelection = updatedConfigs.associate { it.sensorType to approved }
+                collectionSelection = updatedConfigs.associate { it.sensorType to it.isApproved }
             )
         }
+    }
+
+    fun toggleHealthDataType(sensorType: Int, recordType: String, selected: Boolean) {
+        _uiState.update { state ->
+            val updatedConfigs = state.sensorConfigs.map { config ->
+                if (config.sensorType != sensorType) return@map config
+                val current = selectedRecordTypesFor(config, state.availableSensors.find { it.type == sensorType })
+                    .toMutableSet()
+                    .apply {
+                        if (selected) add(recordType) else remove(recordType)
+                    }
+                config.copy(
+                    isApproved = current.isNotEmpty(),
+                    healthDataDescription = SensorConfigModel.encodeSelectedHealthRecordTypes(current)
+                )
+            }
+            state.copy(
+                sensorConfigs = updatedConfigs,
+                collectionSelection = updatedConfigs.associate { it.sensorType to it.isApproved }
+            )
+        }
+    }
+
+    fun selectedHealthRecordTypes(sensorType: Int): Set<String> {
+        val state = _uiState.value
+        val config = state.sensorConfigs.find { it.sensorType == sensorType } ?: return emptySet()
+        val sensor = state.availableSensors.find { it.type == sensorType }
+        return selectedRecordTypesFor(config, sensor)
     }
 
     fun updateSensorInterval(sensorType: Int, intervalMs: Int) {
@@ -242,15 +292,33 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun loadExistingConfig() {
         viewModelScope.launch {
+            val allSensors = getAvailableSensorsUseCase(sensorManager)
+            val available = allSensors.filter { it.isAvailable && it.healthDataTypes.isNotEmpty() }
+            val unavailable = allSensors.filter { !it.isAvailable || it.healthDataTypes.isEmpty() }
             val hasConfig = getSensorConfigUseCase.hasExistingConfig()
             if (!hasConfig) {
                 enumerateSensors()
                 return@launch
             }
 
-            val configs = getSensorConfigUseCase().first()
+            val existingConfigs = getSensorConfigUseCase().first()
+            val configs = available.map { sensor ->
+                val existing = existingConfigs.find { it.sensorType == sensor.type }
+                val selectedRecordTypes = existing
+                    ?.let { selectedRecordTypesFor(it, sensor) }
+                    ?: sensor.healthDataTypes.map { it.recordType }.toSet()
+                SensorConfigModel(
+                    sensorType = sensor.type,
+                    sensorName = sensor.name,
+                    isApproved = selectedRecordTypes.isNotEmpty(),
+                    healthDataDescription = SensorConfigModel.encodeSelectedHealthRecordTypes(selectedRecordTypes),
+                    collectionIntervalMs = existing?.collectionIntervalMs ?: DEFAULT_COLLECTION_INTERVAL_MS
+                )
+            }
             _uiState.update { state ->
                 state.copy(
+                    availableSensors = available,
+                    unavailableSensors = unavailable,
                     sensorConfigs = configs,
                     collectionSelection = configs.associate { cfg -> cfg.sensorType to cfg.isApproved },
                     collectionIntervals = configs.associate { cfg ->
@@ -278,8 +346,8 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
                 delay(300)
 
                 val allSensors = getAvailableSensorsUseCase(sensorManager)
-                val available = allSensors.filter { it.isAvailable }
-                val unavailable = allSensors.filter { !it.isAvailable }
+                val available = allSensors.filter { it.isAvailable && it.healthDataTypes.isNotEmpty() }
+                val unavailable = allSensors.filter { !it.isAvailable || it.healthDataTypes.isEmpty() }
 
                 val existingConfigs = try {
                     getSensorConfigUseCase().first()
@@ -290,11 +358,14 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
 
                 val configs = available.map { sensor ->
                     val existing = existingConfigs.find { it.sensorType == sensor.type }
+                    val selectedRecordTypes = existing
+                        ?.let { selectedRecordTypesFor(it, sensor) }
+                        ?: sensor.healthDataTypes.map { it.recordType }.toSet()
                     SensorConfigModel(
                         sensorType = sensor.type,
                         sensorName = sensor.name,
-                        isApproved = existing?.isApproved ?: true,
-                        healthDataDescription = sensor.healthDataCapabilities.joinToString(", "),
+                        isApproved = selectedRecordTypes.isNotEmpty(),
+                        healthDataDescription = SensorConfigModel.encodeSelectedHealthRecordTypes(selectedRecordTypes),
                         collectionIntervalMs = existing?.collectionIntervalMs ?: DEFAULT_COLLECTION_INTERVAL_MS
                     )
                 }
@@ -325,5 +396,13 @@ class SensorViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
         }
+    }
+
+    private fun selectedRecordTypesFor(config: SensorConfigModel, sensor: SensorInfo?): Set<String> {
+        val supported = sensor?.healthDataTypes?.map { it.recordType }?.toSet().orEmpty()
+        if (supported.isEmpty()) return emptySet()
+        val selected = config.selectedHealthRecordTypes
+        if (selected.isEmpty() && config.isApproved) return supported
+        return selected.intersect(supported)
     }
 }

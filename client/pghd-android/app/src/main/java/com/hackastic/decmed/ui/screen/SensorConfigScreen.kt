@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -34,7 +36,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.hackastic.decmed.ui.components.SensorCard
 import com.hackastic.decmed.viewmodel.SensorViewModel
 
 @Composable
@@ -75,7 +76,7 @@ fun SensorConfigScreen(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Select sensors to enable for PGHD collection. Default is all enabled. You can set per-sensor collection interval now or later.",
+                text = "Select the health data types to collect. Sensors are approved only when at least one mapped health data type is selected.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -87,7 +88,7 @@ fun SensorConfigScreen(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "Enable all sensors",
+                    text = "Enable all mapped health data",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -108,19 +109,74 @@ fun SensorConfigScreen(
                     key = { it.sensorType }
                 ) { config ->
                     val sensorInfo = uiState.availableSensors.find { it.type == config.sensorType }
+                    val selectedRecordTypes = viewModel.selectedHealthRecordTypes(config.sensorType)
 
-                    Column {
-                        SensorCard(
-                            sensorName = config.sensorName,
-                            isAvailable = true,
-                            healthDataCapabilities = sensorInfo?.healthDataCapabilities ?: emptyList(),
-                            clinicalRelevance = sensorInfo?.clinicalRelevance ?: "",
-                            showToggle = true,
-                            isApproved = config.isApproved,
-                            onToggle = { approved ->
-                                viewModel.toggleSensorApproval(config.sensorType, approved)
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = config.sensorName,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = if (config.isApproved) "Sensor access approved" else "Sensor access disabled",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Checkbox(
+                                    checked = config.isApproved,
+                                    onCheckedChange = { approved ->
+                                        viewModel.toggleSensorApproval(config.sensorType, approved)
+                                    }
+                                )
                             }
-                        )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            sensorInfo?.healthDataTypes.orEmpty().forEach { healthData ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = healthData.recordType in selectedRecordTypes,
+                                        onCheckedChange = { selected ->
+                                            viewModel.toggleHealthDataType(config.sensorType, healthData.recordType, selected)
+                                        }
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = healthData.displayName,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            text = "${healthData.recordType} - ${healthData.unit} - ${if (healthData.isEstimated) "derived" else "direct"}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (!sensorInfo?.clinicalRelevance.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = sensorInfo?.clinicalRelevance.orEmpty(),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
 
                         Spacer(modifier = Modifier.height(6.dp))
 
@@ -132,13 +188,55 @@ fun SensorConfigScreen(
                                 viewModel.updateSensorInterval(config.sensorType, interval)
                             }
                         )
+                        }
+                    }
+                }
+
+                if (uiState.unavailableSensors.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "Sensors without enabled PGHD conversion",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
+                    items(
+                        items = uiState.unavailableSensors,
+                        key = { it.type }
+                    ) { sensor ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            )
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    text = sensor.name,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = if (sensor.isAvailable) {
+                                        "No supported PGHD conversion is available for this sensor."
+                                    } else {
+                                        "Sensor is not available on this device."
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                     }
                 }
             }
 
             val approvedCount = uiState.sensorConfigs.count { it.isApproved }
             Text(
-                text = "$approvedCount of ${uiState.sensorConfigs.size} sensors enabled",
+                text = "$approvedCount of ${uiState.sensorConfigs.size} mapped sensors enabled",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp)

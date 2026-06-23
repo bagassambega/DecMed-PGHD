@@ -18,6 +18,8 @@ import com.hackastic.decmed.data.local.database.SensorDatabase
 import com.hackastic.decmed.data.local.entity.SensorData
 import com.hackastic.decmed.data.pghd.AndroidSensorPghdMapper
 import com.hackastic.decmed.data.pghd.PghdInputSanitizer
+import com.hackastic.decmed.domain.model.SensorConfigModel
+import com.hackastic.decmed.utils.SensorHealthDataMap
 import com.hackastic.decmed.worker.PghdSizeThresholdTrigger
 import com.hackastic.decmed.worker.PghdTimeThresholdTrigger
 import kotlinx.coroutines.CoroutineScope
@@ -27,6 +29,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 
 /**
  * Foreground service that collects data from selected Android sensors and
@@ -221,7 +224,10 @@ class SensorCollectionService : Service(), SensorEventListener {
         serviceScope.launch {
             try {
                 database.sensorDao().insertAll(batch)
-                val pghdRecords = PghdInputSanitizer.sanitizeRecords(AndroidSensorPghdMapper.toPghdRecords(batch))
+                val enabledRecordTypesBySensor = loadEnabledRecordTypesBySensor()
+                val pghdRecords = PghdInputSanitizer.sanitizeRecords(
+                    AndroidSensorPghdMapper.toPghdRecords(batch, enabledRecordTypesBySensor)
+                )
                 if (pghdRecords.isNotEmpty()) {
                     database.pghdRecordDao().upsertAll(pghdRecords)
                     PghdSizeThresholdTrigger.scheduleBatchIfExceeded(
@@ -239,6 +245,18 @@ class SensorCollectionService : Service(), SensorEventListener {
             } catch (e: Exception) {
                 DecmedLog.e(TAG, "DB write error: ${e.message}", e)
             }
+        }
+    }
+
+    private suspend fun loadEnabledRecordTypesBySensor(): Map<Int, Set<String>> {
+        return database.sensorConfigDao().getApprovedConfigs().first().associate { config ->
+            val selected = config.healthDataDescription
+                .split(SensorConfigModel.SELECTED_RECORD_TYPE_SEPARATOR)
+                .map { it.trim() }
+                .filter { it.isNotEmpty() && !it.contains(" ") }
+                .toSet()
+            val fallback = SensorHealthDataMap.recordTypesFor(config.sensorType)
+            config.sensorType to (selected.ifEmpty { fallback })
         }
     }
 

@@ -23,6 +23,8 @@ object Env {
     val iotaGasReserveNanos: Long = BuildConfig.IOTA_GAS_RESERVE_NANOS
     val iotaGasReserveSeconds: Long = BuildConfig.IOTA_GAS_RESERVE_SECONDS
     val pghdBatchIntervalMinutes: Long = BuildConfig.PGHD_BATCH_INTERVAL_MINUTES
+    val pghdHealthConnectSyncIntervalMinutes: Long =
+        BuildConfig.PGHD_HEALTH_CONNECT_SYNC_INTERVAL_MINUTES
     val pghdEarlyTriggerBytes: Long = BuildConfig.PGHD_EARLY_TRIGGER_BYTES
     val pghdDefaultSyncDays: Long = BuildConfig.PGHD_DEFAULT_SYNC_DAYS
     val pghdHistorySyncDays: Long = BuildConfig.PGHD_HISTORY_SYNC_DAYS
