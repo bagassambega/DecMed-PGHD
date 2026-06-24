@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Rect
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -89,6 +90,10 @@ import com.hackastic.decmed.ui.components.PghdDateRangeFilter
 import com.hackastic.decmed.ui.components.toPghdSourceDisplayLabel
 import com.hackastic.decmed.viewmodel.PatientGrantAccessKind
 import com.hackastic.decmed.viewmodel.PghdCollectionViewModel
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.common.InputImage
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
 import com.google.zxing.LuminanceSource
@@ -98,6 +103,9 @@ import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.RGBLuminanceSource
 import com.google.zxing.common.HybridBinarizer
 import org.json.JSONObject
+import java.net.URI
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.EnumMap
@@ -528,7 +536,7 @@ private fun GrantPghdAccessDialog(
     val applyQrContent: (String) -> Unit = { content ->
         val decoded = decodeHospitalPersonnelQrPayload(content)
         if (decoded == null) {
-            scanError = "Invalid personnel QR. Expected iotaAddress@prePublicKey."
+            scanError = "Invalid personnel QR. Scan the QR shown on the personnel profile."
         } else {
             personnelAddress = decoded.first
             personnelPrePublicKey = decoded.second
@@ -675,11 +683,24 @@ private fun QrScannerDialog(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
+    val scanner = remember {
+        BarcodeScanning.getClient(
+            BarcodeScannerOptions.Builder()
+                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                .enableAllPotentialBarcodes()
+                .build()
+        )
+    }
+    val processing = remember { AtomicBoolean(false) }
     val detected = remember { AtomicBoolean(false) }
 
     DisposableEffect(Unit) {
-        onDispose { analysisExecutor.shutdown() }
+        onDispose {
+            scanner.close()
+            analysisExecutor.shutdown()
+        }
     }
 
     AlertDialog(
@@ -712,14 +733,36 @@ private fun QrScannerDialog(
                                 setEnabledUseCases(CameraController.IMAGE_ANALYSIS)
                                 imageAnalysisBackpressureStrategy = ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST
                                 setImageAnalysisAnalyzer(analysisExecutor) { imageProxy ->
-                                    decodeQrImageProxy(imageProxy).onSuccess { content ->
-                                        if (detected.compareAndSet(false, true)) {
-                                            clearImageAnalysisAnalyzer()
-                                            ContextCompat.getMainExecutor(context).execute {
+                                    if (!processing.compareAndSet(false, true)) {
+                                        imageProxy.close()
+                                        return@setImageAnalysisAnalyzer
+                                    }
+                                    val mediaImage = imageProxy.image
+                                    if (mediaImage == null) {
+                                        processing.set(false)
+                                        imageProxy.close()
+                                        return@setImageAnalysisAnalyzer
+                                    }
+                                    val frame = captureLuminanceFrame(imageProxy)
+                                    val inputImage = InputImage.fromMediaImage(
+                                        mediaImage,
+                                        imageProxy.imageInfo.rotationDegrees
+                                    )
+                                    scanner.process(inputImage)
+                                        .addOnSuccessListener(mainExecutor) { barcodes ->
+                                            val content = findQrContent(barcodes, frame)
+                                            if (
+                                                content != null &&
+                                                detected.compareAndSet(false, true)
+                                            ) {
+                                                clearImageAnalysisAnalyzer()
                                                 onQrDetected(content)
                                             }
                                         }
-                                    }
+                                        .addOnCompleteListener(mainExecutor) {
+                                            processing.set(false)
+                                            imageProxy.close()
+                                        }
                                 }
                                 bindToLifecycle(lifecycleOwner)
                             }
@@ -732,28 +775,75 @@ private fun QrScannerDialog(
     )
 }
 
-private fun decodeHospitalPersonnelQrPayload(content: String): Pair<String, String>? {
-    val normalized = content.trim()
-    runCatching {
-        val json = JSONObject(normalized)
-        val address = json.optString("iotaAddress")
-            .ifBlank { json.optString("iota_address") }
-            .ifBlank { json.optString("address") }
-            .trim()
-        val prePublicKey = json.optString("prePublicKey")
-            .ifBlank { json.optString("pre_public_key") }
-            .ifBlank { json.optString("pghdPrePublicKey") }
-            .ifBlank { json.optString("pghd_pre_public_key") }
-            .trim()
-        if (address.isNotBlank() && prePublicKey.isNotBlank()) return address to prePublicKey
+internal fun decodeHospitalPersonnelQrPayload(content: String): Pair<String, String>? {
+    val normalized = content
+        .replace("\uFEFF", "")
+        .replace("\u200B", "")
+        .trim()
+    val candidates = buildList {
+        add(normalized)
+        decodeQrUriParameters(normalized).forEach(::add)
+        if (!normalized.contains("://")) {
+            runCatching {
+                URLDecoder.decode(normalized, StandardCharsets.UTF_8.name())
+            }.getOrNull()?.takeIf { it != normalized }?.let(::add)
+        }
     }
-    val parts = normalized.split("@", limit = 2)
-    if (parts.size != 2) return null
-    val address = parts[0].trim()
-    val prePublicKey = parts[1].trim()
-    if (address.isBlank() || prePublicKey.isBlank()) return null
-    return address to prePublicKey
+
+    for (candidate in candidates) {
+        decodeHospitalPersonnelJson(candidate)?.let { return it }
+        val separatorIndex = candidate.indexOf('@')
+        if (separatorIndex <= 0 || separatorIndex == candidate.lastIndex) continue
+        val address = candidate.substring(0, separatorIndex).filterNot(Char::isWhitespace)
+        val prePublicKey = candidate.substring(separatorIndex + 1).filterNot(Char::isWhitespace)
+        if (address.isNotBlank() && prePublicKey.isNotBlank()) {
+            return address to prePublicKey
+        }
+    }
+    return null
 }
+
+private fun decodeQrUriParameters(content: String): List<String> = runCatching {
+    val query = URI(content).rawQuery ?: return@runCatching emptyList()
+    query.split("&").mapNotNull { parameter ->
+        val key = parameter.substringBefore("=", missingDelimiterValue = "")
+        if (key !in setOf("data", "payload", "qr")) return@mapNotNull null
+        URLDecoder.decode(
+            parameter.substringAfter("=", missingDelimiterValue = ""),
+            StandardCharsets.UTF_8.name()
+        )
+    }
+}.getOrDefault(emptyList())
+
+private fun decodeHospitalPersonnelJson(content: String): Pair<String, String>? = runCatching {
+    val json = JSONObject(content)
+    val objects = buildList {
+        add(json)
+        listOf("data", "payload", "personnel").forEach { key ->
+            json.optJSONObject(key)?.let(::add)
+        }
+    }
+    objects.firstNotNullOfOrNull { value ->
+        val address = value.optString("iotaAddress")
+            .ifBlank { value.optString("iota_address") }
+            .ifBlank { value.optString("hospitalPersonnelIotaAddress") }
+            .ifBlank { value.optString("hospital_personnel_iota_address") }
+            .ifBlank { value.optString("address") }
+            .filterNot(Char::isWhitespace)
+        val prePublicKey = value.optString("prePublicKey")
+            .ifBlank { value.optString("pre_public_key") }
+            .ifBlank { value.optString("hospitalPersonnelPrePublicKey") }
+            .ifBlank { value.optString("hospital_personnel_pre_public_key") }
+            .ifBlank { value.optString("pghdPrePublicKey") }
+            .ifBlank { value.optString("pghd_pre_public_key") }
+            .filterNot(Char::isWhitespace)
+        if (address.isNotBlank() && prePublicKey.isNotBlank()) {
+            address to prePublicKey
+        } else {
+            null
+        }
+    }
+}.getOrNull()
 
 @Composable
 private fun RevokePghdAccessDialog(
@@ -875,31 +965,115 @@ private fun decodeQrBitmap(bitmap: Bitmap): Result<String> = runCatching {
     throw lastError ?: IllegalArgumentException("No QR code was detected in the selected image.")
 }
 
-private fun decodeQrImageProxy(imageProxy: ImageProxy): Result<String> = runCatching {
-    try {
-        val width = imageProxy.width
-        val height = imageProxy.height
-        val plane = imageProxy.planes.first()
-        val buffer = plane.buffer
-        buffer.rewind()
-        val yBytes = if (plane.rowStride == width) {
-            ByteArray(width * height).also { buffer.get(it, 0, it.size) }
-        } else {
-            val row = ByteArray(plane.rowStride)
-            val compact = ByteArray(width * height)
-            var targetOffset = 0
-            repeat(height) {
-                buffer.get(row, 0, minOf(row.size, buffer.remaining()))
-                System.arraycopy(row, 0, compact, targetOffset, width)
-                targetOffset += width
-            }
-            compact
+private fun captureLuminanceFrame(imageProxy: ImageProxy): RotatedLuminance {
+    val plane = imageProxy.planes.first()
+    val bytes = compactLuminancePlane(
+        buffer = plane.buffer,
+        width = imageProxy.width,
+        height = imageProxy.height,
+        rowStride = plane.rowStride,
+        pixelStride = plane.pixelStride
+    )
+    return rotateLuminance(
+        source = bytes,
+        width = imageProxy.width,
+        height = imageProxy.height,
+        rotationDegrees = imageProxy.imageInfo.rotationDegrees
+    )
+}
+
+private fun findQrContent(
+    barcodes: List<Barcode>,
+    frame: RotatedLuminance
+): String? {
+    barcodes.firstNotNullOfOrNull { barcode ->
+        barcode.rawValue?.trim()?.takeIf(String::isNotBlank)
+    }?.let { return it }
+
+    return barcodes.firstNotNullOfOrNull { barcode ->
+        barcode.boundingBox?.let { boundingBox ->
+            decodeCroppedQr(frame, boundingBox).getOrNull()
         }
-        val source = PlanarYUVLuminanceSource(yBytes, width, height, 0, 0, width, height, false)
-        decodeQrLuminanceSource(source).getOrThrow()
-    } finally {
-        imageProxy.close()
     }
+}
+
+private fun decodeCroppedQr(
+    frame: RotatedLuminance,
+    boundingBox: Rect
+): Result<String> = runCatching {
+    val margin = (maxOf(boundingBox.width(), boundingBox.height()) * 0.15f).toInt()
+    val left = (boundingBox.left - margin).coerceIn(0, frame.width - 1)
+    val top = (boundingBox.top - margin).coerceIn(0, frame.height - 1)
+    val right = (boundingBox.right + margin).coerceIn(left + 1, frame.width)
+    val bottom = (boundingBox.bottom + margin).coerceIn(top + 1, frame.height)
+    val source = PlanarYUVLuminanceSource(
+        frame.bytes,
+        frame.width,
+        frame.height,
+        left,
+        top,
+        right - left,
+        bottom - top,
+        false
+    )
+    decodeQrLuminanceSource(source)
+        .recoverCatching { decodeQrLuminanceSource(source.invert()).getOrThrow() }
+        .getOrThrow()
+}
+
+private fun compactLuminancePlane(
+    buffer: java.nio.ByteBuffer,
+    width: Int,
+    height: Int,
+    rowStride: Int,
+    pixelStride: Int
+): ByteArray {
+    val source = buffer.duplicate()
+    val start = source.position()
+    return ByteArray(width * height).also { compact ->
+        var target = 0
+        repeat(height) { y ->
+            repeat(width) { x ->
+                val sourceIndex = start + y * rowStride + x * pixelStride
+                if (sourceIndex < source.limit()) {
+                    compact[target] = source.get(sourceIndex)
+                }
+                target++
+            }
+        }
+    }
+}
+
+private data class RotatedLuminance(
+    val bytes: ByteArray,
+    val width: Int,
+    val height: Int
+)
+
+private fun rotateLuminance(
+    source: ByteArray,
+    width: Int,
+    height: Int,
+    rotationDegrees: Int
+): RotatedLuminance {
+    val normalizedRotation = ((rotationDegrees % 360) + 360) % 360
+    if (normalizedRotation == 0) return RotatedLuminance(source, width, height)
+
+    val rotatedWidth = if (normalizedRotation == 90 || normalizedRotation == 270) height else width
+    val rotatedHeight = if (normalizedRotation == 90 || normalizedRotation == 270) width else height
+    val rotated = ByteArray(source.size)
+    for (y in 0 until height) {
+        for (x in 0 until width) {
+            val targetIndex = when (normalizedRotation) {
+                90 -> x * rotatedWidth + (height - y - 1)
+                180 -> (height - y - 1) * rotatedWidth + (width - x - 1)
+                270 -> (width - x - 1) * rotatedWidth + y
+                else -> return RotatedLuminance(source, width, height)
+            }
+            rotated[targetIndex] = source[y * width + x]
+        }
+    }
+    return RotatedLuminance(rotated, rotatedWidth, rotatedHeight)
 }
 
 private fun qrBitmapCandidates(bitmap: Bitmap): List<Bitmap> {

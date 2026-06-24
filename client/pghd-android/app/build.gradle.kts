@@ -131,6 +131,7 @@ dependencies {
     implementation(libs.camera.camera2)
     implementation(libs.camera.lifecycle)
     implementation(libs.camera.view)
+    implementation(libs.mlkit.barcode.scanning)
 
     // Background work
     implementation(libs.work.runtime.ktx)
