@@ -6,6 +6,7 @@ data class PghdBatchPayload(
     val patientId: String,
     val sourceDevice: PghdSourceDevice,
     val batchPeriod: PghdBatchPeriod,
+    val collectionPeriod: PghdCollectionPeriod? = null,
     val triggerReason: String? = null,
     val dataGroup: List<PghdDataGroupPayload>
 ) {
@@ -28,6 +29,11 @@ data class PghdSourceDevice(
 data class PghdBatchPeriod(
     val startTimestamp: Long,
     val endTimestamp: Long
+)
+
+data class PghdCollectionPeriod(
+    val startedAt: Long,
+    val endedAt: Long
 )
 
 data class PghdDataGroupPayload(

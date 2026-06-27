@@ -230,12 +230,24 @@ private fun ActiveCollectionWindowCard(
                 )
             }
             Text(
-                text = "Started: ${dateFormatter.format(Date(window.startedAtEpochMillis))}",
+                text = "Collection window: ${
+                    formatDateRange(
+                        dateFormatter,
+                        window.startedAtEpochMillis,
+                        window.endedAtEpochMillis
+                    )
+                }",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer
             )
             Text(
-                text = "Latest record: ${dateFormatter.format(Date(window.latestRecordEpochMillis))}",
+                text = "Data collected period: ${
+                    formatDateRange(
+                        dateFormatter,
+                        window.dataStartEpochMillis,
+                        window.dataEndEpochMillis
+                    )
+                }",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer
             )
@@ -366,7 +378,25 @@ private fun PghdBatchCard(
             }
 
             Text(
-                text = "Data period: ${dateFormatter.format(Date(batch.startTimestamp.toEpochMillisForDisplay()))} - ${dateFormatter.format(Date(batch.endTimestamp.toEpochMillisForDisplay()))}",
+                text = "Collection window: ${
+                    formatDateRange(
+                        dateFormatter,
+                        batch.collectionStartedAtEpochMillis,
+                        batch.collectionEndedAtEpochMillis
+                    )
+                }",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Text(
+                text = "Data collected period: ${
+                    formatDateRange(
+                        dateFormatter,
+                        batch.startTimestamp.toEpochMillisForDisplay(),
+                        batch.endTimestamp.toEpochMillisForDisplay()
+                    )
+                }",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -398,6 +428,16 @@ private fun String.toTriggerLabel(): String =
 
 private fun Long.toEpochMillisForDisplay(): Long =
     if (this < 10_000_000_000L) this * 1000L else this
+
+private fun formatDateRange(
+    formatter: SimpleDateFormat,
+    startEpochMillis: Long?,
+    endEpochMillis: Long?
+): String {
+    val start = startEpochMillis?.let { formatter.format(Date(it)) } ?: "Not recorded"
+    val end = endEpochMillis?.let { formatter.format(Date(it)) } ?: "now"
+    return "$start - $end"
+}
 
 private fun Long.toReadableBytes(): String {
     val mib = this / (1024.0 * 1024.0)

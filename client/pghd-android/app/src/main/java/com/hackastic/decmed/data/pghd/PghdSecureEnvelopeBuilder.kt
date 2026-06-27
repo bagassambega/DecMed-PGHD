@@ -2,7 +2,6 @@ package com.hackastic.decmed.data.pghd
 
 import com.hackastic.decmed.domain.model.patient.PatientProfile
 import com.hackastic.decmed.domain.model.pghd.PghdBatchPayload
-import com.hackastic.decmed.domain.model.pghd.PghdEncryptedPlaintext
 import com.hackastic.decmed.domain.model.pghd.PghdSecureEnvelope
 import com.hackastic.decmed.crypto.DecmedCryptoNative
 import java.security.KeyFactory
@@ -23,19 +22,13 @@ object PghdSecureEnvelopeBuilder {
         val privateKey = decodeEcPrivateKey(secretKey)
 
         val pghdPlaintext = PghdPayloadSerializer.toJson(payload)
-        val hPlain = sha256(pghdPlaintext.toByteArray(Charsets.UTF_8))
-        val encryptedPlaintext = PghdEncryptedPlaintext(
-            pghdData = pghdPlaintext,
-            hPlain = hPlain.toHex()
-        )
-        val encryptedPlaintextJson = PghdPayloadSerializer.encryptedPlaintextToJson(encryptedPlaintext)
 
         val aesKey = randomBytes(AES_KEY_BYTES)
         val aesNonce = randomBytes(GCM_NONCE_BYTES)
         val encPghdBytes = aesGcmEncrypt(
             key = aesKey,
             nonce = aesNonce,
-            plaintext = encryptedPlaintextJson.toByteArray(Charsets.UTF_8),
+            plaintext = pghdPlaintext.toByteArray(Charsets.UTF_8),
             aad = payload.batchId.toByteArray(Charsets.UTF_8)
         )
 

@@ -33,6 +33,7 @@ import com.hackastic.decmed.data.local.entity.SensorData
  *   v8 — PGHD batch table stores triggerReason for time/size based batching.
  *   v9 — PGHD batch table stores the last submit trigger separately from creation trigger.
  *   v10 — PGHD batch table renames pghdOuterSignature to signature.
+ *   v11 — PGHD batch table stores app collection window timestamps separately from data period.
  */
 @Database(
     entities = [
@@ -42,7 +43,7 @@ import com.hackastic.decmed.data.local.entity.SensorData
         PghdBatchEntity::class,
         PghdBatchDataPointEntity::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 abstract class SensorDatabase : RoomDatabase() {
@@ -63,7 +64,7 @@ abstract class SensorDatabase : RoomDatabase() {
                     SensorDatabase::class.java,
                     "sensor_pghd.db"
                 )
-                    .addMigrations(MIGRATION_8_9, MIGRATION_9_10)
+                    .addMigrations(MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                     // Development convenience — replace with proper Migration objects
                     // before shipping to production.
                     .fallbackToDestructiveMigration()
@@ -83,6 +84,13 @@ abstract class SensorDatabase : RoomDatabase() {
         private val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE pghd_batches RENAME COLUMN pghdOuterSignature TO signature")
+            }
+        }
+
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE pghd_batches ADD COLUMN collectionStartedAtEpochMillis INTEGER")
+                db.execSQL("ALTER TABLE pghd_batches ADD COLUMN collectionEndedAtEpochMillis INTEGER")
             }
         }
     }

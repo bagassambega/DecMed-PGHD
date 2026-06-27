@@ -17,14 +17,6 @@ info "Running PRE signature verification tests for valid and tampered PGHD ciphe
 
 pass "PRE rejects tampered PGHD signature payload"
 
-info "Running hospital client plaintext hash verification tests."
-(
-  cd "$ROOT_DIR/client/client-hospital-tauri/src-tauri"
-  cargo test rejects_tampered_pghd_plain_hash
-)
-
-pass "Hospital client rejects tampered decrypted PGHD plaintext hash"
-
 if [[ -n "${PGHD_VALID_SUBMIT_PAYLOAD:-}" ]]; then
   require_command python3
   info "Posting tampered PGHD submit payload variants to PRE."

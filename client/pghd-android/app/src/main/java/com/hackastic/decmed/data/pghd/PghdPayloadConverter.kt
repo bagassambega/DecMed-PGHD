@@ -7,6 +7,7 @@ import com.hackastic.decmed.data.local.entity.PghdBatchEntity
 import com.hackastic.decmed.data.local.entity.PghdRecordEntity
 import com.hackastic.decmed.domain.model.pghd.PghdBatchPayload
 import com.hackastic.decmed.domain.model.pghd.PghdBatchPeriod
+import com.hackastic.decmed.domain.model.pghd.PghdCollectionPeriod
 import com.hackastic.decmed.domain.model.pghd.PghdDataGroupPayload
 import com.hackastic.decmed.domain.model.pghd.PghdDataPointPayload
 import com.hackastic.decmed.domain.model.pghd.PghdMeasurementValue
@@ -20,6 +21,8 @@ object PghdPayloadConverter {
         patientId: String,
         batchId: String = UUID.randomUUID().toString(),
         sourceDevice: PghdSourceDevice = currentAndroidDevice(),
+        collectionStartedAtEpochMillis: Long? = null,
+        collectionEndedAtEpochMillis: Long? = null,
         triggerReason: String? = PghdBatchPayload.TRIGGER_TIME_BASED
     ): PghdBatchPayload {
         require(records.isNotEmpty()) { "PGHD batch must contain at least one data point." }
@@ -33,6 +36,12 @@ object PghdPayloadConverter {
                 startTimestamp = epochMillisToUnixSeconds(sortedRecords.first().startTimeEpochMillis),
                 endTimestamp = epochMillisToUnixSeconds(sortedRecords.last().endTimeEpochMillis)
             ),
+            collectionPeriod = collectionStartedAtEpochMillis?.let { startedAt ->
+                PghdCollectionPeriod(
+                    startedAt = epochMillisToUnixSeconds(startedAt),
+                    endedAt = epochMillisToUnixSeconds(collectionEndedAtEpochMillis ?: System.currentTimeMillis())
+                )
+            },
             triggerReason = triggerReason,
             dataGroup = recordsToDataGroups(sortedRecords)
         )
@@ -78,6 +87,8 @@ object PghdPayloadConverter {
             patientId = payload.patientId,
             startTimestamp = payload.batchPeriod.startTimestamp,
             endTimestamp = payload.batchPeriod.endTimestamp,
+            collectionStartedAtEpochMillis = payload.collectionPeriod?.startedAt?.let(::unixSecondsToEpochMillis),
+            collectionEndedAtEpochMillis = payload.collectionPeriod?.endedAt?.let(::unixSecondsToEpochMillis),
             triggerReason = payload.triggerReason ?: PghdBatchEntity.TRIGGER_TIME_BASED
         )
 

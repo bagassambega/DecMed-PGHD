@@ -1,10 +1,5 @@
 package com.hackastic.decmed.domain.model.pghd
 
-data class PghdEncryptedPlaintext(
-    val pghdData: String,
-    val hPlain: String
-)
-
 data class PghdSecureEnvelope(
     val batchId: String,
     val patientIdHash: String?,

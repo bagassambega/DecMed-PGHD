@@ -407,7 +407,7 @@ private fun HealthConnectSummaryCard(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         CircularProgressIndicator(
-                            modifier = Modifier.height(18.dp),
+                            modifier = Modifier.size(18.dp),
                             strokeWidth = 2.dp,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
@@ -1361,8 +1361,8 @@ private fun PghdRecordDetailDialog(
                 DetailLine("Value", "${record.valueText} ${record.unit}".trim())
                 DetailLine("Source", record.sourceTag.toPghdSourceDisplayLabel())
                 DetailLine("Source package", record.sourcePackageName ?: "-")
-                DetailLine("Start", dateFormatter.format(Date(record.startTimeEpochMillis)))
-                DetailLine("End", dateFormatter.format(Date(record.endTimeEpochMillis)))
+                DetailLine("Data start", dateFormatter.format(Date(record.startTimeEpochMillis)))
+                DetailLine("Data end", dateFormatter.format(Date(record.endTimeEpochMillis)))
                 DetailLine("Sync", record.batchId?.let { "batched: $it" } ?: "local only")
                 if (!record.notes.isNullOrBlank()) {
                     DetailLine("Notes", record.notes)

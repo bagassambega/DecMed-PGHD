@@ -105,8 +105,8 @@ fun AppNavigation(
         if (patientAuthState is PatientAuthState.Loading) return@LaunchedEffect
 
         startDestination = when {
+            patientAuthState is PatientAuthState.NeedsSignupOrSignin -> Screen.TermsOfService.route
             !accepted -> Screen.TermsOfService.route
-            patientAuthState is PatientAuthState.NeedsSignupOrSignin -> Screen.PatientAuth.route
             patientAuthState is PatientAuthState.NeedsProfile -> Screen.PatientCompleteProfile.route
             patientAuthState is PatientAuthState.NeedsPin -> Screen.PatientUnlock.route
             !setupComplete -> Screen.SensorList.route
@@ -319,7 +319,7 @@ fun AppNavigation(
                     sensorViewModel.markCollectionRunning(false)
                     PghdWorkScheduler.cancelCollectionWork(context)
                     patientAuthViewModel.signOut {
-                        navController.navigate(Screen.PatientAuth.route) {
+                        navController.navigate(Screen.TermsOfService.route) {
                             popUpTo(navController.graph.findStartDestination().id) {
                                 inclusive = true
                             }

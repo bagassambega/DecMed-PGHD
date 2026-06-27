@@ -138,7 +138,6 @@ const isPghdIntegrityError = (error: string) => {
 	return (
 		error.includes('ERR_DATA_CORRUPTED') ||
 		error.includes('SIGNATURE_INVALID') ||
-		error.includes('PLAIN_HASH_MISMATCH') ||
 		error.includes('OUTER_HASH_MISMATCH') ||
 		error.includes('LEGACY_PGHD_SIGNATURE_SCHEMA') ||
 		lower.includes('signature') ||

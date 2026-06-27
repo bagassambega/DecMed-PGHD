@@ -62,6 +62,9 @@ data class ActivePghdCollectionWindow(
     val recordCount: Int,
     val estimatedBytes: Long,
     val startedAtEpochMillis: Long,
+    val endedAtEpochMillis: Long?,
+    val dataStartEpochMillis: Long?,
+    val dataEndEpochMillis: Long?,
     val latestRecordEpochMillis: Long,
     val isCollecting: Boolean
 )
@@ -404,14 +407,21 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                 DecmedLog.i(TAG, "Submitting active PGHD collection: count=${records.size}")
                 val patientProfile = patientAuthRepository.getUnlockedProfile()
                 prePghdClient.pushRegistration(patientProfile)
+                val collectionEndedAt = if (collectionState.enabled) {
+                    System.currentTimeMillis()
+                } else {
+                    collectionState.stoppedAtEpochMillis ?: System.currentTimeMillis()
+                }
                 val batch = pghdBatchRepository.createEncryptedBatch(
                     records = records,
                     patientProfile = patientProfile,
+                    collectionStartedAtEpochMillis = collectionState.startedAtEpochMillis,
+                    collectionEndedAtEpochMillis = collectionEndedAt,
                     triggerReason = PghdBatchPayload.TRIGGER_MANUAL_SUBMIT
                 )
                 pghdRepository.markRecordsBatched(records.map { it.uid }, batch.batchId)
                 if (collectionState.enabled) {
-                    pghdCollectionStateRepository.restartWindow()
+                    pghdCollectionStateRepository.restartWindow(collectionEndedAt)
                 }
                 val result = pghdBatchRepository.submitBatch(
                     batchId = batch.batchId,
@@ -716,10 +726,15 @@ private fun List<PghdBatchEntity>.filterBatchesByDateRange(
     endMillis: Long?
 ): List<PghdBatchEntity> =
     filter { batch ->
-        val afterStart = startMillis == null || batch.endTimestamp >= startMillis
-        val beforeEnd = endMillis == null || batch.startTimestamp <= endMillis
+        val batchStartMillis = batch.startTimestamp.toEpochMillisForDisplay()
+        val batchEndMillis = batch.endTimestamp.toEpochMillisForDisplay()
+        val afterStart = startMillis == null || batchEndMillis >= startMillis
+        val beforeEnd = endMillis == null || batchStartMillis <= endMillis
         afterStart && beforeEnd
     }
+
+private fun Long.toEpochMillisForDisplay(): Long =
+    if (this < 10_000_000_000L) this * 1000L else this
 
 private suspend fun com.hackastic.decmed.domain.repository.PghdRepository.getActiveWindowUnbatchedRecords(
     collectionState: PghdCollectionState
@@ -753,6 +768,9 @@ private fun List<PghdRecordEntity>.toActiveCollectionWindow(
         recordCount = windowRecords.size,
         estimatedBytes = estimatePghdPayloadBytes(windowRecords),
         startedAtEpochMillis = startedAtEpochMillis,
+        endedAtEpochMillis = collectionState.stoppedAtEpochMillis,
+        dataStartEpochMillis = sorted.firstOrNull()?.startTimeEpochMillis,
+        dataEndEpochMillis = sorted.lastOrNull()?.endTimeEpochMillis,
         latestRecordEpochMillis = latestRecordEpochMillis,
         isCollecting = isCollecting
     )

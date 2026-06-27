@@ -135,6 +135,10 @@ export type PghdBatchData = {
 		start_timestamp: number;
 		end_timestamp: number;
 	};
+	collection_period?: {
+		started_at: number;
+		ended_at: number;
+	};
 	trigger_reason?: string;
 	data_group: PghdDataGroup[];
 };

@@ -453,21 +453,7 @@ pub async fn get_pghd(
         &aes_key_nonce[32..44],
         batch_id.as_bytes(),
     )?;
-    let inner: Value = serde_json::from_slice(&pghd_plaintext).context(current_fn!())?;
-    let pghd_data = match verify_decrypted_pghd_plain_hash(&inner) {
-        Ok(pghd_data) => pghd_data,
-        Err(err) => {
-            request_pghd_invalidation(
-                &req_client,
-                &access_token,
-                &cid,
-                "PLAIN_HASH_MISMATCH",
-                &patient_iota_address,
-            )
-            .await?;
-            return Err(err);
-        }
-    };
+    let pghd_data: Value = serde_json::from_slice(&pghd_plaintext).context(current_fn!())?;
 
     Ok(SuccessResponse {
         status: ResponseStatus::Success,
@@ -548,61 +534,6 @@ fn verify_pghd_signature(
     verifying_key
         .verify_prehash(h_cipher_bytes, &signature)
         .map_err(|e| anyhow!(e.to_string()).context(current_fn!()).into())
-}
-
-fn verify_decrypted_pghd_plain_hash(inner: &Value) -> Result<Value, HospitalError> {
-    let pghd_data = inner
-        .get("pghd_data")
-        .ok_or(anyhow!("PGHD plaintext missing pghd_data").context(current_fn!()))?;
-    let h_plain = inner
-        .get("h_plain")
-        .and_then(Value::as_str)
-        .ok_or(anyhow!("PGHD plaintext missing h_plain").context(current_fn!()))?;
-    let signed_pghd_data = inner
-        .get("pghd_data_json")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .unwrap_or(serde_json::to_string(pghd_data).context(current_fn!())?);
-    let computed_h_plain = hex::encode(Sha256::digest(signed_pghd_data.as_bytes()));
-    if computed_h_plain != h_plain.to_lowercase() {
-        return Err(anyhow!("PLAIN_HASH_MISMATCH").context(current_fn!()).into());
-    }
-    Ok(pghd_data.clone())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::verify_decrypted_pghd_plain_hash;
-    use serde_json::json;
-    use sha2::{Digest, Sha256};
-
-    #[test]
-    fn verifies_decrypted_pghd_plain_hash() {
-        let pghd_data = json!({"source": "Health Connect", "steps": 1200});
-        let pghd_data_json = serde_json::to_string(&pghd_data).unwrap();
-        let h_plain = hex::encode(Sha256::digest(pghd_data_json.as_bytes()));
-        let inner = json!({
-            "pghd_data": pghd_data,
-            "pghd_data_json": pghd_data_json,
-            "h_plain": h_plain,
-        });
-
-        assert!(verify_decrypted_pghd_plain_hash(&inner).is_ok());
-    }
-
-    #[test]
-    fn rejects_tampered_pghd_plain_hash() {
-        let pghd_data = json!({"source": "Health Connect", "steps": 1200});
-        let pghd_data_json = serde_json::to_string(&pghd_data).unwrap();
-        let inner = json!({
-            "pghd_data": pghd_data,
-            "pghd_data_json": pghd_data_json,
-            "h_plain": "00",
-        });
-
-        let err = verify_decrypted_pghd_plain_hash(&inner).unwrap_err();
-        assert!(format!("{err:?}").contains("PLAIN_HASH_MISMATCH"));
-    }
 }
 
 #[tauri::command]

@@ -18,6 +18,8 @@ data class PghdBatchEntity(
     val patientId: String,
     val startTimestamp: Long,
     val endTimestamp: Long,
+    val collectionStartedAtEpochMillis: Long? = null,
+    val collectionEndedAtEpochMillis: Long? = null,
     val encPghd: String = "",
     val encAesKeyNonce: String = "",
     val capsule: String = "",

@@ -13,7 +13,9 @@ interface PghdBatchRepository {
     suspend fun createEncryptedBatch(
         records: List<PghdRecordEntity>,
         patientProfile: PatientProfile,
-        triggerReason: String
+        triggerReason: String,
+        collectionStartedAtEpochMillis: Long? = null,
+        collectionEndedAtEpochMillis: Long? = null
     ): PghdBatchEntity
     suspend fun createEncryptAndSubmitBatch(
         records: List<PghdRecordEntity>,

@@ -2,6 +2,7 @@ package com.hackastic.decmed.data.repository
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.hackastic.decmed.data.local.security.PatientSecureStorage
@@ -157,6 +158,7 @@ class PatientAuthRepositoryImpl(
     override suspend fun signOut() {
         dataStore.edit { prefs ->
             Keys.patientKeys.forEach { key -> prefs.remove(key) }
+            prefs.remove(booleanPreferencesKey("tos_accepted"))
         }
     }
 

@@ -42,14 +42,17 @@ class PghdBatchWorker(
             PghdBatchPayload.TRIGGER_TIME_BASED
         }
 
+        val collectionEndedAt = System.currentTimeMillis()
         val batch = container.pghdBatchRepository.createEncryptedBatch(
             records = records,
             patientProfile = profile,
+            collectionStartedAtEpochMillis = collectionState.startedAtEpochMillis,
+            collectionEndedAtEpochMillis = collectionEndedAt,
             triggerReason = triggerReason
         )
         container.pghdRepository.markRecordsBatched(records.map { it.uid }, batch.batchId)
         if (collectionState.enabled) {
-            container.pghdCollectionStateRepository.restartWindow()
+            container.pghdCollectionStateRepository.restartWindow(collectionEndedAt)
         }
         container.prePghdClient.pushRegistration(profile)
         val submitResult = container.pghdBatchRepository.submitBatch(

@@ -30,12 +30,16 @@ class PghdBatchRepositoryImpl(
     override suspend fun createEncryptedBatch(
         records: List<PghdRecordEntity>,
         patientProfile: PatientProfile,
-        triggerReason: String
+        triggerReason: String,
+        collectionStartedAtEpochMillis: Long?,
+        collectionEndedAtEpochMillis: Long?
     ): PghdBatchEntity {
         val patientId = patientProfile.iotaAddress ?: patientProfile.idHash ?: patientProfile.id
         val payload = PghdPayloadConverter.recordsToBatchPayload(
             records = records,
             patientId = patientId,
+            collectionStartedAtEpochMillis = collectionStartedAtEpochMillis,
+            collectionEndedAtEpochMillis = collectionEndedAtEpochMillis,
             triggerReason = triggerReason
         )
         val envelope = PghdSecureEnvelopeBuilder.build(payload, patientProfile)
@@ -57,7 +61,9 @@ class PghdBatchRepositoryImpl(
         val batch = createEncryptedBatch(
             records = records,
             patientProfile = patientProfile,
-            triggerReason = PghdBatchPayload.TRIGGER_MANUAL_SUBMIT
+            triggerReason = PghdBatchPayload.TRIGGER_MANUAL_SUBMIT,
+            collectionStartedAtEpochMillis = null,
+            collectionEndedAtEpochMillis = null
         )
         return submitBatch(batch, PghdBatchEntity.TRIGGER_MANUAL_SUBMIT)
     }

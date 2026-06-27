@@ -124,7 +124,6 @@
 		return (
 			lower.includes('integrity warning') ||
 			lower.includes('signature_invalid') ||
-			lower.includes('plain_hash_mismatch') ||
 			lower.includes('outer_hash_mismatch') ||
 			lower.includes('legacy_pghd_signature_schema') ||
 			lower.includes('err_data_corrupted') ||
@@ -135,7 +134,6 @@
 
 	const inferIntegrityFailureReason = (message: string) => {
 		if (message.includes('SIGNATURE_INVALID')) return 'SIGNATURE_INVALID';
-		if (message.includes('PLAIN_HASH_MISMATCH')) return 'PLAIN_HASH_MISMATCH';
 		if (message.includes('OUTER_HASH_MISMATCH') || message.includes('ERR_DATA_CORRUPTED')) {
 			return 'OUTER_HASH_MISMATCH';
 		}
@@ -241,13 +239,23 @@
 				<div class="p-4 border-b border-zinc-200 flex items-start justify-between gap-4">
 					<div>
 						<div class="flex items-center gap-2">
-							<h4 class="font-medium">PGHD Batch {pghd.pghd_data.batch_id}</h4>
+							<h4 class="font-medium">
+								PGHD Batch {selectedPghdIndex !== null ? `#${selectedPghdIndex}` : ''}
+							</h4>
 							<span class="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">
 								Verified
 							</span>
 						</div>
 						<p class="text-sm text-zinc-500">
-							Period: {formatDate(pghd.pghd_data.batch_period.start_timestamp)} - {formatDate(
+							Batch ID: {pghd.pghd_data.batch_id}
+						</p>
+						<p class="text-sm text-zinc-500">
+							Collection window: {formatDate(pghd.pghd_data.collection_period?.started_at)} - {formatDate(
+								pghd.pghd_data.collection_period?.ended_at
+							)}
+						</p>
+						<p class="text-sm text-zinc-500">
+							Data collected period: {formatDate(pghd.pghd_data.batch_period.start_timestamp)} - {formatDate(
 								pghd.pghd_data.batch_period.end_timestamp
 							)}
 						</p>
