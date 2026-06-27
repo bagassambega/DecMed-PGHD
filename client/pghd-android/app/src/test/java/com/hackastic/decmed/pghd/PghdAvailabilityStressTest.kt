@@ -12,8 +12,11 @@ import kotlin.system.measureTimeMillis
 class PghdAvailabilityStressTest {
     @Test
     fun highVolumeTimeSeries_isConvertedIntoFewBatchesInsteadOfPerRecordPayloads() {
-        val recordCount = 2_400
-        val batchSize = 600
+        val recordsPerStreamPerDay = 24 * 60
+        val simulatedBacklogDays = 7
+        val simulatedStreamCount = 4
+        val recordCount = recordsPerStreamPerDay * simulatedBacklogDays * simulatedStreamCount
+        val batchSize = recordsPerStreamPerDay * simulatedStreamCount
         val records = syntheticWearableRecords(recordCount)
         val sourceDevice = PghdSourceDevice(
             type = "wearable",
@@ -42,9 +45,9 @@ class PghdAvailabilityStressTest {
         val dataGroupCount = payloads.sumOf { payload -> payload.dataGroup.size }
 
         assertEquals(recordCount, dataPointCount)
-        assertEquals(4, payloads.size)
+        assertEquals(simulatedBacklogDays, payloads.size)
         assertTrue("Stress conversion should not generate one batch per record", payloads.size < recordCount / 100)
-        assertTrue("Payloads should preserve grouped PGHD data", dataGroupCount in 4..16)
+        assertTrue("Payloads should preserve grouped PGHD data", dataGroupCount in 4..(simulatedBacklogDays * simulatedStreamCount))
         assertTrue(payloads.all { payload -> payload.triggerReason == PghdBatchPayload.TRIGGER_SIZE_THRESHOLD })
         assertTrue(payloads.all { payload -> payload.dataGroup.all { group -> group.deviceType == "wearable" } })
         assertTrue("Light stress conversion should finish quickly, elapsed=${elapsedMillis}ms", elapsedMillis < 10_000)

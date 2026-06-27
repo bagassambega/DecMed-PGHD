@@ -8,6 +8,7 @@ require_command curl
 info "NF01 Confidentiality"
 info "PRE endpoint: $PRE_BASE_URL"
 info "Patient address: $PATIENT_IOTA_ADDRESS"
+info "Attack points: unauthorized hospital-to-PRE list/detail access and failed-response leakage checks."
 
 health_status="$(curl -sS -o /dev/null -w '%{http_code}' "$PRE_BASE_URL/health" || true)"
 if [[ "$health_status" != "200" ]]; then
@@ -19,7 +20,7 @@ no_auth_status="$(curl -sS -o /tmp/decmed_nf01_no_auth.out -w '%{http_code}' \
   "$PRE_BASE_URL/api/v1/pghd?patient_iota_address=$PATIENT_IOTA_ADDRESS" || true)"
 
 if [[ "$no_auth_status" == "401" || "$no_auth_status" == "403" ]]; then
-  pass "PGHD list without bearer token is rejected with HTTP $no_auth_status"
+  pass "Hospital-to-PRE PGHD list without bearer token is rejected with HTTP $no_auth_status"
 else
   fail "Expected HTTP 401/403 without bearer token, got HTTP $no_auth_status: $(cat /tmp/decmed_nf01_no_auth.out)"
 fi
@@ -29,7 +30,7 @@ invalid_auth_status="$(curl -sS -o /tmp/decmed_nf01_invalid_auth.out -w '%{http_
   "$PRE_BASE_URL/api/v1/pghd?patient_iota_address=$PATIENT_IOTA_ADDRESS" || true)"
 
 if [[ "$invalid_auth_status" == "401" || "$invalid_auth_status" == "403" ]]; then
-  pass "PGHD list with invalid bearer token is rejected with HTTP $invalid_auth_status"
+  pass "Hospital-to-PRE PGHD list with invalid bearer token is rejected with HTTP $invalid_auth_status"
 else
   fail "Expected HTTP 401/403 with invalid bearer token, got HTTP $invalid_auth_status: $(cat /tmp/decmed_nf01_invalid_auth.out)"
 fi
@@ -47,7 +48,7 @@ if [[ -n "${UNAUTHORIZED_ACCESS_TOKEN_READ_PGHD:-}" ]]; then
     fail "Unauthorized response leaked PGHD decryption material: $(cat /tmp/decmed_nf01_unauthorized_list.out)"
   fi
 
-  pass "PGHD list with token lacking active grant/keys is rejected with HTTP $unauthorized_list_status and leaks no decryption material"
+  pass "Unauthorized hospital-to-PRE PGHD list is rejected with HTTP $unauthorized_list_status and leaks no decryption material"
 
   unauthorized_detail_status="$(curl -sS -o /tmp/decmed_nf01_unauthorized_detail.out -w '%{http_code}' \
     -H "Authorization: Bearer $UNAUTHORIZED_ACCESS_TOKEN_READ_PGHD" \
@@ -61,9 +62,9 @@ if [[ -n "${UNAUTHORIZED_ACCESS_TOKEN_READ_PGHD:-}" ]]; then
     fail "Unauthorized detail response leaked PGHD decryption material: $(cat /tmp/decmed_nf01_unauthorized_detail.out)"
   fi
 
-  pass "PGHD detail with token lacking active grant/keys is rejected with HTTP $unauthorized_detail_status and leaks no decryption material"
+  pass "Unauthorized hospital-to-PRE PGHD detail is rejected with HTTP $unauthorized_detail_status and leaks no decryption material"
 else
-  pass "UNAUTHORIZED_ACCESS_TOKEN_READ_PGHD is not set; optional active unauthorized personnel check skipped"
+  pass "UNAUTHORIZED_ACCESS_TOKEN_READ_PGHD is not set; optional active unauthorized personnel attack skipped"
 fi
 
 if [[ -n "${AUTHORIZED_ACCESS_TOKEN_READ_PGHD:-}" ]]; then
@@ -72,7 +73,7 @@ if [[ -n "${AUTHORIZED_ACCESS_TOKEN_READ_PGHD:-}" ]]; then
     "$PRE_BASE_URL/api/v1/pghd?patient_iota_address=$PATIENT_IOTA_ADDRESS" || true)"
 
   if [[ "$authorized_list_status" == "200" ]]; then
-    pass "PGHD list with active READ_PGHD token returns HTTP 200"
+    pass "Authorized hospital-to-PRE PGHD list with active READ_PGHD token returns HTTP 200"
   else
     fail "Expected authorized READ_PGHD token to read list, got HTTP $authorized_list_status: $(cat /tmp/decmed_nf01_authorized_list.out)"
   fi
