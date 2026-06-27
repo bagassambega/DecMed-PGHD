@@ -62,6 +62,12 @@
 		}
 	};
 
+	const closeSelectedPghd = () => {
+		selectedPghd = null;
+		selectedPghdIndex = null;
+		selectedPghdCid = null;
+	};
+
 	const refreshPghdList = async () => {
 		if (isRefreshingList) return;
 		isRefreshingList = true;
@@ -85,9 +91,7 @@
 			const success = await pghdReadState.invalidatePghd(invalidation.cid, invalidation.reason);
 			if (success) {
 				pendingInvalidation = null;
-				selectedPghd = null;
-				selectedPghdIndex = null;
-				selectedPghdCid = null;
+				closeSelectedPghd();
 			}
 		} finally {
 			invalidatingCid = null;
@@ -229,13 +233,20 @@
 </section>
 
 {#if selectedPghd}
-	<section class="mt-6">
+	<div class="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
+		<button
+			type="button"
+			class="absolute inset-0 cursor-default"
+			aria-label="Close PGHD detail"
+			disabled={invalidatingCid !== null}
+			onclick={closeSelectedPghd}
+		></button>
 		{#await selectedPghd}
-			<div class="bg-zinc-50 border border-zinc-200 rounded-md p-4 text-sm text-zinc-500">
+			<div class="relative w-full max-w-xl rounded-md border border-zinc-200 bg-white p-4 text-sm text-zinc-500 shadow-xl">
 				Opening and verifying PGHD...
 			</div>
 		{:then pghd}
-			<div class="border border-zinc-200 rounded-md bg-white">
+			<div class="relative max-h-[90vh] w-full max-w-6xl overflow-y-auto rounded-md border border-zinc-200 bg-white shadow-xl">
 				<div class="p-4 border-b border-zinc-200 flex items-start justify-between gap-4">
 					<div>
 						<div class="flex items-center gap-2">
@@ -293,11 +304,7 @@
 							type="button"
 							class="border border-zinc-300 px-3 py-1.5 rounded-md text-sm"
 							disabled={invalidatingCid !== null}
-							onclick={() => {
-								selectedPghd = null;
-								selectedPghdIndex = null;
-								selectedPghdCid = null;
-							}}
+							onclick={closeSelectedPghd}
 						>
 							Close
 						</button>
@@ -365,14 +372,23 @@
 				</div>
 			</div>
 		{:catch error}
-			<div class="bg-red-50 border border-red-200 rounded-md p-4 text-sm text-red-700 whitespace-pre-wrap">
+			<div class="relative w-full max-w-2xl rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700 whitespace-pre-wrap shadow-xl">
 				<p class="font-semibold">PGHD integrity/access warning</p>
 				<p class="mt-1">
 					{error?.message ?? 'PGHD could not be opened or failed verification.'}
 				</p>
+				<div class="mt-4 flex justify-end">
+					<button
+						type="button"
+						class="rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm text-red-700"
+						onclick={closeSelectedPghd}
+					>
+						Close
+					</button>
+				</div>
 			</div>
 		{/await}
-	</section>
+	</div>
 {/if}
 
 {#if pendingInvalidation}

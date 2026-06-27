@@ -78,10 +78,10 @@ case "$BUILD_MODE" in
       --rm \
       -p 8000:8000 \
       -e RUST_LOG=debug \
-      -e IOTA_URL="https://api.testnet.iota.cafe" \
-      -e IPFS_BASE_URL="http://103.107.4.68:9094/api/v0" \
-      -e IPFS_GATEWAY_BASE_URL="http://103.107.4.68:8080" \
-      -e GAS_STATION_BASE_URL="http://103.107.4.68:9527/v1" \
+      -e IOTA_URL="http://127.0.0.1:9000" \
+      -e IPFS_BASE_URL="http://127.0.0.1:9094/api/v0" \
+      -e IPFS_GATEWAY_BASE_URL="http://127.0.0.1:8080" \
+      -e GAS_STATION_BASE_URL="http://127.0.0.1:9528/v1" \
       decmed-proxy:minimal
     ;;
     

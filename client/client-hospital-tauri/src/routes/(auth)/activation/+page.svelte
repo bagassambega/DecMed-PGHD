@@ -74,7 +74,7 @@
 			<Label.Root
 				for="id"
 				class="font-medium text-sm after:content-['*'] after:text-red-500 p-2 border-b border-zinc-200"
-				>Credential ID</Label.Root
+				>CID / Credential ID</Label.Root
 			>
 			<input
 				type="text"
@@ -85,6 +85,9 @@
 				bind:value={$activationForm.id}
 				{...$activationFormConstrains.id}
 			/>
+			<p class="border-t border-zinc-200 bg-zinc-50 px-2 py-1 text-xs text-zinc-500">
+				Masukkan CID akun yang diberikan oleh ministry atau admin fasyankes.
+			</p>
 			{#if $activationFormErrors.id}
 				<span class="px-2 py-1 border-t border-zinc-200 text-xs font-medium text-red-500 bg-red-50"
 					>{$activationFormErrors.id[0]}</span
@@ -100,7 +103,7 @@
 			<Label.Root
 				for="activationKey"
 				class="font-medium text-sm after:content-['*'] after:text-red-500 p-2 border-b border-zinc-200"
-				>Key</Label.Root
+				>Activation Key</Label.Root
 			>
 			<input
 				type="text"
@@ -111,6 +114,9 @@
 				bind:value={$activationForm.activationKey}
 				{...$activationFormConstrains.activationKey}
 			/>
+			<p class="border-t border-zinc-200 bg-zinc-50 px-2 py-1 text-xs text-zinc-500">
+				Masukkan activation key untuk mengaktifkan akun sesuai CID di atas.
+			</p>
 			{#if $activationFormErrors.activationKey}
 				<span class="px-2 py-1 border-t border-zinc-200 text-xs font-medium text-red-500 bg-red-50"
 					>{$activationFormErrors.activationKey[0]}</span

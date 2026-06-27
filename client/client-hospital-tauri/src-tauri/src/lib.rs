@@ -29,9 +29,9 @@ use tauri::{async_runtime::Mutex, Manager};
 use types::{AppState, AuthState, DecmedPackage, KeysEntry, SignInState, SignUpState};
 
 const DEFAULT_GLOBAL_ADMIN_ADDRESS: &str =
-    "0xa180461e6345380399f36c8b62e5d68e68d71162d3fdc504eb257e04de2942b6";
+    "0x1806d6620d92b40c54332c63a42c4a6e5c024b6464fa1a0ef69ddb02539bed65";
 const DEFAULT_GLOBAL_ADMIN_KEY_PAIR: &str =
-    "iotaprivkey1qqcluvm6e8klj7pwx693sfx9zyk2rw3lshn4qdax8nez87zwcwc3vl475mr";
+    "iotaprivkey1qqj2p2yvd4g7gn43kvrg7wshevxlzt9vdxgljfarcajqu57kjdt8xjz6fge";
 
 fn env_or_default(keys: &[&str], default_value: &str) -> String {
     keys.iter()

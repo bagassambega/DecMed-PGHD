@@ -27,8 +27,8 @@ use crate::{
 };
 
 const DEFAULT_MINISTRY_ADMIN_ADDRESS: &str =
-    "0xa180461e6345380399f36c8b62e5d68e68d71162d3fdc504eb257e04de2942b6";
-const DEFAULT_MINISTRY_ADMIN_ALIAS: &str = "decmed-publisher-testnet";
+    "0x1806d6620d92b40c54332c63a42c4a6e5c024b6464fa1a0ef69ddb02539bed65";
+const DEFAULT_MINISTRY_ADMIN_ALIAS: &str = "decmed-publisher-campus";
 const DEFAULT_MINISTRY_PRE_SEED: &str = "sM5LRtjsf30Gsbmw7sWesgkdrAOzA9F6qMP8xrmXl1o=";
 
 fn export_iota_private_key(alias: &str) -> Option<String> {

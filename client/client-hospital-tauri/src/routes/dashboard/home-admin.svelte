@@ -142,23 +142,34 @@
 						class="flex flex-col p-2 border [&:not(:last-child)]:border-b-0 w-full border-zinc-200"
 					>
 						<div class="flex items-center justify-between gap-2">
-							<p class="text-zinc-400 text-sm">{personnel.id}</p>
+							<div class="min-w-0">
+								<p class="text-xs font-medium uppercase tracking-wide text-zinc-500">
+									CID personel fasyankes
+								</p>
+								<p class="break-all text-sm text-zinc-500">{personnel.id}</p>
+							</div>
 							<p
 								class="px-2 py-0.5 border border-zinc-200 bg-zinc-50 text-xs rounded-lg text-zinc-400"
 							>
 								{personnel.role}
 							</p>
 						</div>
-						<div class="flex items-center gap-2">
-							<button
-								onclick={() => {
-									navigator.clipboard.writeText(personnel.activation_key);
-								}}
-								class="cursor-pointer"
-							>
-								<Copy size={14} />
-							</button>
-							<p>{personnel.activation_key}</p>
+						<div class="mt-2 flex flex-col gap-1">
+							<p class="text-xs font-medium uppercase tracking-wide text-zinc-500">
+								Activation key personel
+							</p>
+							<div class="flex min-w-0 items-center gap-2">
+								<button
+									title="Copy activation key"
+									onclick={() => {
+										navigator.clipboard.writeText(personnel.activation_key);
+									}}
+									class="cursor-pointer"
+								>
+									<Copy size={14} />
+								</button>
+								<p class="break-all text-sm">{personnel.activation_key}</p>
+							</div>
 						</div>
 					</div>
 				{/each}
