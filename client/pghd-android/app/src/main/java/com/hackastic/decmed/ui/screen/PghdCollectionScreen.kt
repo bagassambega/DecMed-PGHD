@@ -6,7 +6,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Rect
 import android.net.Uri
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
@@ -87,6 +86,9 @@ import com.hackastic.decmed.data.local.entity.PghdRecordEntity
 import com.hackastic.decmed.data.repository.StoredPghdAccessGrant
 import com.hackastic.decmed.data.pghd.PghdInputSanitizer
 import com.hackastic.decmed.ui.components.PghdDateRangeFilter
+import com.hackastic.decmed.ui.components.InteractiveProcessToastHost
+import com.hackastic.decmed.ui.components.ProcessToastEvent
+import com.hackastic.decmed.ui.components.ProcessToastKind
 import com.hackastic.decmed.ui.components.toPghdSourceDisplayLabel
 import com.hackastic.decmed.viewmodel.PatientGrantAccessKind
 import com.hackastic.decmed.viewmodel.PghdCollectionViewModel
@@ -121,7 +123,6 @@ fun PghdCollectionScreen(
     bottomBar: @Composable () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val context = LocalContext.current
     var showManualDialog by rememberSaveable { mutableStateOf(false) }
     var showGrantAccessDialog by rememberSaveable { mutableStateOf(false) }
     var showRevokeAccessDialog by rememberSaveable { mutableStateOf(false) }
@@ -138,19 +139,14 @@ fun PghdCollectionScreen(
         viewModel.refreshHealthConnectState()
     }
 
-    LaunchedEffect(uiState.errorMessage, uiState.lastSyncMessage) {
-        uiState.errorMessage?.let {
-            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
-            viewModel.clearMessages()
-            return@LaunchedEffect
-        }
-        uiState.lastSyncMessage?.let {
-            Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
-            viewModel.clearMessages()
-        }
+    val processToastEvent = uiState.errorMessage?.let {
+        ProcessToastEvent(ProcessToastKind.Failure, it)
+    } ?: uiState.lastSyncMessage?.let {
+        ProcessToastEvent(ProcessToastKind.Success, it)
     }
 
-    Scaffold(
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("PGHD Collection") },
@@ -274,6 +270,12 @@ fun PghdCollectionScreen(
                 }
             }
         }
+        }
+        InteractiveProcessToastHost(
+            event = processToastEvent,
+            onEventConsumed = viewModel::clearMessages,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
     }
 
     if (showManualDialog) {

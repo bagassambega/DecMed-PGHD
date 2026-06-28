@@ -1,7 +1,7 @@
 package com.hackastic.decmed.ui.screen
 
-import android.widget.Toast
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -33,13 +33,21 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.hackastic.decmed.ui.components.InteractiveProcessToastHost
+import com.hackastic.decmed.ui.components.ProcessToastEvent
+import com.hackastic.decmed.ui.components.ProcessToastKind
 import com.hackastic.decmed.ui.theme.ThemeMode
 import com.hackastic.decmed.viewmodel.ThemeViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Settings screen with two sections:
@@ -56,9 +64,11 @@ fun SettingsScreen(
     bottomBar: @Composable () -> Unit = {}
 ) {
     val currentTheme by themeViewModel.themeMode.collectAsState()
-    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    var localToastEvent by remember { mutableStateOf<ProcessToastEvent?>(null) }
 
-    Scaffold(
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Settings") },
@@ -108,7 +118,7 @@ fun SettingsScreen(
                         isSelected = currentTheme == ThemeMode.SYSTEM,
                         onClick = {
                             themeViewModel.setThemeMode(ThemeMode.SYSTEM)
-                            Toast.makeText(context, "Theme set to system default.", Toast.LENGTH_SHORT).show()
+                            localToastEvent = ProcessToastEvent(ProcessToastKind.Info, "Theme set to system default.")
                         }
                     )
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
@@ -119,7 +129,7 @@ fun SettingsScreen(
                         isSelected = currentTheme == ThemeMode.LIGHT,
                         onClick = {
                             themeViewModel.setThemeMode(ThemeMode.LIGHT)
-                            Toast.makeText(context, "Light theme enabled.", Toast.LENGTH_SHORT).show()
+                            localToastEvent = ProcessToastEvent(ProcessToastKind.Info, "Light theme enabled.")
                         }
                     )
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
@@ -130,7 +140,7 @@ fun SettingsScreen(
                         isSelected = currentTheme == ThemeMode.DARK,
                         onClick = {
                             themeViewModel.setThemeMode(ThemeMode.DARK)
-                            Toast.makeText(context, "Dark theme enabled.", Toast.LENGTH_SHORT).show()
+                            localToastEvent = ProcessToastEvent(ProcessToastKind.Info, "Dark theme enabled.")
                         }
                     )
                 }
@@ -151,8 +161,11 @@ fun SettingsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable {
-                        Toast.makeText(context, "Opening sensor configuration.", Toast.LENGTH_SHORT).show()
-                        onNavigateToSensorConfig()
+                        localToastEvent = ProcessToastEvent(ProcessToastKind.Info, "Opening sensor configuration.")
+                        coroutineScope.launch {
+                            delay(SETTINGS_NAVIGATION_DELAY_MS)
+                            onNavigateToSensorConfig()
+                        }
                     },
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant
@@ -198,8 +211,11 @@ fun SettingsScreen(
             Button(
                 modifier = Modifier.fillMaxWidth(),
                 onClick = {
-                    Toast.makeText(context, "Logging out patient session.", Toast.LENGTH_SHORT).show()
-                    onLogout()
+                    localToastEvent = ProcessToastEvent(ProcessToastKind.Info, "Logging out patient session.")
+                    coroutineScope.launch {
+                        delay(SETTINGS_NAVIGATION_DELAY_MS)
+                        onLogout()
+                    }
                 }
             ) {
                 Icon(
@@ -210,8 +226,16 @@ fun SettingsScreen(
                 Text("Logout")
             }
         }
+        }
+        InteractiveProcessToastHost(
+            event = localToastEvent,
+            onEventConsumed = { localToastEvent = null },
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
     }
 }
+
+private const val SETTINGS_NAVIGATION_DELAY_MS = 800L
 
 @Composable
 private fun ThemeOption(

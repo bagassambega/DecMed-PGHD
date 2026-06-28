@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -60,6 +59,9 @@ import androidx.health.connect.client.PermissionController
 import com.hackastic.decmed.data.local.entity.PghdBatchEntity
 import com.hackastic.decmed.data.local.entity.PghdRecordEntity
 import com.hackastic.decmed.data.remote.service.SensorCollectionService
+import com.hackastic.decmed.ui.components.InteractiveProcessToastHost
+import com.hackastic.decmed.ui.components.ProcessToastEvent
+import com.hackastic.decmed.ui.components.ProcessToastKind
 import com.hackastic.decmed.ui.components.toPghdSourceDisplayLabel
 import com.hackastic.decmed.utils.DecmedLog
 import com.hackastic.decmed.viewmodel.PghdCollectionViewModel
@@ -89,16 +91,23 @@ fun HomeScreen(
     }
     var showPermissionExplanation by remember { mutableStateOf(false) }
     var pendingPermissionItems by remember { mutableStateOf<List<String>>(emptyList()) }
+    var localToastEvent by remember { mutableStateOf<ProcessToastEvent?>(null) }
     val startCollectionIfPossible = {
         val selectedConfig = viewModel.getApprovedCollectionConfig()
         if (selectedConfig.isEmpty()) {
-            Toast.makeText(context, "Enable at least one phone sensor before collecting PGHD.", Toast.LENGTH_LONG).show()
+            localToastEvent = ProcessToastEvent(
+                kind = ProcessToastKind.Failure,
+                detail = "Enable at least one phone sensor before collecting PGHD."
+            )
         } else {
             startCollection(context, selectedConfig)
             viewModel.markCollectionRunning(true)
             PghdWorkScheduler.scheduleCollectionWork(context)
             PghdWorkScheduler.scheduleHealthConnectSyncNow(context)
-            Toast.makeText(context, "PGHD collection started.", Toast.LENGTH_SHORT).show()
+            localToastEvent = ProcessToastEvent(
+                kind = ProcessToastKind.Success,
+                detail = "PGHD collection started.\n\nSensors enabled: ${selectedConfig.size}\nHealth Connect sync: scheduled now\nBackground collection work: scheduled"
+            )
         }
     }
     val healthConnectPermissionLauncher = rememberLauncherForActivityResult(
@@ -119,58 +128,62 @@ fun HomeScreen(
                 startCollectionIfPossible()
             }
         } else {
-            Toast.makeText(context, "Sensor permissions are required before automatic PGHD collection.", Toast.LENGTH_LONG).show()
+            localToastEvent = ProcessToastEvent(
+                kind = ProcessToastKind.Failure,
+                detail = "Sensor permissions are required before automatic PGHD collection.\n\nMissing permissions: ${missing.joinToString()}"
+            )
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("DecMed PGHD") },
-                actions = {
-                    IconButton(onClick = onNavigateToPghdCollection) {
-                        Icon(
-                            imageVector = Icons.Default.HealthAndSafety,
-                            contentDescription = "PGHD Collection"
-                        )
-                    }
-                    IconButton(onClick = onNavigateToData) {
-                        Icon(
-                            imageVector = Icons.Default.Analytics,
-                            contentDescription = "View Data"
-                        )
-                    }
-                    IconButton(onClick = onNavigateToSettings) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Settings"
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("DecMed PGHD") },
+                    actions = {
+                        IconButton(onClick = onNavigateToPghdCollection) {
+                            Icon(
+                                imageVector = Icons.Default.HealthAndSafety,
+                                contentDescription = "PGHD Collection"
+                            )
+                        }
+                        IconButton(onClick = onNavigateToData) {
+                            Icon(
+                                imageVector = Icons.Default.Analytics,
+                                contentDescription = "View Data"
+                            )
+                        }
+                        IconButton(onClick = onNavigateToSettings) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Settings"
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
                 )
-            )
-        },
-        bottomBar = bottomBar
-    ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 20.dp),
-            contentPadding = PaddingValues(vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item {
-                CollectionStatusCard(
-                    isCollecting = uiState.isCollecting,
-                    approvedSensorCount = approvedSensorCount,
-                    totalRecordCount = pghdUiState.totalCount,
-                    pendingBatchCount = pghdUiState.batches.count { it.status != PghdBatchEntity.STATUS_SENT },
-                    onConfigureSensors = onNavigateToSettings
-                )
-            }
+            },
+            bottomBar = bottomBar
+        ) { paddingValues ->
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(horizontal = 20.dp),
+                contentPadding = PaddingValues(vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item {
+                    CollectionStatusCard(
+                        isCollecting = uiState.isCollecting,
+                        approvedSensorCount = approvedSensorCount,
+                        totalRecordCount = pghdUiState.totalCount,
+                        pendingBatchCount = pghdUiState.batches.count { it.status != PghdBatchEntity.STATUS_SENT },
+                        onConfigureSensors = onNavigateToSettings
+                    )
+                }
 
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -203,7 +216,10 @@ fun HomeScreen(
                             stopCollection(context)
                             viewModel.markCollectionRunning(false)
                             PghdWorkScheduler.cancelCollectionWork(context)
-                            Toast.makeText(context, "PGHD collection stopped.", Toast.LENGTH_SHORT).show()
+                            localToastEvent = ProcessToastEvent(
+                                kind = ProcessToastKind.Success,
+                                detail = "PGHD collection stopped.\n\nSensor foreground service: stopped\nBackground collection work: cancelled"
+                            )
                         }
                     ) {
                         Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -247,6 +263,12 @@ fun HomeScreen(
                 }
             }
         }
+        }
+        InteractiveProcessToastHost(
+            event = localToastEvent,
+            onEventConsumed = { localToastEvent = null },
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
     }
 
     if (showPermissionExplanation) {

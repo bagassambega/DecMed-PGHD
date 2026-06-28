@@ -41,21 +41,25 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.RoundedCornerShape
-import android.widget.Toast
 import com.hackastic.decmed.domain.model.patient.PatientProfile
+import com.hackastic.decmed.ui.components.InteractiveProcessToastHost
+import com.hackastic.decmed.ui.components.ProcessToastEvent
+import com.hackastic.decmed.ui.components.ProcessToastKind
 import com.hackastic.decmed.viewmodel.PatientAuthViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneOffset
 
@@ -115,12 +119,13 @@ fun PatientSignupScreen(
     onBack: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     var pin by rememberSaveable { mutableStateOf("") }
     var confirmPin by rememberSaveable { mutableStateOf("") }
     var seedWords by rememberSaveable { mutableStateOf("") }
     var nik by rememberSaveable { mutableStateOf("") }
     var formError by rememberSaveable { mutableStateOf<String?>(null) }
+    var localToastEvent by remember { mutableStateOf<ProcessToastEvent?>(null) }
 
     LaunchedEffect(uiState.generatedSeedWords) {
         if (uiState.generatedSeedWords.isNotBlank()) {
@@ -133,7 +138,9 @@ fun PatientSignupScreen(
         isBusy = uiState.isBusy,
         errorMessage = uiState.errorMessage,
         onDismissError = viewModel::clearError,
-        onBack = onBack
+        onBack = onBack,
+        toastEvent = localToastEvent,
+        onToastEventConsumed = { localToastEvent = null }
     ) {
         PinFields(
             pin = pin,
@@ -172,11 +179,17 @@ fun PatientSignupScreen(
                 formError = validateMatchingPin(pin, confirmPin)
                 if (formError == null) {
                     viewModel.signUp(pin, seedWords, nik) {
-                        Toast.makeText(context, "Patient registration successful.", Toast.LENGTH_SHORT).show()
-                        onCompleted()
+                        localToastEvent = ProcessToastEvent(
+                            ProcessToastKind.Success,
+                            "Patient registration successful.\n\nThe patient identity has been created and stored for this session."
+                        )
+                        coroutineScope.launch {
+                            delay(AUTH_SUCCESS_NAVIGATION_DELAY_MS)
+                            onCompleted()
+                        }
                     }
                 } else {
-                    Toast.makeText(context, formError, Toast.LENGTH_LONG).show()
+                    localToastEvent = ProcessToastEvent(ProcessToastKind.Failure, formError.orEmpty())
                 }
             }
         ) {
@@ -193,19 +206,22 @@ fun PatientSigninScreen(
     onBack: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     var pin by rememberSaveable { mutableStateOf("") }
     var confirmPin by rememberSaveable { mutableStateOf("") }
     var seedWords by rememberSaveable { mutableStateOf("") }
     var nik by rememberSaveable { mutableStateOf("") }
     var formError by rememberSaveable { mutableStateOf<String?>(null) }
+    var localToastEvent by remember { mutableStateOf<ProcessToastEvent?>(null) }
 
     PatientAuthFormScaffold(
         title = "Recover Patient Account",
         isBusy = uiState.isBusy,
         errorMessage = uiState.errorMessage,
         onDismissError = viewModel::clearError,
-        onBack = onBack
+        onBack = onBack,
+        toastEvent = localToastEvent,
+        onToastEventConsumed = { localToastEvent = null }
     ) {
         PinFields(
             pin = pin,
@@ -232,11 +248,17 @@ fun PatientSigninScreen(
                 formError = validateMatchingPin(pin, confirmPin)
                 if (formError == null) {
                     viewModel.signIn(pin, seedWords, nik) {
-                        Toast.makeText(context, "Patient login successful.", Toast.LENGTH_SHORT).show()
-                        onCompleted()
+                        localToastEvent = ProcessToastEvent(
+                            ProcessToastKind.Success,
+                            "Patient login successful.\n\nThe patient identity has been recovered and unlocked."
+                        )
+                        coroutineScope.launch {
+                            delay(AUTH_SUCCESS_NAVIGATION_DELAY_MS)
+                            onCompleted()
+                        }
                     }
                 } else {
-                    Toast.makeText(context, formError, Toast.LENGTH_LONG).show()
+                    localToastEvent = ProcessToastEvent(ProcessToastKind.Failure, formError.orEmpty())
                 }
             }
         ) {
@@ -253,7 +275,7 @@ fun PatientCompleteProfileScreen(
     onCompleted: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     var name by rememberSaveable { mutableStateOf("") }
     var birthPlace by rememberSaveable { mutableStateOf("") }
     var dateOfBirth by rememberSaveable { mutableStateOf("") }
@@ -262,13 +284,16 @@ fun PatientCompleteProfileScreen(
     var education by rememberSaveable { mutableStateOf("") }
     var occupation by rememberSaveable { mutableStateOf("") }
     var maritalStatus by rememberSaveable { mutableStateOf("") }
+    var localToastEvent by remember { mutableStateOf<ProcessToastEvent?>(null) }
 
     PatientAuthFormScaffold(
         title = "Complete Profile",
         isBusy = uiState.isBusy,
         errorMessage = uiState.errorMessage,
         onDismissError = viewModel::clearError,
-        onBack = null
+        onBack = null,
+        toastEvent = localToastEvent,
+        onToastEventConsumed = { localToastEvent = null }
     ) {
         SimpleTextField("Name", name) { name = it }
         SimpleTextField("Birth place", birthPlace) { birthPlace = it }
@@ -296,8 +321,14 @@ fun PatientCompleteProfileScreen(
                         maritalStatus = maritalStatus
                     ),
                 ) {
-                    Toast.makeText(context, "Patient profile saved.", Toast.LENGTH_SHORT).show()
-                    onCompleted()
+                    localToastEvent = ProcessToastEvent(
+                        ProcessToastKind.Success,
+                        "Patient profile saved.\n\nProfile metadata has been stored for the active patient session."
+                    )
+                    coroutineScope.launch {
+                        delay(AUTH_SUCCESS_NAVIGATION_DELAY_MS)
+                        onCompleted()
+                    }
                 }
             }
         ) {
@@ -313,15 +344,18 @@ fun PatientUnlockScreen(
     onUnlocked: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     var pin by rememberSaveable { mutableStateOf("") }
+    var localToastEvent by remember { mutableStateOf<ProcessToastEvent?>(null) }
 
     PatientAuthFormScaffold(
         title = "Unlock Patient Session",
         isBusy = uiState.isBusy,
         errorMessage = uiState.errorMessage,
         onDismissError = viewModel::clearError,
-        onBack = null
+        onBack = null,
+        toastEvent = localToastEvent,
+        onToastEventConsumed = { localToastEvent = null }
     ) {
         SixDigitPinField(
             label = "PIN",
@@ -334,8 +368,14 @@ fun PatientUnlockScreen(
             enabled = !uiState.isBusy && pin.length == PIN_LENGTH,
             onClick = {
                 viewModel.unlock(pin) {
-                    Toast.makeText(context, "Patient session unlocked.", Toast.LENGTH_SHORT).show()
-                    onUnlocked()
+                    localToastEvent = ProcessToastEvent(
+                        ProcessToastKind.Success,
+                        "Patient session unlocked.\n\nThe stored patient identity is ready for PGHD collection."
+                    )
+                    coroutineScope.launch {
+                        delay(AUTH_SUCCESS_NAVIGATION_DELAY_MS)
+                        onUnlocked()
+                    }
                 }
             }
         ) {
@@ -375,55 +415,64 @@ private fun PatientAuthFormScaffold(
     errorMessage: String?,
     onDismissError: () -> Unit,
     onBack: (() -> Unit)?,
+    toastEvent: ProcessToastEvent? = null,
+    onToastEventConsumed: () -> Unit = {},
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val context = LocalContext.current
+    val processToastEvent = errorMessage?.let {
+        ProcessToastEvent(ProcessToastKind.Failure, it)
+    } ?: toastEvent
 
-    LaunchedEffect(errorMessage) {
-        if (errorMessage != null) {
-            Toast.makeText(context, errorMessage, Toast.LENGTH_LONG).show()
-            onDismissError()
-        }
-    }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(title) },
-                navigationIcon = {
-                    if (onBack != null) {
-                        OutlinedButton(
-                            modifier = Modifier.padding(start = 8.dp),
-                            onClick = onBack
-                        ) {
-                            Text("Back")
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text(title) },
+                    navigationIcon = {
+                        if (onBack != null) {
+                            OutlinedButton(
+                                modifier = Modifier.padding(start = 8.dp),
+                                onClick = onBack
+                            ) {
+                                Text("Back")
+                            }
                         }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
                 )
-            )
-        }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .verticalScroll(rememberScrollState())
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            if (isBusy) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    CircularProgressIndicator()
-                }
             }
-            content()
+        ) { paddingValues ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (isBusy) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
+                content()
+            }
         }
+        InteractiveProcessToastHost(
+            event = processToastEvent,
+            onEventConsumed = {
+                if (errorMessage != null) {
+                    onDismissError()
+                }
+                onToastEventConsumed()
+            },
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
     }
 }
 
@@ -632,3 +681,4 @@ private fun validateMatchingPin(pin: String, confirmPin: String): String? {
 }
 
 private const val PIN_LENGTH = 6
+private const val AUTH_SUCCESS_NAVIGATION_DELAY_MS = 1_200L

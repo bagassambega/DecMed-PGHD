@@ -1,7 +1,7 @@
 package com.hackastic.decmed.ui.screen
 
-import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,7 +26,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,9 +33,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.hackastic.decmed.ui.components.InteractiveProcessToastHost
+import com.hackastic.decmed.ui.components.ProcessToastEvent
+import com.hackastic.decmed.ui.components.ProcessToastKind
 import com.hackastic.decmed.viewmodel.SensorViewModel
 
 @Composable
@@ -45,31 +46,26 @@ fun SensorConfigScreen(
     onConfigSaved: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val context = LocalContext.current
     val allEnabled = uiState.sensorConfigs.isNotEmpty() && uiState.sensorConfigs.all { it.isApproved }
+    var localToastEvent by remember { mutableStateOf<ProcessToastEvent?>(null) }
+    val processToastEvent = uiState.errorMessage?.let {
+        ProcessToastEvent(ProcessToastKind.Failure, it)
+    } ?: uiState.lastMessage?.let {
+        val kind = if (it.contains("saved", ignoreCase = true)) ProcessToastKind.Success else ProcessToastKind.Info
+        ProcessToastEvent(kind, it)
+    } ?: localToastEvent
 
-    LaunchedEffect(uiState.errorMessage, uiState.lastMessage) {
-        uiState.errorMessage?.let {
-            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
-            viewModel.clearMessages()
-            return@LaunchedEffect
-        }
-        uiState.lastMessage?.let {
-            Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
-            viewModel.clearMessages()
-        }
-    }
-
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 16.dp)
+    Box(modifier = Modifier.fillMaxSize()) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .padding(horizontal = 20.dp, vertical = 16.dp)
+            ) {
             Text(
                 text = "Configure Data Collection",
                 style = MaterialTheme.typography.headlineMedium,
@@ -246,8 +242,8 @@ fun SensorConfigScreen(
 
             Button(
                 onClick = {
+                    localToastEvent = ProcessToastEvent(ProcessToastKind.Info, "Saving sensor configuration.")
                     viewModel.saveConfiguration()
-                    Toast.makeText(context, "Saving sensor configuration.", Toast.LENGTH_SHORT).show()
                     onConfigSaved()
                 },
                 modifier = Modifier
@@ -257,6 +253,15 @@ fun SensorConfigScreen(
                 Text("Save Configuration")
             }
         }
+        }
+        InteractiveProcessToastHost(
+            event = processToastEvent,
+            onEventConsumed = {
+                localToastEvent = null
+                viewModel.clearMessages()
+            },
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
     }
 }
 
