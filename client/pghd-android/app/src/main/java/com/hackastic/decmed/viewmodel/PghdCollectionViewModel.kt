@@ -9,8 +9,9 @@ import com.hackastic.decmed.MainApplication
 import com.hackastic.decmed.data.health.HealthConnectPghdClient
 import com.hackastic.decmed.data.local.entity.PghdBatchEntity
 import com.hackastic.decmed.data.local.entity.PghdRecordEntity
+import com.hackastic.decmed.data.remote.PghdActiveAccessGrant
+import com.hackastic.decmed.data.remote.PreHttpException
 import com.hackastic.decmed.data.repository.PghdCollectionState
-import com.hackastic.decmed.data.repository.StoredPghdAccessGrant
 import com.hackastic.decmed.data.pghd.PghdPayloadConverter
 import com.hackastic.decmed.data.pghd.PghdPayloadSerializer
 import com.hackastic.decmed.domain.model.pghd.PghdBatchPayload
@@ -50,11 +51,12 @@ data class PghdCollectionUiState(
     val submittingBatchId: String? = null,
     val isGrantingAccess: Boolean = false,
     val isRevokingAccess: Boolean = false,
+    val isRefreshingAccessGrants: Boolean = false,
     val lastSyncMessage: String? = null,
     val errorMessage: String? = null,
     val healthConnectSourcePackages: List<String> = emptyList(),
     val hasDetectedXiaomiSource: Boolean = false,
-    val activeAccessGrants: List<StoredPghdAccessGrant> = emptyList(),
+    val activeAccessGrants: List<PghdActiveAccessGrant> = emptyList(),
     val activeCollectionWindow: ActivePghdCollectionWindow? = null
 )
 
@@ -98,7 +100,6 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
         observeBatches()
         observeRecordTypes()
         observeHealthConnectSourcePackages()
-        observeAccessGrants()
         refreshHealthConnectState()
         refreshTotalCount()
     }
@@ -107,16 +108,6 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
         viewModelScope.launch {
             runCatching { pghdBatchRepository.normalizeBatchStatuses() }
                 .onFailure { DecmedLog.e(TAG, "Failed to normalize PGHD batch statuses", it) }
-        }
-    }
-
-    private fun observeAccessGrants() {
-        viewModelScope.launch {
-            pghdAccessGrantRepository.grants.collectLatest { grants ->
-                _uiState.update { state ->
-                    state.copy(activeAccessGrants = grants.filter { it.isActive })
-                }
-            }
         }
     }
 
@@ -498,6 +489,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                         errorMessage = null
                     )
                 }
+                refreshActiveAccessGrants()
             } catch (err: Exception) {
                 DecmedLog.e(TAG, "Failed to grant $accessKind access to $hospitalPersonnelIotaAddress", err)
                 _uiState.update {
@@ -509,7 +501,30 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    fun revokeAccess(grant: StoredPghdAccessGrant) {
+    fun refreshActiveAccessGrants() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isRefreshingAccessGrants = true, errorMessage = null) }
+            try {
+                val patientProfile = patientAuthRepository.getUnlockedProfile()
+                val activeGrants = prePghdClient.getActiveAccessGrants(patientProfile)
+                _uiState.update {
+                    it.copy(
+                        activeAccessGrants = activeGrants,
+                        errorMessage = null
+                    )
+                }
+            } catch (err: Exception) {
+                DecmedLog.e(TAG, "Failed to refresh active PGHD access grants from IOTA", err)
+                _uiState.update {
+                    it.copy(errorMessage = err.toVerboseUserMessage("Unable to load active access grants from IOTA."))
+                }
+            } finally {
+                _uiState.update { it.copy(isRefreshingAccessGrants = false) }
+            }
+        }
+    }
+
+    fun revokeAccess(grant: PghdActiveAccessGrant) {
         viewModelScope.launch {
             _uiState.update { it.copy(isRevokingAccess = true, errorMessage = null, lastSyncMessage = null) }
             try {
@@ -526,7 +541,7 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                     accessLogIndex = firstAccessLogIndex,
                     purpose = grant.accessKind.reencryptionPurpose
                 )
-                pghdAccessGrantRepository.markRevoked(grant.id, java.time.Instant.now().toString())
+                refreshActiveAccessGrants()
                 _uiState.update {
                     it.copy(
                         lastSyncMessage = "Revoked ${grant.accessKind.displayLabel} for ${result.hospitalPersonnelIotaAddress}.",
@@ -792,13 +807,42 @@ private fun estimatePghdPayloadBytes(records: List<PghdRecordEntity>): Long =
 
 private fun Throwable.toVerboseUserMessage(prefix: String): String {
     val chain = generateSequence(this as Throwable?) { it.cause }
-        .mapIndexed { index, throwable ->
-            val type = throwable::class.java.simpleName.ifBlank { throwable::class.java.name }
-            val message = throwable.message?.takeIf { it.isNotBlank() } ?: "(no message)"
-            if (index == 0) "$type: $message" else "caused by $index: $type: $message"
+        .toList()
+    val responseException = chain.filterIsInstance<PreHttpException>().firstOrNull()
+    val root = chain.lastOrNull() ?: this
+    val detail = buildString {
+        appendLine(prefix)
+        appendLine()
+        appendLine("Error detail")
+        appendLine("- Type: ${this@toVerboseUserMessage::class.java.simpleName.ifBlank { this@toVerboseUserMessage::class.java.name }}")
+        appendLine("- Message: ${this@toVerboseUserMessage.message?.takeIf { it.isNotBlank() } ?: "(no message)"}")
+        if (root !== this@toVerboseUserMessage) {
+            appendLine("- Root cause: ${root::class.java.simpleName}: ${root.message ?: "(no message)"}")
         }
-        .joinToString(separator = "\n")
-    return "$prefix\n$chain"
+        appendLine()
+        appendLine("Error response")
+        if (responseException != null) {
+            appendLine("- HTTP status: ${responseException.statusCode}")
+            appendLine("- URL: ${responseException.url}")
+            appendLine("Body:")
+            appendLine(responseException.responseBody.ifBlank { "(empty response body)" })
+        } else {
+            appendLine("(No HTTP error response was attached to this failure.)")
+        }
+        appendLine()
+        appendLine("Trace")
+        appendLine(
+            chain.mapIndexed { index, throwable ->
+                val type = throwable::class.java.simpleName.ifBlank { throwable::class.java.name }
+                val message = throwable.message?.takeIf { it.isNotBlank() } ?: "(no message)"
+                if (index == 0) "$type: $message" else "caused by $index: $type: $message"
+            }.joinToString(separator = "\n")
+        )
+        appendLine()
+        appendLine("Stack trace")
+        append(this@toVerboseUserMessage.stackTraceToString())
+    }
+    return detail.trimEnd()
 }
 
 enum class PatientGrantAccessKind(val displayLabel: String) {

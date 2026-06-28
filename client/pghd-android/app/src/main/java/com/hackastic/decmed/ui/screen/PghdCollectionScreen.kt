@@ -83,7 +83,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.health.connect.client.PermissionController
 import com.hackastic.decmed.data.local.entity.PghdRecordEntity
-import com.hackastic.decmed.data.repository.StoredPghdAccessGrant
+import com.hackastic.decmed.data.remote.PghdActiveAccessGrant
 import com.hackastic.decmed.data.pghd.PghdInputSanitizer
 import com.hackastic.decmed.ui.components.PghdDateRangeFilter
 import com.hackastic.decmed.ui.components.InteractiveProcessToastHost
@@ -109,6 +109,7 @@ import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
+import java.util.Base64
 import java.util.Date
 import java.util.EnumMap
 import java.util.Locale
@@ -201,6 +202,7 @@ fun PghdCollectionScreen(
                     isSubmitting = uiState.isSubmitting,
                     isGrantingAccess = uiState.isGrantingAccess,
                     isRevokingAccess = uiState.isRevokingAccess,
+                    isRefreshingAccessGrants = uiState.isRefreshingAccessGrants,
                     healthConnectStatusMessage = uiState.healthConnectStatusMessage,
                     message = uiState.lastSyncMessage,
                     error = uiState.errorMessage,
@@ -211,7 +213,10 @@ fun PghdCollectionScreen(
                     onSync = viewModel::syncFromHealthConnect,
                     onSubmit = viewModel::submitDisplayedPghd,
                     onGrantAccess = { showGrantAccessDialog = true },
-                    onRevokeAccess = { showRevokeAccessDialog = true }
+                    onRevokeAccess = {
+                        showRevokeAccessDialog = true
+                        viewModel.refreshActiveAccessGrants()
+                    }
                 )
             }
 
@@ -302,6 +307,7 @@ fun PghdCollectionScreen(
     if (showRevokeAccessDialog) {
         RevokePghdAccessDialog(
             isRevoking = uiState.isRevokingAccess,
+            isRefreshing = uiState.isRefreshingAccessGrants,
             activeGrants = uiState.activeAccessGrants,
             dateFormatter = dateFormatter,
             onDismiss = { showRevokeAccessDialog = false },
@@ -346,6 +352,7 @@ private fun HealthConnectSummaryCard(
     isSubmitting: Boolean,
     isGrantingAccess: Boolean,
     isRevokingAccess: Boolean,
+    isRefreshingAccessGrants: Boolean,
     healthConnectStatusMessage: String,
     message: String?,
     error: String?,
@@ -365,6 +372,7 @@ private fun HealthConnectSummaryCard(
         isSubmitting -> "Submitting encrypted PGHD..."
         isGrantingAccess -> "Granting access..."
         isRevokingAccess -> "Revoking access..."
+        isRefreshingAccessGrants -> "Loading active access grants..."
         else -> null
     }
     val isBusy = activeOperation != null
@@ -532,16 +540,21 @@ private fun GrantPghdAccessDialog(
     val context = LocalContext.current
     var personnelAddress by rememberSaveable { mutableStateOf("") }
     var personnelPrePublicKey by rememberSaveable { mutableStateOf("") }
+    var personnelName by rememberSaveable { mutableStateOf("") }
+    var hospitalName by rememberSaveable { mutableStateOf("") }
     var selectedAccessKind by rememberSaveable { mutableStateOf(PatientGrantAccessKind.PGHD_READ) }
     var scanError by rememberSaveable { mutableStateOf<String?>(null) }
     var showLiveScanner by rememberSaveable { mutableStateOf(false) }
+    var confirmationCandidate by remember { mutableStateOf<HospitalPersonnelGrantCandidate?>(null) }
     val applyQrContent: (String) -> Unit = { content ->
         val decoded = decodeHospitalPersonnelQrPayload(content)
         if (decoded == null) {
             scanError = "Invalid personnel QR. Scan the QR shown on the personnel profile."
         } else {
-            personnelAddress = decoded.first
-            personnelPrePublicKey = decoded.second
+            personnelAddress = decoded.iotaAddress
+            personnelPrePublicKey = decoded.prePublicKey
+            personnelName = decoded.name.orEmpty()
+            hospitalName = decoded.hospitalName.orEmpty()
             scanError = null
         }
     }
@@ -579,7 +592,15 @@ private fun GrantPghdAccessDialog(
         confirmButton = {
             Button(
                 enabled = !isGranting && personnelAddress.isNotBlank() && personnelPrePublicKey.isNotBlank(),
-                onClick = { onGrant(personnelAddress, personnelPrePublicKey, selectedAccessKind) }
+                onClick = {
+                    confirmationCandidate = HospitalPersonnelGrantCandidate(
+                        iotaAddress = personnelAddress.trim(),
+                        prePublicKey = personnelPrePublicKey.trim(),
+                        name = personnelName.trim().ifBlank { null },
+                        hospitalName = hospitalName.trim().ifBlank { null },
+                        accessKind = selectedAccessKind
+                    )
+                }
             ) {
                 if (isGranting) SmallButtonProgress()
                 Text(if (isGranting) "Granting" else "Grant")
@@ -663,6 +684,20 @@ private fun GrantPghdAccessDialog(
                     onValueChange = { personnelPrePublicKey = it },
                     label = { Text("Personnel PRE public key") }
                 )
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = personnelName,
+                    onValueChange = { personnelName = it },
+                    label = { Text("Personnel name") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = hospitalName,
+                    onValueChange = { hospitalName = it },
+                    label = { Text("Hospital / facility") },
+                    singleLine = true
+                )
             }
         }
     )
@@ -676,6 +711,64 @@ private fun GrantPghdAccessDialog(
             }
         )
     }
+
+    confirmationCandidate?.let { candidate ->
+        ConfirmPersonnelAccessDialog(
+            candidate = candidate,
+            isGranting = isGranting,
+            onDismiss = { confirmationCandidate = null },
+            onApprove = {
+                onGrant(candidate.iotaAddress, candidate.prePublicKey, candidate.accessKind)
+                confirmationCandidate = null
+            }
+        )
+    }
+}
+
+private data class HospitalPersonnelGrantCandidate(
+    val iotaAddress: String,
+    val prePublicKey: String,
+    val name: String?,
+    val hospitalName: String?,
+    val accessKind: PatientGrantAccessKind
+)
+
+@Composable
+private fun ConfirmPersonnelAccessDialog(
+    candidate: HospitalPersonnelGrantCandidate,
+    isGranting: Boolean,
+    onDismiss: () -> Unit,
+    onApprove: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            Button(enabled = !isGranting, onClick = onApprove) {
+                if (isGranting) SmallButtonProgress()
+                Text(if (isGranting) "Granting" else "Allow")
+            }
+        },
+        dismissButton = {
+            OutlinedButton(enabled = !isGranting, onClick = onDismiss) {
+                Text("Deny")
+            }
+        },
+        title = { Text("Confirm Personnel Identity") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                IdentityLine("Name", candidate.name ?: "Not provided by QR")
+                IdentityLine("Facility", candidate.hospitalName ?: "Not provided by QR")
+                IdentityLine("Access", candidate.accessKind.displayLabel)
+                IdentityLine("IOTA address", candidate.iotaAddress)
+                IdentityLine("PRE public key", candidate.prePublicKey)
+                Text(
+                    text = "Approve only if this identity matches the healthcare personnel in front of you.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    )
 }
 
 @Composable
@@ -777,7 +870,14 @@ private fun QrScannerDialog(
     )
 }
 
-internal fun decodeHospitalPersonnelQrPayload(content: String): Pair<String, String>? {
+internal data class HospitalPersonnelQrPayload(
+    val iotaAddress: String,
+    val prePublicKey: String,
+    val name: String? = null,
+    val hospitalName: String? = null
+)
+
+internal fun decodeHospitalPersonnelQrPayload(content: String): HospitalPersonnelQrPayload? {
     val normalized = content
         .replace("\uFEFF", "")
         .replace("\u200B", "")
@@ -799,7 +899,10 @@ internal fun decodeHospitalPersonnelQrPayload(content: String): Pair<String, Str
         val address = candidate.substring(0, separatorIndex).filterNot(Char::isWhitespace)
         val prePublicKey = candidate.substring(separatorIndex + 1).filterNot(Char::isWhitespace)
         if (address.isNotBlank() && prePublicKey.isNotBlank()) {
-            return address to prePublicKey
+            return HospitalPersonnelQrPayload(
+                iotaAddress = address,
+                prePublicKey = prePublicKey
+            )
         }
     }
     return null
@@ -817,7 +920,7 @@ private fun decodeQrUriParameters(content: String): List<String> = runCatching {
     }
 }.getOrDefault(emptyList())
 
-private fun decodeHospitalPersonnelJson(content: String): Pair<String, String>? = runCatching {
+private fun decodeHospitalPersonnelJson(content: String): HospitalPersonnelQrPayload? = runCatching {
     val json = JSONObject(content)
     val objects = buildList {
         add(json)
@@ -839,8 +942,24 @@ private fun decodeHospitalPersonnelJson(content: String): Pair<String, String>? 
             .ifBlank { value.optString("pghdPrePublicKey") }
             .ifBlank { value.optString("pghd_pre_public_key") }
             .filterNot(Char::isWhitespace)
+        val name = value.optString("name")
+            .ifBlank { value.optString("full_name") }
+            .ifBlank { value.optString("fullName") }
+            .ifBlank { value.optString("nama") }
+            .ifBlank { null }
+        val hospitalName = value.optString("hospitalName")
+            .ifBlank { value.optString("hospital_name") }
+            .ifBlank { value.optString("facilityName") }
+            .ifBlank { value.optString("facility_name") }
+            .ifBlank { value.optString("fasyankes") }
+            .ifBlank { null }
         if (address.isNotBlank() && prePublicKey.isNotBlank()) {
-            address to prePublicKey
+            HospitalPersonnelQrPayload(
+                iotaAddress = address,
+                prePublicKey = prePublicKey,
+                name = name,
+                hospitalName = hospitalName
+            )
         } else {
             null
         }
@@ -850,10 +969,11 @@ private fun decodeHospitalPersonnelJson(content: String): Pair<String, String>? 
 @Composable
 private fun RevokePghdAccessDialog(
     isRevoking: Boolean,
-    activeGrants: List<StoredPghdAccessGrant>,
+    isRefreshing: Boolean,
+    activeGrants: List<PghdActiveAccessGrant>,
     dateFormatter: SimpleDateFormat,
     onDismiss: () -> Unit,
-    onRevoke: (StoredPghdAccessGrant) -> Unit
+    onRevoke: (PghdActiveAccessGrant) -> Unit
 ) {
     var selectedGrantId by remember(activeGrants) {
         mutableStateOf(activeGrants.firstOrNull()?.id)
@@ -864,7 +984,7 @@ private fun RevokePghdAccessDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
             Button(
-                enabled = !isRevoking && selectedGrant != null,
+                enabled = !isRevoking && !isRefreshing && selectedGrant != null,
                 onClick = { selectedGrant?.let(onRevoke) }
             ) {
                 if (isRevoking) SmallButtonProgress()
@@ -872,7 +992,7 @@ private fun RevokePghdAccessDialog(
             }
         },
         dismissButton = {
-            OutlinedButton(enabled = !isRevoking, onClick = onDismiss) {
+            OutlinedButton(enabled = !isRevoking && !isRefreshing, onClick = onDismiss) {
                 Text("Cancel")
             }
         },
@@ -883,13 +1003,25 @@ private fun RevokePghdAccessDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = "Select an active access grant. The app will use the matching on-chain access log automatically.",
+                    text = "Select an active access grant loaded from IOTA. Grants past their expiration time are hidden.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                if (activeGrants.isEmpty()) {
+                if (isRefreshing) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text(
+                            text = "Loading active access grants from IOTA...",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else if (activeGrants.isEmpty()) {
                     Text(
-                        text = "No active access grants saved on this device yet. Grant access from this app first before revoking it here.",
+                        text = "No active access grants were found on IOTA for this patient.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -918,12 +1050,26 @@ private fun RevokePghdAccessDialog(
                                     verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Text(
-                                        text = grant.accessKind.displayLabel,
+                                        text = "${grant.accessKind.displayLabel} - entries ${grant.accessLogIndexes.joinToString { "#$it" }}",
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold
                                     )
+                                    grant.hospitalPersonnelName?.let { name ->
+                                        Text(
+                                            text = name,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                    grant.hospitalName?.let { hospital ->
+                                        Text(
+                                            text = hospital,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                     Text(
-                                        text = "Personnel: ${grant.hospitalPersonnelIotaAddress}",
+                                        text = "Address: ${grant.hospitalPersonnelIotaAddress}",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -933,7 +1079,7 @@ private fun RevokePghdAccessDialog(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Text(
-                                        text = "Access entries: ${grant.accessLogIndexes.joinToString { "#$it" }}",
+                                        text = "Expires: ${grant.expiresAt?.let { formatIsoDate(it, dateFormatter) } ?: "Unknown"}",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -1379,6 +1525,23 @@ private fun DetailLine(label: String, value: String) {
     Column {
         Text(label, style = MaterialTheme.typography.labelMedium)
         Text(value, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun IdentityLine(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 

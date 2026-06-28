@@ -6,6 +6,7 @@ import com.hackastic.decmed.domain.model.pghd.PghdSubmitResult
 import com.hackastic.decmed.crypto.DecmedCryptoNative
 import com.hackastic.decmed.iota.DecmedIotaNative
 import com.hackastic.decmed.utils.DecmedLog
+import com.hackastic.decmed.viewmodel.PatientGrantAccessKind
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -14,6 +15,7 @@ import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.Base64
 
 class PrePghdClient(private val baseUrl: String) {
@@ -242,6 +244,45 @@ class PrePghdClient(private val baseUrl: String) {
         )
     }
 
+    suspend fun getActiveAccessGrants(profile: PatientProfile): List<PghdActiveAccessGrant> = withContext(Dispatchers.IO) {
+        val patientIotaAddress = profile.iotaAddress.requireField("iota_address")
+        val now = Instant.now()
+        val activeLogs = readRecentAccessLogs(patientIotaAddress)
+            .filter { log -> !log.isRevoked && log.expiresAt()?.isAfter(now) == true }
+
+        buildList {
+            activeLogs
+                .filter { log ->
+                    log.accessDataTypes.any { it.equals("Pghd", ignoreCase = true) } &&
+                        log.accessType.equals("Read", ignoreCase = true)
+                }
+                .forEach { log ->
+                    add(
+                        log.toActiveAccessGrant(
+                            accessKind = PatientGrantAccessKind.PGHD_READ,
+                            accessLogIndexes = listOf(log.index)
+                        )
+                    )
+                }
+
+            activeLogs
+                .filter { log -> log.accessDataTypes.any { it.equals("Medical", ignoreCase = true) } }
+                .groupBy { log -> log.hospitalPersonnelAddress.lowercase() }
+                .values
+                .forEach { logs ->
+                    val read = logs.firstOrNull { it.accessType.equals("Read", ignoreCase = true) }
+                    val update = logs.firstOrNull { it.accessType.equals("Update", ignoreCase = true) }
+                    val primary = read ?: update ?: return@forEach
+                    add(
+                        primary.toActiveAccessGrant(
+                            accessKind = PatientGrantAccessKind.MEDICAL_RECORD_READ_UPDATE,
+                            accessLogIndexes = listOfNotNull(read?.index, update?.index).distinct()
+                        )
+                    )
+                }
+        }.sortedByDescending { it.grantedAt }
+    }
+
     private fun resolveActiveAccessLogIndexes(
         patientIotaAddress: String,
         hospitalPersonnelIotaAddress: String,
@@ -325,10 +366,15 @@ class PrePghdClient(private val baseUrl: String) {
         OutputStreamWriter(connection.outputStream).use { it.write(body.toString()) }
         val responseCode = connection.responseCode
         if (connection.responseCode !in 200..299) {
-            val message = connection.errorStream?.bufferedReader()?.use { it.readText() }
-            val errorMessage = "PRE sync failed: HTTP $responseCode from $url${message?.let { " - $it" }.orEmpty()}"
-            DecmedLog.e(TAG, "$errorMessage\nRequest body: ${body.toString(2)}")
-            error(errorMessage)
+            val responseBody = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            val errorMessage = "PRE sync failed: HTTP $responseCode from $url"
+            DecmedLog.e(TAG, "$errorMessage\nResponse body: $responseBody\nRequest body: ${body.toString(2)}")
+            throw PreHttpException(
+                statusCode = responseCode,
+                url = url,
+                responseBody = responseBody,
+                detail = errorMessage
+            )
         }
         val response = connection.inputStream.bufferedReader().use { it.readText() }
         DecmedLog.i(TAG, "PRE response HTTP $responseCode from $url\nResponse body: $response")
@@ -337,6 +383,52 @@ class PrePghdClient(private val baseUrl: String) {
 
     private fun String?.requireField(name: String): String =
         require(!isNullOrBlank()) { "Missing patient $name." }.let { this!! }
+
+    private fun com.hackastic.decmed.iota.IotaPatientAccessLog.expiresAt(): Instant? =
+        runCatching { Instant.parse(date).plus(expDur, ChronoUnit.MINUTES) }.getOrNull()
+
+    private fun com.hackastic.decmed.iota.IotaPatientAccessLog.toActiveAccessGrant(
+        accessKind: PatientGrantAccessKind,
+        accessLogIndexes: List<Long>
+    ): PghdActiveAccessGrant {
+        val personnelName = decodePersonnelName(hospitalPersonnelMetadata)
+        return PghdActiveAccessGrant(
+            id = "iota-${accessKind.name}-${accessLogIndexes.joinToString("-")}",
+            hospitalPersonnelIotaAddress = hospitalPersonnelAddress,
+            hospitalPersonnelName = personnelName,
+            hospitalName = hospitalName.ifBlank { null },
+            accessKind = accessKind,
+            accessLogIndexes = accessLogIndexes,
+            grantedAt = date,
+            expiresAt = expiresAt()?.toString()
+        )
+    }
+
+    private fun decodePersonnelName(raw: String): String? {
+        if (raw.isBlank()) return null
+        return decodePersonnelNameFromJson(raw)
+            ?: runCatching {
+                val decoded = String(Base64.getDecoder().decode(raw), Charsets.UTF_8)
+                decodePersonnelNameFromJson(decoded)
+            }.getOrNull()
+    }
+
+    private fun decodePersonnelNameFromJson(raw: String): String? = runCatching {
+        val json = JSONObject(raw)
+        val objects = buildList {
+            add(json)
+            listOf("data", "payload", "public_metadata", "publicMetadata", "personnel").forEach { key ->
+                json.optJSONObject(key)?.let(::add)
+            }
+        }
+        objects.firstNotNullOfOrNull { item ->
+            item.optString("name")
+                .ifBlank { item.optString("full_name") }
+                .ifBlank { item.optString("fullName") }
+                .ifBlank { item.optString("nama") }
+                .ifBlank { null }
+        }
+    }.getOrNull()
 }
 
 private const val TAG = "PrePghdClient"
@@ -350,3 +442,21 @@ data class PghdAccessRevokeResult(
     val hospitalPersonnelIotaAddress: String,
     val accessLogIndexes: List<Long>
 )
+
+data class PghdActiveAccessGrant(
+    val id: String,
+    val hospitalPersonnelIotaAddress: String,
+    val hospitalPersonnelName: String?,
+    val hospitalName: String?,
+    val accessKind: PatientGrantAccessKind,
+    val accessLogIndexes: List<Long>,
+    val grantedAt: String,
+    val expiresAt: String?
+)
+
+class PreHttpException(
+    val statusCode: Int,
+    val url: String,
+    val responseBody: String,
+    detail: String
+) : IllegalStateException(detail)
