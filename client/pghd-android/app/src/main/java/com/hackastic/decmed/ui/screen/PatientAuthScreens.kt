@@ -709,35 +709,53 @@ private fun copySeedWordsToClipboard(
 
 @Composable
 private fun NikField(value: String, onValueChange: (String) -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFieldFocused by interactionSource.collectIsFocusedAsState()
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
+        Text(
+            text = "NIK (16 digits)",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        BasicTextField(
             modifier = Modifier.fillMaxWidth(),
             value = value,
             onValueChange = { text -> onValueChange(text.filter(Char::isDigit).take(NIK_LENGTH)) },
-            label = { Text("NIK (16 digits)") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             singleLine = true,
-            isError = value.isNotEmpty() && value.length != NIK_LENGTH,
-            supportingText = {
-                Text("${value.length}/$NIK_LENGTH digits")
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            cursorBrush = SolidColor(Color.Transparent),
+            interactionSource = interactionSource,
+            textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.Transparent),
+            decorationBox = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    repeat(NIK_GROUP_COUNT) { groupIndex ->
+                        val start = groupIndex * NIK_GROUP_SIZE
+                        val groupValue = value.drop(start).take(NIK_GROUP_SIZE)
+                        val isActive = isFieldFocused && (
+                            value.length in start until (start + NIK_GROUP_SIZE) ||
+                                (value.length == NIK_LENGTH && groupIndex == NIK_GROUP_COUNT - 1)
+                            )
+                        NikDigitGroup(
+                            modifier = Modifier.weight(1f),
+                            value = groupValue,
+                            isActive = isActive
+                        )
+                    }
+                }
             }
         )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            repeat(NIK_GROUP_COUNT) { groupIndex ->
-                val start = groupIndex * NIK_GROUP_SIZE
-                val groupValue = value.drop(start).take(NIK_GROUP_SIZE)
-                val isActive = value.length in start until (start + NIK_GROUP_SIZE) ||
-                    (value.length == NIK_LENGTH && groupIndex == NIK_GROUP_COUNT - 1)
-                NikDigitGroup(
-                    modifier = Modifier.weight(1f),
-                    value = groupValue,
-                    isActive = isActive
-                )
+        Text(
+            text = "${value.length}/$NIK_LENGTH digits",
+            style = MaterialTheme.typography.labelSmall,
+            color = if (value.isNotEmpty() && value.length != NIK_LENGTH) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
             }
-        }
+        )
     }
 }
 
