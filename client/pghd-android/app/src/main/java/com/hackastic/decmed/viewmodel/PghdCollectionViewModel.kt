@@ -15,7 +15,10 @@ import com.hackastic.decmed.data.repository.PghdCollectionState
 import com.hackastic.decmed.data.pghd.PghdPayloadConverter
 import com.hackastic.decmed.data.pghd.PghdPayloadSerializer
 import com.hackastic.decmed.domain.model.pghd.PghdBatchPayload
+import com.hackastic.decmed.iota.DecmedIotaNative
+import com.hackastic.decmed.worker.PghdBatchCreationGuard
 import com.hackastic.decmed.worker.PghdWorkScheduler
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -26,6 +29,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Instant
 
 data class PghdCollectionUiState(
@@ -287,8 +291,11 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
 
     fun submitDisplayedPghd() {
         viewModelScope.launch {
-            val recordsToSubmit = uiState.value.records
-            if (recordsToSubmit.isEmpty()) {
+            val displayedRecordIds = uiState.value.records
+                .filter { it.batchId == null }
+                .map { it.uid }
+                .toSet()
+            if (displayedRecordIds.isEmpty()) {
                 DecmedLog.w(TAG, "Submit displayed PGHD skipped: no records")
                 _uiState.update { it.copy(errorMessage = "No PGHD records are available to submit.") }
                 return@launch
@@ -296,11 +303,32 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
 
             _uiState.update { it.copy(isSubmitting = true, errorMessage = null, lastSyncMessage = null) }
             try {
-                DecmedLog.i(TAG, "Submitting displayed PGHD records: count=${recordsToSubmit.size}")
                 val patientProfile = patientAuthRepository.getUnlockedProfile()
-                val result = pghdBatchRepository.createEncryptAndSubmitBatch(
-                    records = recordsToSubmit,
-                    patientProfile = patientProfile
+                prePghdClient.pushRegistration(patientProfile)
+                val batch = PghdBatchCreationGuard.withLock {
+                    val recordsToSubmit = pghdRepository.getUnbatchedRecords()
+                        .filter { it.uid in displayedRecordIds }
+                    if (recordsToSubmit.isEmpty()) return@withLock null
+
+                    DecmedLog.i(TAG, "Submitting displayed PGHD records: count=${recordsToSubmit.size}")
+                    pghdBatchRepository.createEncryptedBatch(
+                        records = recordsToSubmit,
+                        patientProfile = patientProfile,
+                        triggerReason = PghdBatchPayload.TRIGGER_MANUAL_SUBMIT
+                    ).also { batch ->
+                        pghdRepository.markRecordsBatched(recordsToSubmit.map { it.uid }, batch.batchId)
+                    }
+                }
+                if (batch == null) {
+                    DecmedLog.w(TAG, "Submit displayed PGHD skipped: displayed records were already batched")
+                    _uiState.update {
+                        it.copy(errorMessage = "The selected PGHD records have already been added to another batch.")
+                    }
+                    return@launch
+                }
+                val result = pghdBatchRepository.submitBatch(
+                    batchId = batch.batchId,
+                    submitTriggerReason = PghdBatchEntity.TRIGGER_MANUAL_SUBMIT
                 )
                 if (!result.accepted) {
                     PghdWorkScheduler.scheduleSubmitWhenConnected(getApplication())
@@ -385,34 +413,38 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                 )
             }
             try {
-                val collectionState = pghdCollectionStateRepository.state.first()
-                val records = pghdRepository.getActiveWindowUnbatchedRecords(collectionState)
-                if (records.isEmpty()) {
+                val patientProfile = patientAuthRepository.getUnlockedProfile()
+                prePghdClient.pushRegistration(patientProfile)
+                val batch = PghdBatchCreationGuard.withLock {
+                    val collectionState = pghdCollectionStateRepository.state.first()
+                    val records = pghdRepository.getActiveWindowUnbatchedRecords(collectionState)
+                    if (records.isEmpty()) return@withLock null
+
+                    DecmedLog.i(TAG, "Submitting active PGHD collection: count=${records.size}")
+                    val collectionEndedAt = if (collectionState.enabled) {
+                        System.currentTimeMillis()
+                    } else {
+                        collectionState.stoppedAtEpochMillis ?: System.currentTimeMillis()
+                    }
+                    pghdBatchRepository.createEncryptedBatch(
+                        records = records,
+                        patientProfile = patientProfile,
+                        collectionStartedAtEpochMillis = collectionState.startedAtEpochMillis,
+                        collectionEndedAtEpochMillis = collectionEndedAt,
+                        triggerReason = PghdBatchPayload.TRIGGER_MANUAL_SUBMIT
+                    ).also { batch ->
+                        pghdRepository.markRecordsBatched(records.map { it.uid }, batch.batchId)
+                        if (collectionState.enabled) {
+                            pghdCollectionStateRepository.restartWindow(collectionEndedAt)
+                        }
+                    }
+                }
+                if (batch == null) {
                     DecmedLog.w(TAG, "Submit active PGHD collection skipped: no unbatched records")
                     _uiState.update {
                         it.copy(errorMessage = "No active PGHD collection is available to send.")
                     }
                     return@launch
-                }
-
-                DecmedLog.i(TAG, "Submitting active PGHD collection: count=${records.size}")
-                val patientProfile = patientAuthRepository.getUnlockedProfile()
-                prePghdClient.pushRegistration(patientProfile)
-                val collectionEndedAt = if (collectionState.enabled) {
-                    System.currentTimeMillis()
-                } else {
-                    collectionState.stoppedAtEpochMillis ?: System.currentTimeMillis()
-                }
-                val batch = pghdBatchRepository.createEncryptedBatch(
-                    records = records,
-                    patientProfile = patientProfile,
-                    collectionStartedAtEpochMillis = collectionState.startedAtEpochMillis,
-                    collectionEndedAtEpochMillis = collectionEndedAt,
-                    triggerReason = PghdBatchPayload.TRIGGER_MANUAL_SUBMIT
-                )
-                pghdRepository.markRecordsBatched(records.map { it.uid }, batch.batchId)
-                if (collectionState.enabled) {
-                    pghdCollectionStateRepository.restartWindow(collectionEndedAt)
                 }
                 val result = pghdBatchRepository.submitBatch(
                     batchId = batch.batchId,
@@ -499,6 +531,23 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                 _uiState.update { it.copy(isGrantingAccess = false) }
             }
         }
+    }
+
+    suspend fun lookupHospitalPersonnelIdentity(
+        hospitalPersonnelIotaAddress: String
+    ): HospitalPersonnelIdentity = withContext(Dispatchers.IO) {
+        val patientProfile = patientAuthRepository.getUnlockedProfile()
+        val patientIotaAddress = patientProfile.iotaAddress.requireNonBlank("patient IOTA address")
+        val info = DecmedIotaNative.getHospitalPersonnelInfo(
+            hospitalPersonnelAddress = hospitalPersonnelIotaAddress.trim(),
+            senderAddress = patientIotaAddress
+        )
+        HospitalPersonnelIdentity(
+            iotaAddress = hospitalPersonnelIotaAddress.trim(),
+            displayName = info.displayName,
+            hospitalName = info.hospitalName.ifBlank { null },
+            publicMetadata = info.publicMetadata.ifBlank { null }
+        )
     }
 
     fun refreshActiveAccessGrants() {
@@ -844,6 +893,16 @@ private fun Throwable.toVerboseUserMessage(prefix: String): String {
     }
     return detail.trimEnd()
 }
+
+data class HospitalPersonnelIdentity(
+    val iotaAddress: String,
+    val displayName: String?,
+    val hospitalName: String?,
+    val publicMetadata: String?
+)
+
+private fun String?.requireNonBlank(label: String): String =
+    require(!isNullOrBlank()) { "Missing $label." }.let { this!! }
 
 enum class PatientGrantAccessKind(val displayLabel: String) {
     PGHD_READ("PGHD read access"),

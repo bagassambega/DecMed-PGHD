@@ -137,6 +137,12 @@ pub struct AndroidPatientAccessLog {
     pub is_revoked: bool,
 }
 
+#[derive(Debug, Serialize)]
+pub struct AndroidHospitalPersonnelInfo {
+    pub public_metadata: String,
+    pub hospital_name: String,
+}
+
 pub fn derive_iota_identity(
     seed_words: &str,
     patient_id: &str,
@@ -263,6 +269,36 @@ pub async fn get_patient_access_logs(
         )
         .await?;
     parse_move_read_only_result(response, 0)
+}
+
+pub async fn get_hospital_personnel_info(
+    config: AndroidIotaConfig,
+    hospital_personnel_address: String,
+    sender_address: String,
+) -> anyhow::Result<AndroidHospitalPersonnelInfo> {
+    let hospital_personnel_address = IotaAddress::from_str(&hospital_personnel_address)
+        .context("invalid hospital personnel address")?;
+    let sender = IotaAddress::from_str(&sender_address).context("invalid sender address")?;
+    let package = AndroidMovePackage::from_config(config)?;
+    let response = package
+        .read_patient_call(
+            "get_hospital_personnel_info",
+            vec![
+                package.address_id_arg(false),
+                package.hospital_id_metadata_arg(false)?,
+                CallArg::Pure(
+                    bcs::to_bytes(&hospital_personnel_address)
+                        .context("serialize hospital personnel address")?,
+                ),
+                package.hospital_personnel_id_account_arg(false)?,
+            ],
+            sender,
+        )
+        .await?;
+    Ok(AndroidHospitalPersonnelInfo {
+        public_metadata: parse_move_read_only_result(response.clone(), 0)?,
+        hospital_name: parse_move_read_only_result(response, 1)?,
+    })
 }
 
 pub async fn create_pghd_access(
@@ -915,6 +951,26 @@ pub extern "system" fn Java_com_hackastic_decmed_iota_DecmedIotaNative_getPatien
             config,
             cursor as u64,
             size as u64,
+            sender_address,
+        ))
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_hackastic_decmed_iota_DecmedIotaNative_getHospitalPersonnelInfoJson(
+    env: JNIEnv,
+    _class: JClass,
+    config: JString,
+    hospital_personnel_address: JString,
+    sender_address: JString,
+) -> jstring {
+    jni_result(env, |env| {
+        let config = parse_config(&jstring_to_string(env, config)?)?;
+        let hospital_personnel_address = jstring_to_string(env, hospital_personnel_address)?;
+        let sender_address = jstring_to_string(env, sender_address)?;
+        block_on(get_hospital_personnel_info(
+            config,
+            hospital_personnel_address,
             sender_address,
         ))
     })

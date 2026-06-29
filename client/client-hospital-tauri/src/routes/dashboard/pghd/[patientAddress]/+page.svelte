@@ -149,7 +149,8 @@
 <div class="flex items-start justify-between gap-4 mb-4">
 	<div>
 		<h2 class="text-lg font-montserrat font-semibold">Patient Generated Health Data</h2>
-		<p class="text-sm text-zinc-500">Patient: {data.patientIotaAddress}</p>
+		<p class="text-sm text-zinc-700">Patient: {data.patientName}</p>
+		<p class="text-xs text-zinc-500 break-all">{data.patientIotaAddress}</p>
 	</div>
 	<div class="flex gap-2">
 		<button
@@ -192,6 +193,7 @@
 											Pending verification
 										</span>
 									</div>
+									<p class="text-sm text-zinc-700">Patient: {data.patientName}</p>
 									<p class="text-sm text-zinc-500 truncate">CID: {item.cid}</p>
 									<p class="text-sm text-zinc-500">Recorded: {formatDate(item.timestamp)}</p>
 								</div>

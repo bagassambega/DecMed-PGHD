@@ -90,6 +90,7 @@ import com.hackastic.decmed.ui.components.InteractiveProcessToastHost
 import com.hackastic.decmed.ui.components.ProcessToastEvent
 import com.hackastic.decmed.ui.components.ProcessToastKind
 import com.hackastic.decmed.ui.components.toPghdSourceDisplayLabel
+import com.hackastic.decmed.viewmodel.HospitalPersonnelIdentity
 import com.hackastic.decmed.viewmodel.PatientGrantAccessKind
 import com.hackastic.decmed.viewmodel.PghdCollectionViewModel
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
@@ -109,7 +110,6 @@ import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
-import java.util.Base64
 import java.util.Date
 import java.util.EnumMap
 import java.util.Locale
@@ -296,6 +296,7 @@ fun PghdCollectionScreen(
     if (showGrantAccessDialog) {
         GrantPghdAccessDialog(
             isGranting = uiState.isGrantingAccess,
+            lookupPersonnelIdentity = viewModel::lookupHospitalPersonnelIdentity,
             onDismiss = { showGrantAccessDialog = false },
             onGrant = { personnelAddress, personnelPrePublicKey, accessKind ->
                 viewModel.grantAccess(personnelAddress, personnelPrePublicKey, accessKind)
@@ -534,14 +535,13 @@ private fun SmallButtonProgress() {
 @Composable
 private fun GrantPghdAccessDialog(
     isGranting: Boolean,
+    lookupPersonnelIdentity: suspend (String) -> HospitalPersonnelIdentity,
     onDismiss: () -> Unit,
     onGrant: (String, String, PatientGrantAccessKind) -> Unit
 ) {
     val context = LocalContext.current
     var personnelAddress by rememberSaveable { mutableStateOf("") }
     var personnelPrePublicKey by rememberSaveable { mutableStateOf("") }
-    var personnelName by rememberSaveable { mutableStateOf("") }
-    var hospitalName by rememberSaveable { mutableStateOf("") }
     var selectedAccessKind by rememberSaveable { mutableStateOf(PatientGrantAccessKind.PGHD_READ) }
     var scanError by rememberSaveable { mutableStateOf<String?>(null) }
     var showLiveScanner by rememberSaveable { mutableStateOf(false) }
@@ -553,8 +553,6 @@ private fun GrantPghdAccessDialog(
         } else {
             personnelAddress = decoded.iotaAddress
             personnelPrePublicKey = decoded.prePublicKey
-            personnelName = decoded.name.orEmpty()
-            hospitalName = decoded.hospitalName.orEmpty()
             scanError = null
         }
     }
@@ -596,8 +594,6 @@ private fun GrantPghdAccessDialog(
                     confirmationCandidate = HospitalPersonnelGrantCandidate(
                         iotaAddress = personnelAddress.trim(),
                         prePublicKey = personnelPrePublicKey.trim(),
-                        name = personnelName.trim().ifBlank { null },
-                        hospitalName = hospitalName.trim().ifBlank { null },
                         accessKind = selectedAccessKind
                     )
                 }
@@ -684,20 +680,6 @@ private fun GrantPghdAccessDialog(
                     onValueChange = { personnelPrePublicKey = it },
                     label = { Text("Personnel PRE public key") }
                 )
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = personnelName,
-                    onValueChange = { personnelName = it },
-                    label = { Text("Personnel name") },
-                    singleLine = true
-                )
-                OutlinedTextField(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = hospitalName,
-                    onValueChange = { hospitalName = it },
-                    label = { Text("Hospital / facility") },
-                    singleLine = true
-                )
             }
         }
     )
@@ -716,6 +698,7 @@ private fun GrantPghdAccessDialog(
         ConfirmPersonnelAccessDialog(
             candidate = candidate,
             isGranting = isGranting,
+            lookupPersonnelIdentity = lookupPersonnelIdentity,
             onDismiss = { confirmationCandidate = null },
             onApprove = {
                 onGrant(candidate.iotaAddress, candidate.prePublicKey, candidate.accessKind)
@@ -728,8 +711,6 @@ private fun GrantPghdAccessDialog(
 private data class HospitalPersonnelGrantCandidate(
     val iotaAddress: String,
     val prePublicKey: String,
-    val name: String?,
-    val hospitalName: String?,
     val accessKind: PatientGrantAccessKind
 )
 
@@ -737,13 +718,33 @@ private data class HospitalPersonnelGrantCandidate(
 private fun ConfirmPersonnelAccessDialog(
     candidate: HospitalPersonnelGrantCandidate,
     isGranting: Boolean,
+    lookupPersonnelIdentity: suspend (String) -> HospitalPersonnelIdentity,
     onDismiss: () -> Unit,
     onApprove: () -> Unit
 ) {
+    var isLookingUp by remember(candidate.iotaAddress) { mutableStateOf(true) }
+    var lookupError by remember(candidate.iotaAddress) { mutableStateOf<String?>(null) }
+    var identity by remember(candidate.iotaAddress) { mutableStateOf<HospitalPersonnelIdentity?>(null) }
+
+    LaunchedEffect(candidate.iotaAddress) {
+        isLookingUp = true
+        lookupError = null
+        identity = null
+        runCatching { lookupPersonnelIdentity(candidate.iotaAddress) }
+            .onSuccess {
+                identity = it
+                isLookingUp = false
+            }
+            .onFailure {
+                lookupError = it.message ?: "Unable to load personnel identity from IOTA."
+                isLookingUp = false
+            }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
-            Button(enabled = !isGranting, onClick = onApprove) {
+            Button(enabled = !isGranting && identity != null, onClick = onApprove) {
                 if (isGranting) SmallButtonProgress()
                 Text(if (isGranting) "Granting" else "Allow")
             }
@@ -756,13 +757,40 @@ private fun ConfirmPersonnelAccessDialog(
         title = { Text("Confirm Personnel Identity") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                IdentityLine("Name", candidate.name ?: "Not provided by QR")
-                IdentityLine("Facility", candidate.hospitalName ?: "Not provided by QR")
+                when {
+                    isLookingUp -> {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Text(
+                                text = "Loading personnel identity from IOTA...",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    lookupError != null -> {
+                        Text(
+                            text = "Unable to verify personnel identity from IOTA.\n\n$lookupError",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    identity != null -> {
+                        IdentityLine("Name", identity?.displayName ?: "Not provided on IOTA")
+                        IdentityLine("Facility", identity?.hospitalName ?: "Not provided on IOTA")
+                        identity?.publicMetadata?.let {
+                            IdentityLine("IOTA public metadata", it)
+                        }
+                    }
+                }
                 IdentityLine("Access", candidate.accessKind.displayLabel)
                 IdentityLine("IOTA address", candidate.iotaAddress)
                 IdentityLine("PRE public key", candidate.prePublicKey)
                 Text(
-                    text = "Approve only if this identity matches the healthcare personnel in front of you.",
+                    text = "Approve only if the identity loaded from IOTA matches the healthcare personnel in front of you.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -872,9 +900,7 @@ private fun QrScannerDialog(
 
 internal data class HospitalPersonnelQrPayload(
     val iotaAddress: String,
-    val prePublicKey: String,
-    val name: String? = null,
-    val hospitalName: String? = null
+    val prePublicKey: String
 )
 
 internal fun decodeHospitalPersonnelQrPayload(content: String): HospitalPersonnelQrPayload? {
@@ -942,23 +968,10 @@ private fun decodeHospitalPersonnelJson(content: String): HospitalPersonnelQrPay
             .ifBlank { value.optString("pghdPrePublicKey") }
             .ifBlank { value.optString("pghd_pre_public_key") }
             .filterNot(Char::isWhitespace)
-        val name = value.optString("name")
-            .ifBlank { value.optString("full_name") }
-            .ifBlank { value.optString("fullName") }
-            .ifBlank { value.optString("nama") }
-            .ifBlank { null }
-        val hospitalName = value.optString("hospitalName")
-            .ifBlank { value.optString("hospital_name") }
-            .ifBlank { value.optString("facilityName") }
-            .ifBlank { value.optString("facility_name") }
-            .ifBlank { value.optString("fasyankes") }
-            .ifBlank { null }
         if (address.isNotBlank() && prePublicKey.isNotBlank()) {
             HospitalPersonnelQrPayload(
                 iotaAddress = address,
-                prePublicKey = prePublicKey,
-                name = name,
-                hospitalName = hospitalName
+                prePublicKey = prePublicKey
             )
         } else {
             null

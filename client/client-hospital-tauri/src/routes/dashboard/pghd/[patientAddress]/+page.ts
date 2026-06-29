@@ -6,6 +6,7 @@ export const load: PageLoad = async ({ parent, params, url }) => {
 
 	const patientIotaAddress = params.patientAddress;
 	const accessToken = url.searchParams.get('accessToken');
+	const patientName = url.searchParams.get('patientName') ?? patientIotaAddress;
 
 	if (!accessToken) {
 		return error(404);
@@ -13,6 +14,7 @@ export const load: PageLoad = async ({ parent, params, url }) => {
 
 	return {
 		accessToken,
+		patientName,
 		patientIotaAddress
 	};
 };

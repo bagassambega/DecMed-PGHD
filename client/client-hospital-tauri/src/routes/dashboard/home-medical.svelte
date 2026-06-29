@@ -54,7 +54,7 @@
 						{/if}
 						{#if access.accessDataTypes.includes('Pghd')}
 						<a
-							href={`/dashboard/pghd/${access.patientIotaAddress}?accessToken=${access.accessToken}`}
+							href={`/dashboard/pghd/${access.patientIotaAddress}?accessToken=${access.accessToken}&patientName=${encodeURIComponent(access.patientName)}`}
 							class="p-2 [&:not(:last-child)]:border-b border-zinc-200 flex items-center gap-2"
 						>
 							<div

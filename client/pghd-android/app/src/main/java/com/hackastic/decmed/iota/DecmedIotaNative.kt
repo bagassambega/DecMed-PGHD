@@ -6,6 +6,7 @@ import com.hackastic.decmed.utils.DecmedLog
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
+import java.util.Base64
 
 object DecmedIotaNative {
     private val loadError: Throwable? = runCatching {
@@ -27,6 +28,11 @@ object DecmedIotaNative {
     external fun ensureRegisteredJson(config: String, senderAddress: String): String
     external fun getPghdPublicKeyJson(config: String, patientAddress: String, senderAddress: String): String
     external fun getPatientAccessLogsJson(config: String, cursor: Long, size: Long, senderAddress: String): String
+    external fun getHospitalPersonnelInfoJson(
+        config: String,
+        hospitalPersonnelAddress: String,
+        senderAddress: String
+    ): String
     external fun createPghdAccessJson(
         config: String,
         date: String,
@@ -152,6 +158,29 @@ object DecmedIotaNative {
                     )
                 }
             }
+        }
+    }
+
+    fun getHospitalPersonnelInfo(
+        hospitalPersonnelAddress: String,
+        senderAddress: String
+    ): IotaHospitalPersonnelInfo {
+        ensureLoaded()
+        ensureAndroidTlsInitialized()
+        return decodeData(
+            getHospitalPersonnelInfoJson(
+                iotaConfigJson(requireGrantObjects = true),
+                hospitalPersonnelAddress,
+                senderAddress
+            )
+        ) { json ->
+            val publicMetadata = json.optString("public_metadata")
+            val decodedPublicMetadata = decodeHospitalPersonnelPublicMetadata(publicMetadata)
+            IotaHospitalPersonnelInfo(
+                publicMetadata = decodedPublicMetadata ?: publicMetadata,
+                hospitalName = json.optString("hospital_name"),
+                displayName = decodeHospitalPersonnelDisplayName(publicMetadata)
+            )
         }
     }
 
@@ -315,6 +344,30 @@ object DecmedIotaNative {
         }
     }
 
+    private fun decodeHospitalPersonnelDisplayName(publicMetadata: String): String? {
+        val candidates = buildList {
+            if (publicMetadata.isNotBlank()) add(publicMetadata)
+            runCatching {
+                String(Base64.getDecoder().decode(publicMetadata), Charsets.UTF_8)
+            }.getOrNull()?.takeIf { it.isNotBlank() }?.let(::add)
+        }
+        return candidates.firstNotNullOfOrNull { candidate ->
+            runCatching {
+                val json = JSONObject(candidate)
+                json.optString("name")
+                    .ifBlank { json.optString("full_name") }
+                    .ifBlank { json.optString("fullName") }
+                    .ifBlank { json.optString("nama") }
+                    .ifBlank { null }
+            }.getOrNull()
+        }
+    }
+
+    private fun decodeHospitalPersonnelPublicMetadata(publicMetadata: String): String? =
+        runCatching {
+            String(Base64.getDecoder().decode(publicMetadata), Charsets.UTF_8)
+        }.getOrNull()?.takeIf { it.isNotBlank() }
+
     private const val TAG = "DecmedIotaNative"
 }
 
@@ -334,4 +387,10 @@ data class IotaPatientAccessLog(
     val hospitalPersonnelMetadata: String,
     val index: Long,
     val isRevoked: Boolean
+)
+
+data class IotaHospitalPersonnelInfo(
+    val publicMetadata: String,
+    val hospitalName: String,
+    val displayName: String?
 )
