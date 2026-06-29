@@ -709,13 +709,66 @@ private fun copySeedWordsToClipboard(
 
 @Composable
 private fun NikField(value: String, onValueChange: (String) -> Unit) {
-    OutlinedTextField(
-        modifier = Modifier.fillMaxWidth(),
-        value = value,
-        onValueChange = { if (it.length <= 16) onValueChange(it.filter(Char::isDigit)) },
-        label = { Text("NIK") },
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-    )
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            modifier = Modifier.fillMaxWidth(),
+            value = value,
+            onValueChange = { text -> onValueChange(text.filter(Char::isDigit).take(NIK_LENGTH)) },
+            label = { Text("NIK (16 digits)") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            singleLine = true,
+            isError = value.isNotEmpty() && value.length != NIK_LENGTH,
+            supportingText = {
+                Text("${value.length}/$NIK_LENGTH digits")
+            }
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            repeat(NIK_GROUP_COUNT) { groupIndex ->
+                val start = groupIndex * NIK_GROUP_SIZE
+                val groupValue = value.drop(start).take(NIK_GROUP_SIZE)
+                val isActive = value.length in start until (start + NIK_GROUP_SIZE) ||
+                    (value.length == NIK_LENGTH && groupIndex == NIK_GROUP_COUNT - 1)
+                NikDigitGroup(
+                    modifier = Modifier.weight(1f),
+                    value = groupValue,
+                    isActive = isActive
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NikDigitGroup(
+    modifier: Modifier = Modifier,
+    value: String,
+    isActive: Boolean
+) {
+    Box(
+        modifier = modifier
+            .height(44.dp)
+            .border(
+                width = if (isActive) 2.dp else 1.dp,
+                color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                shape = RoundedCornerShape(8.dp)
+            )
+            .padding(horizontal = 6.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = value.padEnd(NIK_GROUP_SIZE, '-'),
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
+            color = if (value.isBlank()) {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            }
+        )
+    }
 }
 
 @Composable
@@ -750,4 +803,7 @@ private fun validateMatchingPin(pin: String, confirmPin: String): String? {
 }
 
 private const val PIN_LENGTH = 6
+private const val NIK_LENGTH = 16
+private const val NIK_GROUP_SIZE = 4
+private const val NIK_GROUP_COUNT = 4
 private const val AUTH_SUCCESS_NAVIGATION_DELAY_MS = 1_200L
