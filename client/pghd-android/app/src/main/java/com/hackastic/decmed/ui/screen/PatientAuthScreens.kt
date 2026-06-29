@@ -1,6 +1,8 @@
 package com.hackastic.decmed.ui.screen
 
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +19,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.VpnKey
@@ -26,6 +29,7 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -48,6 +52,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.ClipboardManager
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -120,6 +127,7 @@ fun PatientSignupScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val coroutineScope = rememberCoroutineScope()
+    val clipboardManager = LocalClipboardManager.current
     var pin by rememberSaveable { mutableStateOf("") }
     var confirmPin by rememberSaveable { mutableStateOf("") }
     var seedWords by rememberSaveable { mutableStateOf("") }
@@ -130,6 +138,11 @@ fun PatientSignupScreen(
     LaunchedEffect(uiState.generatedSeedWords) {
         if (uiState.generatedSeedWords.isNotBlank()) {
             seedWords = uiState.generatedSeedWords
+            clipboardManager.setText(AnnotatedString(uiState.generatedSeedWords))
+            localToastEvent = ProcessToastEvent(
+                kind = ProcessToastKind.Info,
+                detail = "Seed words generated and copied to clipboard."
+            )
         }
     }
 
@@ -149,14 +162,14 @@ fun PatientSignupScreen(
             onConfirmPinChange = { confirmPin = it }
         )
         Spacer(modifier = Modifier.height(12.dp))
-        OutlinedTextField(
-            modifier = Modifier.fillMaxWidth(),
-            value = seedWords,
-            onValueChange = {},
-            label = { Text("Seed words") },
-            minLines = 3,
+        SeedWordsField(
+            seedWords = seedWords,
             readOnly = true,
-            supportingText = { Text("Use Generate Seed Words to create a mnemonic.") }
+            supportingText = "Use Generate Seed Words to create a mnemonic.",
+            onSeedWordsChange = {},
+            onCopySeedWords = {
+                copySeedWordsToClipboard(clipboardManager, seedWords) { localToastEvent = it }
+            }
         )
         Spacer(modifier = Modifier.height(8.dp))
         OutlinedButton(
@@ -207,6 +220,7 @@ fun PatientSigninScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val coroutineScope = rememberCoroutineScope()
+    val clipboardManager = LocalClipboardManager.current
     var pin by rememberSaveable { mutableStateOf("") }
     var confirmPin by rememberSaveable { mutableStateOf("") }
     var seedWords by rememberSaveable { mutableStateOf("") }
@@ -230,12 +244,14 @@ fun PatientSigninScreen(
             onConfirmPinChange = { confirmPin = it }
         )
         Spacer(modifier = Modifier.height(12.dp))
-        OutlinedTextField(
-            modifier = Modifier.fillMaxWidth(),
-            value = seedWords,
-            onValueChange = { seedWords = it },
-            label = { Text("Seed words") },
-            minLines = 3
+        SeedWordsField(
+            seedWords = seedWords,
+            readOnly = false,
+            supportingText = null,
+            onSeedWordsChange = { seedWords = it },
+            onCopySeedWords = {
+                copySeedWordsToClipboard(clipboardManager, seedWords) { localToastEvent = it }
+            }
         )
         Spacer(modifier = Modifier.height(12.dp))
         NikField(value = nik, onValueChange = { nik = it })
@@ -575,6 +591,8 @@ private fun SixDigitPinField(
     value: String,
     onValueChange: (String) -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFieldFocused by interactionSource.collectIsFocusedAsState()
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
             text = label,
@@ -590,6 +608,7 @@ private fun SixDigitPinField(
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
             cursorBrush = SolidColor(Color.Transparent),
+            interactionSource = interactionSource,
             textStyle = MaterialTheme.typography.titleLarge.copy(color = Color.Transparent),
             decorationBox = {
                 Row(
@@ -600,7 +619,7 @@ private fun SixDigitPinField(
                         PinDigitBox(
                             modifier = Modifier.weight(1f),
                             digit = value.getOrNull(index)?.let { "•" } ?: "",
-                            isFocused = index == value.length.coerceAtMost(PIN_LENGTH - 1)
+                            isFocused = isFieldFocused && index == value.length.coerceAtMost(PIN_LENGTH - 1)
                         )
                     }
                 }
@@ -636,6 +655,56 @@ private fun PinDigitBox(
             textAlign = TextAlign.Center
         )
     }
+}
+
+@Composable
+private fun SeedWordsField(
+    seedWords: String,
+    readOnly: Boolean,
+    supportingText: String?,
+    onSeedWordsChange: (String) -> Unit,
+    onCopySeedWords: () -> Unit
+) {
+    OutlinedTextField(
+        modifier = Modifier.fillMaxWidth(),
+        value = seedWords,
+        onValueChange = onSeedWordsChange,
+        label = { Text("Seed words") },
+        minLines = 3,
+        readOnly = readOnly,
+        trailingIcon = {
+            IconButton(
+                enabled = seedWords.isNotBlank(),
+                onClick = onCopySeedWords
+            ) {
+                Icon(imageVector = Icons.Default.ContentCopy, contentDescription = "Copy seed words")
+            }
+        },
+        supportingText = supportingText?.let { text -> { Text(text) } }
+    )
+}
+
+private fun copySeedWordsToClipboard(
+    clipboardManager: ClipboardManager,
+    seedWords: String,
+    onToast: (ProcessToastEvent) -> Unit
+) {
+    if (seedWords.isBlank()) {
+        onToast(
+            ProcessToastEvent(
+                kind = ProcessToastKind.Failure,
+                detail = "No seed words are available to copy yet."
+            )
+        )
+        return
+    }
+    clipboardManager.setText(AnnotatedString(seedWords))
+    onToast(
+        ProcessToastEvent(
+            kind = ProcessToastKind.Success,
+            detail = "Seed words copied to clipboard."
+        )
+    )
 }
 
 @Composable

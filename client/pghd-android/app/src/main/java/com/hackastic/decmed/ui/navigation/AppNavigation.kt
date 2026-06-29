@@ -1,7 +1,12 @@
 package com.hackastic.decmed.ui.navigation
 
+import android.Manifest
 import android.app.Activity
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
@@ -27,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.navigation.NavHostController
@@ -39,6 +45,9 @@ import com.hackastic.decmed.data.remote.service.SensorCollectionService
 import com.hackastic.decmed.di.dataStore
 import com.hackastic.decmed.domain.model.patient.PatientAuthState
 import androidx.health.connect.client.PermissionController
+import com.hackastic.decmed.ui.components.InteractiveProcessToastHost
+import com.hackastic.decmed.ui.components.ProcessToastEvent
+import com.hackastic.decmed.ui.components.ProcessToastKind
 import com.hackastic.decmed.ui.screen.DataScreen
 import com.hackastic.decmed.ui.screen.HomeScreen
 import com.hackastic.decmed.ui.screen.PatientAuthChoiceScreen
@@ -83,10 +92,42 @@ fun AppNavigation(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val patientAuthState by patientAuthViewModel.authState.collectAsState()
+    var localToastEvent by remember { mutableStateOf<ProcessToastEvent?>(null) }
+    var startupRuntimePermissionsHandled by remember { mutableStateOf(false) }
     val healthConnectPermissionLauncher = rememberLauncherForActivityResult(
         PermissionController.createRequestPermissionResultContract()
     ) { grantedPermissions ->
         pghdCollectionViewModel.onPermissionsResult(grantedPermissions)
+        if (!grantedPermissions.containsAll(pghdCollectionViewModel.requestedPermissions)) {
+            localToastEvent = ProcessToastEvent(
+                kind = ProcessToastKind.Failure,
+                detail = "Health Connect permissions were not fully granted.\n\nDecMed can still open, but wearable and wellness PGHD collection will not be optimal until Health Connect access is approved."
+            )
+        }
+    }
+    val startupRuntimePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        startupRuntimePermissionsHandled = true
+        val denied = startupRuntimePermissions(context).filter { permission ->
+            grants[permission] != true &&
+                ContextCompat.checkSelfPermission(context, permission) != PackageManager.PERMISSION_GRANTED
+        }
+        if (denied.isNotEmpty()) {
+            localToastEvent = ProcessToastEvent(
+                kind = ProcessToastKind.Failure,
+                detail = buildString {
+                    appendLine("Some app permissions were denied.")
+                    appendLine()
+                    appendLine("DecMed cannot collect PGHD optimally without these permissions:")
+                    denied.forEach { permission ->
+                        appendLine("- ${permission.toRuntimePermissionLabel()}")
+                    }
+                    appendLine()
+                    append("You can approve them later from Android app settings.")
+                }
+            )
+        }
     }
 
     // Determine start destination asynchronously
@@ -134,10 +175,30 @@ fun AppNavigation(
 
     val pghdUiState by pghdCollectionViewModel.uiState.collectAsState()
     var hasRequestedHealthConnectOnOpen by remember { mutableStateOf(false) }
+    var hasRequestedStartupRuntimePermissions by remember { mutableStateOf(false) }
 
-    LaunchedEffect(startDestination, patientAuthState, pghdUiState.isHealthConnectAvailable, pghdUiState.hasHealthConnectPermissions) {
+    LaunchedEffect(startDestination) {
+        if (!hasRequestedStartupRuntimePermissions) {
+            hasRequestedStartupRuntimePermissions = true
+            val missing = missingStartupRuntimePermissions(context)
+            if (missing.isNotEmpty()) {
+                startupRuntimePermissionLauncher.launch(missing.toTypedArray())
+            } else {
+                startupRuntimePermissionsHandled = true
+            }
+        }
+    }
+
+    LaunchedEffect(
+        startDestination,
+        patientAuthState,
+        startupRuntimePermissionsHandled,
+        pghdUiState.isHealthConnectAvailable,
+        pghdUiState.hasHealthConnectPermissions
+    ) {
         if (
             !hasRequestedHealthConnectOnOpen &&
+            startupRuntimePermissionsHandled &&
             patientAuthState is PatientAuthState.Authenticated &&
             pghdUiState.isHealthConnectAvailable &&
             !pghdUiState.hasHealthConnectPermissions
@@ -157,28 +218,29 @@ fun AppNavigation(
         requestHealthConnectApproval()
     }
 
-    NavHost(
-        navController = navController,
-        startDestination = startDestination!!
-    ) {
-        composable(Screen.TermsOfService.route) {
-            val activity = LocalContext.current as Activity
-            TermsOfServiceScreen(
-                onAccept = {
-                    coroutineScope.launch {
-                        context.dataStore.edit { prefs ->
-                            prefs[booleanPreferencesKey("tos_accepted")] = true
+    Box(modifier = Modifier.fillMaxSize()) {
+        NavHost(
+            navController = navController,
+            startDestination = startDestination!!
+        ) {
+            composable(Screen.TermsOfService.route) {
+                val activity = LocalContext.current as Activity
+                TermsOfServiceScreen(
+                    onAccept = {
+                        coroutineScope.launch {
+                            context.dataStore.edit { prefs ->
+                                prefs[booleanPreferencesKey("tos_accepted")] = true
+                            }
                         }
+                        navController.navigate(Screen.PatientAuth.route) {
+                            popUpTo(Screen.TermsOfService.route) { inclusive = true }
+                        }
+                    },
+                    onDecline = {
+                        activity.finishAffinity()
                     }
-                    navController.navigate(Screen.PatientAuth.route) {
-                        popUpTo(Screen.TermsOfService.route) { inclusive = true }
-                    }
-                },
-                onDecline = {
-                    activity.finishAffinity()
-                }
-            )
-        }
+                )
+            }
 
         composable(Screen.PatientAuth.route) {
             PatientAuthChoiceScreen(
@@ -330,6 +392,12 @@ fun AppNavigation(
                 bottomBar = bottomBar
             )
         }
+        }
+        InteractiveProcessToastHost(
+            event = localToastEvent,
+            onEventConsumed = { localToastEvent = null },
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
     }
 }
 
@@ -382,3 +450,27 @@ private data class BottomNavItem(
     val route: String,
     val icon: ImageVector
 )
+
+private fun startupRuntimePermissions(context: Context): List<String> =
+    buildList {
+        add(Manifest.permission.CAMERA)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            add(Manifest.permission.ACTIVITY_RECOGNITION)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }.filter { permission ->
+        ContextCompat.checkSelfPermission(context, permission) != PackageManager.PERMISSION_GRANTED
+    }
+
+private fun missingStartupRuntimePermissions(context: Context): List<String> =
+    startupRuntimePermissions(context)
+
+private fun String.toRuntimePermissionLabel(): String =
+    when (this) {
+        Manifest.permission.CAMERA -> "Camera permission for QR scanning"
+        Manifest.permission.ACTIVITY_RECOGNITION -> "Physical activity permission for steps and movement signals"
+        Manifest.permission.POST_NOTIFICATIONS -> "Notification permission for background collection status"
+        else -> this
+    }
