@@ -5,7 +5,7 @@
 	import type { Infer, SuperValidated } from 'sveltekit-superforms';
 	import { AdminHomeState } from './admin-state.svelte';
 	import { Button, Label, PinInput, REGEXP_ONLY_DIGITS } from 'bits-ui';
-	import { cn } from '$lib/utils';
+	import { cn, copyToClipboard } from '$lib/utils';
 	import { Copy } from '@lucide/svelte';
 
 	type Props = {
@@ -146,7 +146,16 @@
 								<p class="text-xs font-medium uppercase tracking-wide text-zinc-500">
 									CID personel fasyankes
 								</p>
-								<p class="break-all text-sm text-zinc-500">{personnel.id}</p>
+								<div class="flex min-w-0 items-center gap-2">
+									<button
+										title="Copy CID personel fasyankes"
+										onclick={() => copyToClipboard(personnel.id)}
+										class="cursor-pointer"
+									>
+										<Copy size={14} />
+									</button>
+									<p class="break-all text-sm text-zinc-500">{personnel.id}</p>
+								</div>
 							</div>
 							<p
 								class="px-2 py-0.5 border border-zinc-200 bg-zinc-50 text-xs rounded-lg text-zinc-400"
@@ -161,9 +170,7 @@
 							<div class="flex min-w-0 items-center gap-2">
 								<button
 									title="Copy activation key"
-									onclick={() => {
-										navigator.clipboard.writeText(personnel.activation_key);
-									}}
+									onclick={() => copyToClipboard(personnel.activation_key)}
 									class="cursor-pointer"
 								>
 									<Copy size={14} />
