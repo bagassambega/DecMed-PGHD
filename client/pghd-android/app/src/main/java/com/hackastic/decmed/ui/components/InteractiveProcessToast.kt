@@ -3,6 +3,7 @@ package com.hackastic.decmed.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,15 +13,18 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -34,11 +38,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import kotlin.math.abs
 
 enum class ProcessToastKind {
     Success,
@@ -60,7 +66,7 @@ fun InteractiveProcessToastHost(
     event: ProcessToastEvent?,
     onEventConsumed: () -> Unit,
     modifier: Modifier = Modifier,
-    visibleMillis: Long = 4_000L
+    visibleMillis: Long = 5_000L
 ) {
     var visibleEvent by remember { mutableStateOf<ProcessToastEvent?>(null) }
     var dialogEvent by remember { mutableStateOf<ProcessToastEvent?>(null) }
@@ -82,6 +88,9 @@ fun InteractiveProcessToastHost(
             onClick = {
                 dialogEvent = current
                 visibleEvent = null
+            },
+            onDismiss = {
+                visibleEvent = null
             }
         )
     }
@@ -98,14 +107,27 @@ fun InteractiveProcessToastHost(
 private fun ProcessToastSurface(
     event: ProcessToastEvent,
     modifier: Modifier,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onDismiss: () -> Unit
 ) {
     val colors = processToastColors(event.kind)
+    var totalDrag by remember(event) { mutableStateOf(0f) }
     Surface(
         modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 16.dp)
-            .clickable(onClick = onClick),
+            .padding(horizontal = 16.dp, vertical = 16.dp)
+            .widthIn(max = 420.dp)
+            .pointerInput(event) {
+                detectHorizontalDragGestures(
+                    onDragStart = { totalDrag = 0f },
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        totalDrag += dragAmount
+                        if (abs(totalDrag) > TOAST_DISMISS_DRAG_THRESHOLD_PX) {
+                            onDismiss()
+                        }
+                    }
+                )
+            },
         shape = RoundedCornerShape(8.dp),
         color = colors.container,
         tonalElevation = 6.dp,
@@ -115,30 +137,49 @@ private fun ProcessToastSurface(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = when (event.kind) {
-                    ProcessToastKind.Success -> Icons.Default.CheckCircle
-                    ProcessToastKind.Failure -> Icons.Default.Error
-                    ProcessToastKind.Info -> Icons.Default.Info
-                },
-                contentDescription = null,
-                tint = colors.content,
-                modifier = Modifier.size(22.dp)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = event.title,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = colors.content
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(onClick = onClick),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = when (event.kind) {
+                        ProcessToastKind.Success -> Icons.Default.CheckCircle
+                        ProcessToastKind.Failure -> Icons.Default.Error
+                        ProcessToastKind.Info -> Icons.Default.Info
+                    },
+                    contentDescription = null,
+                    tint = colors.content,
+                    modifier = Modifier.size(22.dp)
                 )
-                Text(
-                    text = event.summary,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.content,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = event.title,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.content
+                    )
+                    Text(
+                        text = event.summary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.content,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(6.dp))
+            IconButton(
+                modifier = Modifier.size(32.dp),
+                onClick = onDismiss
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Dismiss toast",
+                    tint = colors.content,
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }
@@ -198,6 +239,8 @@ private data class ProcessToastColors(
     val container: Color,
     val content: Color
 )
+
+private const val TOAST_DISMISS_DRAG_THRESHOLD_PX = 80f
 
 @Composable
 private fun processToastColors(kind: ProcessToastKind): ProcessToastColors =
