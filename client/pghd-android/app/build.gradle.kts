@@ -56,7 +56,7 @@ android {
         buildConfigField("long", "IOTA_GAS_RESERVE_SECONDS", envString("IOTA_GAS_RESERVE_SECONDS", "10"))
         buildConfigField("long", "PGHD_BATCH_INTERVAL_MINUTES", envString("PGHD_BATCH_INTERVAL_MINUTES", "15"))
         buildConfigField("long", "PGHD_HEALTH_CONNECT_SYNC_INTERVAL_MINUTES", envString("PGHD_HEALTH_CONNECT_SYNC_INTERVAL_MINUTES", "3"))
-        buildConfigField("long", "PGHD_EARLY_TRIGGER_BYTES", envString("PGHD_EARLY_TRIGGER_BYTES", "10485760"))
+        buildConfigField("long", "PGHD_EARLY_TRIGGER_BYTES", envString("PGHD_EARLY_TRIGGER_BYTES", "1048576"))
         buildConfigField("long", "PGHD_DEFAULT_SYNC_DAYS", envString("PGHD_DEFAULT_SYNC_DAYS", "30"))
         buildConfigField("long", "PGHD_HISTORY_SYNC_DAYS", envString("PGHD_HISTORY_SYNC_DAYS", "365"))
         buildConfigField("int", "PGHD_SENSOR_BATCH_SIZE", envString("PGHD_SENSOR_BATCH_SIZE", "100"))
@@ -136,3 +136,17 @@ dependencies {
     // Background work
     implementation(libs.work.runtime.ktx)
 }
+
+tasks.matching { it.name.startsWith("generate") && it.name.endsWith("BuildConfig") }
+    .configureEach {
+        inputs.file(rootProject.file(".env"))
+            .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE)
+            .optional()
+    }
+
+tasks.matching { it.name.startsWith("compile") && it.name.endsWith("Kotlin") }
+    .configureEach {
+        inputs.file(rootProject.file(".env"))
+            .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE)
+            .optional()
+    }

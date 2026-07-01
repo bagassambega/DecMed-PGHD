@@ -25,21 +25,16 @@ object PghdNetworkMonitor {
                 request,
                 object : ConnectivityManager.NetworkCallback() {
                     override fun onAvailable(network: Network) {
-                        if (hasValidatedInternet(connectivityManager, network)) {
-                            DecmedLog.i(TAG, "Validated internet became available; scheduling PGHD submit.")
-                            PghdWorkScheduler.scheduleSubmitWhenConnected(appContext)
-                        }
+                        DecmedLog.i(TAG, "Network became available; scheduling PGHD submit.")
+                        PghdWorkScheduler.scheduleSubmitWhenConnected(appContext)
                     }
 
                     override fun onCapabilitiesChanged(
                         network: Network,
                         networkCapabilities: NetworkCapabilities
                     ) {
-                        if (
-                            networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                            networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-                        ) {
-                            DecmedLog.i(TAG, "Network validated; scheduling PGHD submit.")
+                        if (networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+                            DecmedLog.i(TAG, "Internet-capable network changed; scheduling PGHD submit.")
                             PghdWorkScheduler.scheduleSubmitWhenConnected(appContext)
                         }
                     }
@@ -51,12 +46,4 @@ object PghdNetworkMonitor {
         }
     }
 
-    private fun hasValidatedInternet(
-        connectivityManager: ConnectivityManager,
-        network: Network
-    ): Boolean {
-        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
-        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-    }
 }

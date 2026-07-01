@@ -90,4 +90,16 @@ interface PghdRecordDao {
 
     @Query("UPDATE pghd_records SET batchId = :batchId WHERE uid IN (:recordIds)")
     suspend fun markRecordsBatched(recordIds: List<String>, batchId: String)
+
+    @Query(
+        """
+        DELETE FROM pghd_records
+        WHERE sourcePackageName LIKE :sourcePackagePrefix || '%'
+          AND syncedAtEpochMillis >= :startedAtEpochMillis
+        """
+    )
+    suspend fun deleteStressRecordsSince(
+        sourcePackagePrefix: String,
+        startedAtEpochMillis: Long
+    )
 }

@@ -89,8 +89,19 @@ class PghdBatchRepositoryImpl(
         return batches.map { submitBatch(it, submitTriggerReason) }
     }
 
+    override suspend fun getPendingSubmitBatchCount(): Int {
+        normalizeStalePendingBatches()
+        return pghdBatchDao.countBatchesByStatus(
+            listOf(PghdBatchEntity.STATUS_WAITING_FOR_TRIGGER, PghdBatchEntity.STATUS_FAILED)
+        )
+    }
+
     override suspend fun deleteBatch(batchId: String) {
         pghdBatchDao.deleteBatch(batchId)
+    }
+
+    override suspend fun deleteBatchesCreatedSince(startedAtEpochMillis: Long) {
+        pghdBatchDao.deleteBatchesCreatedSince(startedAtEpochMillis)
     }
 
     override suspend fun normalizeBatchStatuses() {

@@ -27,4 +27,5 @@ interface PghdRepository {
     suspend fun getUnbatchedRecordsSince(minEndTimeEpochMillis: Long): List<PghdRecordEntity>
     fun observeUnbatchedRecords(): Flow<List<PghdRecordEntity>>
     suspend fun markRecordsBatched(recordIds: List<String>, batchId: String)
+    suspend fun deleteStressRecordsSince(sourcePackagePrefix: String, startedAtEpochMillis: Long)
 }

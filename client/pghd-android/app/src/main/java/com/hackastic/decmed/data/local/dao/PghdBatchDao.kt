@@ -59,6 +59,14 @@ abstract class PghdBatchDao {
 
     @Query(
         """
+        SELECT COUNT(*) FROM pghd_batches
+        WHERE status IN (:statuses)
+        """
+    )
+    abstract suspend fun countBatchesByStatus(statuses: List<String>): Int
+
+    @Query(
+        """
         UPDATE pghd_batches
         SET status = :status,
             retryCount = :retryCount,
@@ -113,4 +121,7 @@ abstract class PghdBatchDao {
         """
     )
     abstract suspend fun updateBatchesWithStatus(oldStatus: String, newStatus: String)
+
+    @Query("DELETE FROM pghd_batches WHERE createdAtEpochMillis >= :startedAtEpochMillis")
+    abstract suspend fun deleteBatchesCreatedSince(startedAtEpochMillis: Long)
 }

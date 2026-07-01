@@ -19,7 +19,8 @@ import kotlinx.coroutines.launch
 data class PatientAuthUiState(
     val generatedSeedWords: String = "",
     val isBusy: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val profile: PatientProfile? = null
 )
 
 class PatientAuthViewModel(application: Application) : AndroidViewModel(application) {
@@ -70,8 +71,24 @@ class PatientAuthViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             runBusy("complete patient profile") {
                 repository.saveProfile(profile)
+                _uiState.update { it.copy(profile = repository.getUnlockedProfile()) }
                 onDone()
             }
+        }
+    }
+
+    fun refreshProfile() {
+        viewModelScope.launch {
+            runCatching { repository.getUnlockedProfile() }
+                .onSuccess { profile ->
+                    _uiState.update { it.copy(profile = profile, errorMessage = null) }
+                }
+                .onFailure { err ->
+                    DecmedLog.e(TAG, "Failed to load patient profile", err)
+                    _uiState.update {
+                        it.copy(errorMessage = err.message ?: "Unable to load patient profile.")
+                    }
+                }
         }
     }
 

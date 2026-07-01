@@ -28,6 +28,8 @@ interface PghdBatchRepository {
     suspend fun submitPendingBatches(
         submitTriggerReason: String = PghdBatchEntity.TRIGGER_NETWORK_AVAILABLE
     ): List<PghdSubmitResult>
+    suspend fun getPendingSubmitBatchCount(): Int
     suspend fun normalizeBatchStatuses()
     suspend fun deleteBatch(batchId: String)
+    suspend fun deleteBatchesCreatedSince(startedAtEpochMillis: Long)
 }

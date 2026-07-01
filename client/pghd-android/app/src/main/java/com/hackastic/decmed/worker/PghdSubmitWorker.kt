@@ -8,6 +8,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.hackastic.decmed.MainApplication
 import com.hackastic.decmed.data.local.entity.PghdBatchEntity
+import com.hackastic.decmed.utils.DecmedLog
 
 class PghdSubmitWorker(
     appContext: Context,
@@ -15,11 +16,24 @@ class PghdSubmitWorker(
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         val container = (applicationContext as MainApplication).container
-        if (!container.pghdCollectionStateRepository.isEnabled()) return Result.success()
+        if (container.pghdBatchRepository.getPendingSubmitBatchCount() == 0) {
+            DecmedLog.i(TAG, "Skipping PGHD submit worker because no pending/failed batch is available.")
+            return Result.success()
+        }
 
         val profile = runCatching { container.patientAuthRepository.getUnlockedProfile() }
-            .getOrElse { return Result.success() }
-        container.prePghdClient.pushRegistration(profile)
+            .getOrElse { err ->
+                DecmedLog.w(TAG, "Skipping PGHD reconnect submit because patient session is locked or unavailable. ${err.message.orEmpty()}")
+                return Result.success()
+            }
+        runCatching {
+            container.prePghdClient.pushRegistration(profile)
+        }.onFailure { err ->
+            DecmedLog.w(
+                TAG,
+                "Unable to refresh PGHD registration before reconnect submit; continuing with pending batch retry. ${err.message.orEmpty()}"
+            )
+        }
         val results = container.pghdBatchRepository.submitPendingBatches(
             submitTriggerReason = PghdBatchEntity.TRIGGER_NETWORK_AVAILABLE
         )
@@ -36,5 +50,9 @@ class PghdSubmitWorker(
             }
         }
         return Result.success()
+    }
+
+    private companion object {
+        const val TAG = "PghdSubmitWorker"
     }
 }

@@ -258,7 +258,7 @@ object DecmedIotaNative {
             }
         }
 
-        return JSONObject()
+        val config = JSONObject()
             .put("iota_url", Env.iotaRpcUrl)
             .put("gas_station_base_url", Env.gasStationBaseUrl)
             .put("package_id", Env.decmedPackageId)
@@ -275,7 +275,17 @@ object DecmedIotaNative {
             .put("gas_reserve_nanos", Env.iotaGasReserveNanos)
             .put("gas_reserve_seconds", Env.iotaGasReserveSeconds)
             .put("gas_station_token", Env.gasStationToken)
-            .toString()
+        DecmedLog.i(
+            TAG,
+            "Native IOTA config: iota_url=${Env.iotaRpcUrl} gas_station_base_url=${Env.gasStationBaseUrl} " +
+                "package_id=${Env.decmedPackageId} address_id=${Env.decmedAddressIdObjectId}@${Env.decmedAddressIdObjectVersion} " +
+                "patient_id_account=${Env.decmedPatientIdAccountObjectId}@${Env.decmedPatientIdAccountObjectVersion} " +
+                "hospital_id_metadata=${Env.decmedHospitalIdMetadataObjectId}@${Env.decmedHospitalIdMetadataObjectVersion} " +
+                "hospital_personnel_id_account=${Env.decmedHospitalPersonnelIdAccountObjectId}@${Env.decmedHospitalPersonnelIdAccountObjectVersion} " +
+                "requireGrantObjects=$requireGrantObjects gas_budget=${Env.iotaGasBudget} gas_reserve_nanos=${Env.iotaGasReserveNanos} " +
+                "gas_reserve_seconds=${Env.iotaGasReserveSeconds} has_gas_station_token=${Env.gasStationToken.isNotBlank()}"
+        )
+        return config.toString()
     }
 
     private fun ensureLoaded() {

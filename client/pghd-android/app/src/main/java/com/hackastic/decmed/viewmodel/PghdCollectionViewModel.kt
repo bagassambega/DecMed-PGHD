@@ -19,6 +19,10 @@ import com.hackastic.decmed.iota.DecmedIotaNative
 import com.hackastic.decmed.worker.PghdBatchCreationGuard
 import com.hackastic.decmed.worker.PghdWorkScheduler
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -31,6 +35,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
+import kotlin.random.Random
 
 data class PghdCollectionUiState(
     val records: List<PghdRecordEntity> = emptyList(),
@@ -61,7 +66,8 @@ data class PghdCollectionUiState(
     val healthConnectSourcePackages: List<String> = emptyList(),
     val hasDetectedXiaomiSource: Boolean = false,
     val activeAccessGrants: List<PghdActiveAccessGrant> = emptyList(),
-    val activeCollectionWindow: ActivePghdCollectionWindow? = null
+    val activeCollectionWindow: ActivePghdCollectionWindow? = null,
+    val stressTestProgress: PghdStressTestProgress? = null
 )
 
 data class ActivePghdCollectionWindow(
@@ -74,6 +80,25 @@ data class ActivePghdCollectionWindow(
     val latestRecordEpochMillis: Long,
     val isCollecting: Boolean
 )
+
+data class PghdStressTestProgress(
+    val startedAtEpochMillis: Long,
+    val totalRecords: Int,
+    val generatedRecords: Int = 0,
+    val generatedComplete: Boolean = false,
+    val isRunning: Boolean = true,
+    val formedBatchCount: Int = 0,
+    val sentBatchCount: Int = 0,
+    val failedBatchCount: Int = 0,
+    val waitingBatchCount: Int = 0,
+    val pendingBatchCount: Int = 0,
+    val currentBatchBytes: Long = 0,
+    val currentBatchRecordCount: Int = 0,
+    val errorMessage: String? = null
+) {
+    val generationFraction: Float
+        get() = if (totalRecords <= 0) 0f else generatedRecords.toFloat() / totalRecords.toFloat()
+}
 
 class PghdCollectionViewModel(application: Application) : AndroidViewModel(application) {
     private val container = (application as MainApplication).container
@@ -92,6 +117,9 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
 
     private val _uiState = MutableStateFlow(PghdCollectionUiState())
     val uiState: StateFlow<PghdCollectionUiState> = _uiState.asStateFlow()
+    private var stressTestJob: Job? = null
+    private var stressBatchJob: Job? = null
+    private var lastStressSizeTriggerRecordCount: Int = 0
 
     val requestedPermissions: Set<String> = HealthConnectPghdClient.READ_DATA_PERMISSIONS
     val requestedHistoryPermissions: Set<String> = HealthConnectPghdClient.READ_HISTORY_PERMISSIONS
@@ -537,13 +565,18 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
         hospitalPersonnelIotaAddress: String
     ): HospitalPersonnelIdentity = withContext(Dispatchers.IO) {
         val patientProfile = patientAuthRepository.getUnlockedProfile()
-        val patientIotaAddress = patientProfile.iotaAddress.requireNonBlank("patient IOTA address")
+        val patientIotaAddress = patientProfile.iotaAddress.requireIotaAddress("patient IOTA address")
+        val personnelIotaAddress = hospitalPersonnelIotaAddress.requireIotaAddress("hospital personnel IOTA address")
+        DecmedLog.i(
+            TAG,
+            "Looking up hospital personnel identity from IOTA: personnel=$personnelIotaAddress sender=$patientIotaAddress rpc=${Env.iotaRpcUrl}"
+        )
         val info = DecmedIotaNative.getHospitalPersonnelInfo(
-            hospitalPersonnelAddress = hospitalPersonnelIotaAddress.trim(),
+            hospitalPersonnelAddress = personnelIotaAddress,
             senderAddress = patientIotaAddress
         )
         HospitalPersonnelIdentity(
-            iotaAddress = hospitalPersonnelIotaAddress.trim(),
+            iotaAddress = personnelIotaAddress,
             displayName = info.displayName,
             hospitalName = info.hospitalName.ifBlank { null },
             publicMetadata = info.publicMetadata.ifBlank { null }
@@ -610,6 +643,356 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                 _uiState.update { it.copy(isRevokingAccess = false) }
             }
         }
+    }
+
+    fun startStressTest() {
+        if (stressTestJob?.isActive == true || uiState.value.stressTestProgress?.isRunning == true) return
+        stressTestJob = viewModelScope.launch {
+            val startedAt = System.currentTimeMillis()
+            val totalRecords = STRESS_TEST_SENSOR_TYPES.size * STRESS_TEST_DAYS * 24 * 60
+            lastStressSizeTriggerRecordCount = 0
+            _uiState.update {
+                it.copy(
+                    stressTestProgress = PghdStressTestProgress(
+                        startedAtEpochMillis = startedAt,
+                        totalRecords = totalRecords
+                    ),
+                    errorMessage = null,
+                    lastSyncMessage = null
+                )
+            }
+            try {
+                patientAuthRepository.getUnlockedProfile()
+                DecmedLog.i(
+                    TAG,
+                    "Starting PGHD local stress test: sensors=${STRESS_TEST_SENSOR_TYPES.size} days=$STRESS_TEST_DAYS totalRecords=$totalRecords insertChunkRecords=${STRESS_TEST_SENSOR_TYPES.size * STRESS_TEST_INSERT_CHUNK_MINUTES}"
+                )
+                withContext(Dispatchers.IO) {
+                    val baseTime = startedAt
+                    var generated = 0
+                    val totalMinutes = STRESS_TEST_DAYS * 24 * 60
+                    for (chunkStartMinute in 0 until totalMinutes step STRESS_TEST_INSERT_CHUNK_MINUTES) {
+                        currentCoroutineContext().ensureActive()
+                        val chunkEndMinute = (chunkStartMinute + STRESS_TEST_INSERT_CHUNK_MINUTES)
+                            .coerceAtMost(totalMinutes)
+                        val records = buildList {
+                            for (minuteOffset in chunkStartMinute until chunkEndMinute) {
+                                val timestamp = baseTime + minuteOffset * 60_000L
+                                STRESS_TEST_SENSOR_TYPES.forEach { type ->
+                                    add(
+                                        type.toStressRecord(
+                                            runId = startedAt,
+                                            minuteOffset = minuteOffset,
+                                            timestamp = timestamp
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                        pghdRepository.saveHealthConnectRecords(records)
+                        generated += records.size
+                        checkStressSizeThresholdAfterInsert(generated)
+                        if (chunkStartMinute % STRESS_TEST_PROGRESS_UPDATE_MINUTES == 0 || generated == totalRecords) {
+                            _uiState.update { state ->
+                                state.copy(
+                                    stressTestProgress = state.stressTestProgress?.copy(
+                                        generatedRecords = generated
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+                scheduleSizeThresholdBatchIfNeeded()
+                PghdWorkScheduler.scheduleBatchNow(getApplication())
+                PghdWorkScheduler.scheduleSubmitWhenConnected(getApplication())
+                refreshTotalCount()
+                _uiState.update { state ->
+                    state.copy(
+                        stressTestProgress = state.stressTestProgress?.copy(
+                            generatedRecords = totalRecords,
+                            generatedComplete = true,
+                            isRunning = false
+                        ),
+                        lastSyncMessage = "Stress test data generation finished. Batch creation and PRE submission are continuing through the normal PGHD pipeline."
+                    )
+                }
+            } catch (err: CancellationException) {
+                DecmedLog.w(TAG, "PGHD local stress test cancelled")
+                _uiState.update { state ->
+                    state.copy(
+                        stressTestProgress = state.stressTestProgress?.copy(
+                            isRunning = false,
+                            errorMessage = "Stress test was cancelled. Local synthetic data and local stress batches are being removed."
+                        )
+                    )
+                }
+                cleanupStressTestArtifacts(startedAt)
+            } catch (err: Exception) {
+                DecmedLog.e(TAG, "PGHD local stress test failed", err)
+                _uiState.update { state ->
+                    state.copy(
+                        stressTestProgress = state.stressTestProgress?.copy(
+                            isRunning = false,
+                            errorMessage = err.toVerboseUserMessage("Unable to run PGHD stress test.")
+                        ),
+                        errorMessage = err.toVerboseUserMessage("Unable to run PGHD stress test.")
+                    )
+                }
+            }
+        }
+    }
+
+    fun cancelStressTest() {
+        val progress = uiState.value.stressTestProgress ?: return
+        PghdWorkScheduler.cancelStressTestWork(getApplication())
+        stressTestJob?.cancel()
+        stressBatchJob?.cancel()
+        lastStressSizeTriggerRecordCount = 0
+        viewModelScope.launch {
+            cleanupStressTestArtifacts(progress.startedAtEpochMillis)
+            _uiState.update {
+                it.copy(
+                    stressTestProgress = it.stressTestProgress?.copy(
+                        isRunning = false,
+                        generatedComplete = false,
+                        errorMessage = "Stress test cancelled. Local synthetic records and local stress batches were removed."
+                    ),
+                    lastSyncMessage = "Stress test cancelled and local synthetic artifacts were removed."
+                )
+            }
+            refreshTotalCount()
+        }
+    }
+
+    fun dismissStressTestProgress() {
+        _uiState.update { it.copy(stressTestProgress = null) }
+    }
+
+    private suspend fun cleanupStressTestArtifacts(startedAtEpochMillis: Long) {
+        withContext(Dispatchers.IO) {
+            pghdRepository.deleteStressRecordsSince(STRESS_TEST_SOURCE_PACKAGE_PREFIX, startedAtEpochMillis)
+            pghdBatchRepository.deleteBatchesCreatedSince(startedAtEpochMillis)
+        }
+    }
+
+    private suspend fun checkStressSizeThresholdAfterInsert(generatedRecords: Int) {
+        val progress = _uiState.value.stressTestProgress
+        if (progress?.isRunning != true) return
+
+        val records = pghdRepository.getUnbatchedRecords()
+        val estimatedBytes = estimatePghdPayloadBytes(records)
+        _uiState.update { state ->
+            state.copy(
+                stressTestProgress = state.stressTestProgress?.copy(
+                    generatedRecords = generatedRecords,
+                    currentBatchBytes = estimatedBytes,
+                    currentBatchRecordCount = records.size
+                )
+            )
+        }
+
+        if (estimatedBytes < Env.pghdEarlyTriggerBytes) {
+            if (generatedRecords % STRESS_TEST_SIZE_PROGRESS_LOG_RECORDS == 0) {
+                DecmedLog.i(
+                    TAG,
+                    "STRESS_SIZE_PROGRESS generatedRecords=$generatedRecords unbatchedRecords=${records.size} estimatedBytes=$estimatedBytes threshold=${Env.pghdEarlyTriggerBytes}"
+                )
+            }
+            lastStressSizeTriggerRecordCount = 0
+            return
+        }
+        if (records.size == lastStressSizeTriggerRecordCount) return
+
+        lastStressSizeTriggerRecordCount = records.size
+        val thresholdReachedAt = System.currentTimeMillis()
+        DecmedLog.i(
+            TAG,
+            "STRESS_SIZE_THRESHOLD_REACHED at=${Instant.ofEpochMilli(thresholdReachedAt)} atMillis=$thresholdReachedAt generatedRecords=$generatedRecords unbatchedRecords=${records.size} estimatedBytes=$estimatedBytes threshold=${Env.pghdEarlyTriggerBytes}; starting background stress batch"
+        )
+        startStressBatchBackground(generatedRecords)
+    }
+
+    private fun startStressBatchBackground(generatedRecords: Int) {
+        if (stressBatchJob?.isActive == true) {
+            DecmedLog.i(
+                TAG,
+                "STRESS_BATCH_ALREADY_RUNNING generatedRecords=$generatedRecords threshold=${Env.pghdEarlyTriggerBytes}"
+            )
+            return
+        }
+        val job = viewModelScope.launch(Dispatchers.IO) {
+            var createdAny = false
+            runCatching {
+                var shouldContinue: Boolean
+                do {
+                    currentCoroutineContext().ensureActive()
+                    val created = createStressBatchImmediately(generatedRecords)
+                    createdAny = createdAny || created
+                    val remainingRecords = pghdRepository.getUnbatchedRecords()
+                    val remainingBytes = estimatePghdPayloadBytes(remainingRecords)
+                    shouldContinue = _uiState.value.stressTestProgress?.isRunning == true &&
+                        remainingRecords.isNotEmpty() &&
+                        remainingBytes >= Env.pghdEarlyTriggerBytes
+                    DecmedLog.i(
+                        TAG,
+                        "STRESS_BATCH_BACKGROUND_STEP generatedRecords=$generatedRecords created=$created remainingRecords=${remainingRecords.size} remainingBytes=$remainingBytes shouldContinue=$shouldContinue threshold=${Env.pghdEarlyTriggerBytes}"
+                    )
+                } while (created && shouldContinue)
+            }.onFailure { err ->
+                if (err is CancellationException) throw err
+                DecmedLog.e(
+                    TAG,
+                    "STRESS_BATCH_BACKGROUND_FAILED generatedRecords=$generatedRecords reason=${err.message.orEmpty()}",
+                    err
+                )
+            }
+            DecmedLog.i(
+                TAG,
+                "STRESS_BATCH_BACKGROUND_FINISH generatedRecords=$generatedRecords createdAny=$createdAny"
+            )
+        }
+        stressBatchJob = job
+        job.invokeOnCompletion {
+            if (stressBatchJob == job) {
+                stressBatchJob = null
+            }
+        }
+    }
+
+    private suspend fun createStressBatchImmediately(generatedRecords: Int): Boolean {
+        val createdBatchId = runCatching {
+            PghdBatchCreationGuard.withLock {
+            val records = pghdRepository.getUnbatchedRecords()
+            val attemptAt = System.currentTimeMillis()
+            if (records.isEmpty()) {
+                DecmedLog.i(
+                    TAG,
+                    "STRESS_BATCH_SKIPPED at=${Instant.ofEpochMilli(attemptAt)} atMillis=$attemptAt generatedRecords=$generatedRecords reason=no_unbatched_records"
+                )
+                return@withLock null
+            }
+            val profile = runCatching { patientAuthRepository.getUnlockedProfile() }
+                .getOrElse { err ->
+                    DecmedLog.w(
+                        TAG,
+                        "STRESS_BATCH_SKIPPED at=${Instant.ofEpochMilli(attemptAt)} atMillis=$attemptAt generatedRecords=$generatedRecords candidateRecords=${records.size} reason=no_unlocked_profile error=${err.message.orEmpty()}"
+                    )
+                    return@withLock null
+                }
+            val patientId = profile.iotaAddress ?: profile.idHash ?: profile.id
+            val estimatedBytes = estimatePghdPayloadBytes(
+                records = records,
+                patientId = patientId,
+                triggerReason = PghdBatchPayload.TRIGGER_SIZE_THRESHOLD
+            )
+            val recordsForBatch = selectStressRecordsWithinPayloadLimit(
+                records = records,
+                patientId = patientId,
+                triggerReason = PghdBatchPayload.TRIGGER_SIZE_THRESHOLD
+            )
+            val selectedBytes = estimatePghdPayloadBytes(
+                records = recordsForBatch,
+                patientId = patientId,
+                triggerReason = PghdBatchPayload.TRIGGER_SIZE_THRESHOLD
+            )
+            DecmedLog.i(
+                TAG,
+                "STRESS_BATCH_CREATE_ATTEMPT at=${Instant.ofEpochMilli(attemptAt)} atMillis=$attemptAt generatedRecords=$generatedRecords candidateRecords=${records.size} candidateBytes=$estimatedBytes selectedRecords=${recordsForBatch.size} selectedBytes=$selectedBytes threshold=${Env.pghdEarlyTriggerBytes}"
+            )
+            val batch = pghdBatchRepository.createEncryptedBatch(
+                records = recordsForBatch,
+                patientProfile = profile,
+                triggerReason = PghdBatchPayload.TRIGGER_SIZE_THRESHOLD
+            )
+            pghdRepository.markRecordsBatched(recordsForBatch.map { it.uid }, batch.batchId)
+            val successAt = System.currentTimeMillis()
+            DecmedLog.i(
+                TAG,
+                "STRESS_BATCH_CREATE_SUCCESS at=${Instant.ofEpochMilli(successAt)} atMillis=$successAt generatedRecords=$generatedRecords batchId=${batch.batchId} selectedRecords=${recordsForBatch.size} selectedBytes=$selectedBytes candidateRecords=${records.size} candidateBytes=$estimatedBytes durationMs=${successAt - attemptAt}"
+            )
+            batch.batchId
+            }
+        }.getOrElse { err ->
+            val failedAt = System.currentTimeMillis()
+            DecmedLog.e(
+                TAG,
+                "STRESS_BATCH_CREATE_FAILED at=${Instant.ofEpochMilli(failedAt)} atMillis=$failedAt generatedRecords=$generatedRecords reason=${err.message.orEmpty()}",
+                err
+            )
+            null
+        }
+
+        if (createdBatchId != null) {
+            PghdWorkScheduler.scheduleSubmitWhenConnected(getApplication())
+            refreshStressCurrentBatchProgress(generatedRecords)
+        }
+        return createdBatchId != null
+    }
+
+    private suspend fun refreshStressCurrentBatchProgress(generatedRecords: Int) {
+        val remainingRecords = pghdRepository.getUnbatchedRecords()
+        val remainingBytes = estimatePghdPayloadBytes(remainingRecords)
+        val refreshedAt = System.currentTimeMillis()
+        _uiState.update { state ->
+            state.copy(
+                stressTestProgress = state.stressTestProgress?.copy(
+                    generatedRecords = generatedRecords,
+                    currentBatchBytes = remainingBytes,
+                    currentBatchRecordCount = remainingRecords.size
+                )
+            )
+        }
+        DecmedLog.i(
+            TAG,
+            "STRESS_BATCH_REMAINING at=${Instant.ofEpochMilli(refreshedAt)} atMillis=$refreshedAt generatedRecords=$generatedRecords unbatchedRecords=${remainingRecords.size} estimatedBytes=$remainingBytes threshold=${Env.pghdEarlyTriggerBytes}"
+        )
+    }
+
+    private fun selectStressRecordsWithinPayloadLimit(
+        records: List<PghdRecordEntity>,
+        patientId: String,
+        triggerReason: String
+    ): List<PghdRecordEntity> {
+        if (records.size <= 1) return records
+        if (estimatePghdPayloadBytes(records, patientId, triggerReason) <= Env.pghdEarlyTriggerBytes) {
+            return records
+        }
+
+        var low = 1
+        var high = records.size
+        var best = 1
+        while (low <= high) {
+            val mid = (low + high) / 2
+            val bytes = estimatePghdPayloadBytes(records.take(mid), patientId, triggerReason)
+            if (bytes <= Env.pghdEarlyTriggerBytes) {
+                best = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        DecmedLog.i(
+            TAG,
+            "STRESS_BATCH_SELECT selectedRecords=$best candidateRecords=${records.size} threshold=${Env.pghdEarlyTriggerBytes}"
+        )
+        return records.take(best)
+    }
+
+    private fun scheduleStressBatchIfSizeExceeded(activeWindow: ActivePghdCollectionWindow?) {
+        val progress = _uiState.value.stressTestProgress
+        if (progress?.isRunning != true || activeWindow == null) return
+        if (activeWindow.estimatedBytes < Env.pghdEarlyTriggerBytes) {
+            lastStressSizeTriggerRecordCount = 0
+            return
+        }
+        if (activeWindow.recordCount == lastStressSizeTriggerRecordCount) return
+
+        lastStressSizeTriggerRecordCount = activeWindow.recordCount
+        DecmedLog.i(
+            TAG,
+            "STRESS_SIZE_THRESHOLD_REACHED_OBSERVER unbatchedRecords=${activeWindow.recordCount} estimatedBytes=${activeWindow.estimatedBytes} threshold=${Env.pghdEarlyTriggerBytes}; stress generator performs immediate batching"
+        )
     }
 
     private suspend fun scheduleSizeThresholdBatchIfNeeded() {
@@ -704,9 +1087,17 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                 pghdCollectionStateRepository.state
             ) { records, collectionState -> records to collectionState }
                 .collect { (records, collectionState) ->
+                    val activeWindow = records.toActiveCollectionWindow(collectionState)
                     _uiState.update {
-                        it.copy(activeCollectionWindow = records.toActiveCollectionWindow(collectionState))
+                        it.copy(
+                            activeCollectionWindow = activeWindow,
+                            stressTestProgress = it.stressTestProgress?.copy(
+                                currentBatchBytes = activeWindow?.estimatedBytes ?: 0L,
+                                currentBatchRecordCount = activeWindow?.recordCount ?: 0
+                            )
+                        )
                     }
+                    scheduleStressBatchIfSizeExceeded(activeWindow)
                 }
         }
     }
@@ -724,7 +1115,8 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
                             batches = batches,
                             visibleBatches = batches.filterBatchesByDateRange(start, end),
                             dateFilterStartMillis = start,
-                            dateFilterEndMillis = end
+                            dateFilterEndMillis = end,
+                            stressTestProgress = it.stressTestProgress?.withBatchStats(batches)
                         )
                     }
                 }
@@ -765,6 +1157,11 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
 
     companion object {
         private const val TAG = "PghdCollectionViewModel"
+        private const val STRESS_TEST_DAYS = 7
+        private const val STRESS_TEST_INSERT_CHUNK_MINUTES = 40
+        private const val STRESS_TEST_PROGRESS_UPDATE_MINUTES = 30
+        private const val STRESS_TEST_SIZE_PROGRESS_LOG_RECORDS = 1_500
+        private const val STRESS_TEST_SOURCE_PACKAGE_PREFIX = "com.hackastic.decmed.stress"
     }
 }
 
@@ -840,15 +1237,19 @@ private fun List<PghdRecordEntity>.toActiveCollectionWindow(
     )
 }
 
-private fun estimatePghdPayloadBytes(records: List<PghdRecordEntity>): Long =
+private fun estimatePghdPayloadBytes(
+    records: List<PghdRecordEntity>,
+    patientId: String = "local_patient",
+    triggerReason: String = PghdBatchPayload.TRIGGER_SIZE_THRESHOLD
+): Long =
     if (records.isEmpty()) {
         0L
     } else {
         runCatching {
             val payload = PghdPayloadConverter.recordsToBatchPayload(
                 records = records,
-                patientId = "local_patient",
-                triggerReason = PghdBatchPayload.TRIGGER_SIZE_THRESHOLD
+                patientId = patientId,
+                triggerReason = triggerReason
             )
             PghdPayloadSerializer.toJson(payload).toByteArray(Charsets.UTF_8).size.toLong()
         }.getOrDefault(0L)
@@ -894,6 +1295,80 @@ private fun Throwable.toVerboseUserMessage(prefix: String): String {
     return detail.trimEnd()
 }
 
+private data class StressTestDataType(
+    val recordType: String,
+    val displayName: String,
+    val unit: String,
+    val minValue: Double,
+    val maxValue: Double,
+    val precision: Int = 0
+) {
+    fun toStressRecord(
+        runId: Long,
+        minuteOffset: Int,
+        timestamp: Long
+    ): PghdRecordEntity {
+        val value = syntheticValue(runId, minuteOffset)
+        val valueText = if (precision <= 0) {
+            value.toInt().toString()
+        } else {
+            "%.${precision}f".format(java.util.Locale.US, value)
+        }
+        return PghdRecordEntity(
+            uid = "stress:$runId:$recordType:$minuteOffset",
+            recordType = recordType,
+            displayName = displayName,
+            startTimeEpochMillis = timestamp - 60_000L,
+            endTimeEpochMillis = timestamp,
+            unit = unit,
+            valueText = valueText,
+            numericValue = value,
+            sourceTag = PghdRecordEntity.SOURCE_PHONE_SENSOR,
+            sourcePackageName = "com.hackastic.decmed.stress",
+            notes = "Synthetic PGHD stress-test sample",
+            syncedAtEpochMillis = System.currentTimeMillis()
+        )
+    }
+
+    private fun syntheticValue(runId: Long, minuteOffset: Int): Double {
+        val random = Random(runId + recordType.hashCode() * 31L + minuteOffset)
+        val wave = kotlin.math.sin((minuteOffset % 1440) / 1440.0 * 2.0 * Math.PI)
+        val normalized = ((wave + 1.0) / 2.0 * 0.55) + (random.nextDouble() * 0.45)
+        return minValue + ((maxValue - minValue) * normalized)
+    }
+}
+
+private val STRESS_TEST_SENSOR_TYPES = listOf(
+    StressTestDataType("steps", "Steps", "count", 0.0, 180.0),
+    StressTestDataType("heart_rate", "Heart Rate", "bpm", 58.0, 132.0),
+    StressTestDataType("oxygen_saturation", "Oxygen Saturation", "%", 94.0, 100.0),
+    StressTestDataType("respiratory_rate", "Respiratory Rate", "breaths/min", 12.0, 24.0),
+    StressTestDataType("resting_heart_rate", "Resting Heart Rate", "bpm", 52.0, 82.0),
+    StressTestDataType("heart_rate_variability", "Heart Rate Variability", "ms", 20.0, 120.0),
+    StressTestDataType("total_calories_burned", "Total Calories Burned", "kcal", 1.0, 5.0, precision = 2),
+    StressTestDataType("active_calories_burned", "Active Calories Burned", "kcal", 0.0, 4.0, precision = 2),
+    StressTestDataType("distance", "Distance", "m", 0.0, 160.0, precision = 2),
+    StressTestDataType("speed", "Speed", "m/s", 0.0, 3.2, precision = 2),
+    StressTestDataType("vo2_max", "VO2 Max", "mL/kg/min", 24.0, 58.0, precision = 1),
+    StressTestDataType("skin_temperature", "Skin Temperature", "C", 32.0, 36.5, precision = 1),
+    StressTestDataType("sleep_duration", "Sleep Duration", "min", 0.0, 60.0),
+    StressTestDataType("floors_climbed", "Floors Climbed", "floors", 0.0, 4.0),
+    StressTestDataType("elevation_gained", "Elevation Gained", "m", 0.0, 12.0, precision = 1)
+)
+
+private fun PghdStressTestProgress.withBatchStats(
+    batches: List<PghdBatchEntity>
+): PghdStressTestProgress {
+    val stressBatches = batches.filter { it.createdAtEpochMillis >= startedAtEpochMillis }
+    return copy(
+        formedBatchCount = stressBatches.size,
+        sentBatchCount = stressBatches.count { it.status == PghdBatchEntity.STATUS_SENT },
+        failedBatchCount = stressBatches.count { it.status == PghdBatchEntity.STATUS_FAILED },
+        waitingBatchCount = stressBatches.count { it.status == PghdBatchEntity.STATUS_WAITING_FOR_TRIGGER },
+        pendingBatchCount = stressBatches.count { it.status == PghdBatchEntity.STATUS_PENDING }
+    )
+}
+
 data class HospitalPersonnelIdentity(
     val iotaAddress: String,
     val displayName: String?,
@@ -903,6 +1378,14 @@ data class HospitalPersonnelIdentity(
 
 private fun String?.requireNonBlank(label: String): String =
     require(!isNullOrBlank()) { "Missing $label." }.let { this!! }
+
+private fun String?.requireIotaAddress(label: String): String {
+    val value = requireNonBlank(label).trim()
+    require(value.matches(Regex("^0x[0-9a-fA-F]{64}$"))) {
+        "Invalid $label: expected 0x followed by 64 hex characters, got '$value'."
+    }
+    return value
+}
 
 enum class PatientGrantAccessKind(val displayLabel: String) {
     PGHD_READ("PGHD read access"),

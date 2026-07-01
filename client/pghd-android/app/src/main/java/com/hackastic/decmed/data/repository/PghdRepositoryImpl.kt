@@ -80,4 +80,11 @@ class PghdRepositoryImpl(
             pghdRecordDao.markRecordsBatched(recordIds, batchId)
         }
     }
+
+    override suspend fun deleteStressRecordsSince(
+        sourcePackagePrefix: String,
+        startedAtEpochMillis: Long
+    ) {
+        pghdRecordDao.deleteStressRecordsSince(sourcePackagePrefix, startedAtEpochMillis)
+    }
 }

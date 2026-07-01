@@ -31,7 +31,7 @@ class PatientSecureStorage {
             val cipherText = Base64.getDecoder().decode(parts[1])
             cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
             String(cipher.doFinal(cipherText), Charsets.UTF_8)
-        }.getOrElse { storedValue }
+        }.getOrNull()
     }
 
     private fun getOrCreateKey(): SecretKey {

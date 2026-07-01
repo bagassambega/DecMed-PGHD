@@ -10,11 +10,13 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.hackastic.decmed.config.Env
+import com.hackastic.decmed.utils.DecmedLog
 import java.util.concurrent.TimeUnit
 
 object PghdWorkScheduler {
     private const val BATCH_WORK = "decmed_pghd_batch_work"
     private const val BATCH_NOW_WORK = "decmed_pghd_batch_now_work"
+    private const val BATCH_NOW_TAG = "decmed_pghd_batch_now_tag"
     private const val CONNECTIVITY_SUBMIT_WORK = "decmed_pghd_connectivity_submit_work"
     private const val HEALTH_CONNECT_SYNC_WORK = "decmed_pghd_health_connect_sync_work"
     private const val HEALTH_CONNECT_SYNC_NOW_WORK = "decmed_pghd_health_connect_sync_now_work"
@@ -33,7 +35,7 @@ object PghdWorkScheduler {
 
         WorkManager.getInstance(context).enqueueUniqueWork(
             CONNECTIVITY_SUBMIT_WORK,
-            ExistingWorkPolicy.KEEP,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
             request
         )
     }
@@ -66,13 +68,17 @@ object PghdWorkScheduler {
     }
 
     fun scheduleBatchNow(context: Context) {
-        val request = OneTimeWorkRequestBuilder<PghdBatchWorker>().build()
+        val request = OneTimeWorkRequestBuilder<PghdBatchWorker>()
+            .addTag(BATCH_NOW_TAG)
+            .build()
 
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            BATCH_NOW_WORK,
-            ExistingWorkPolicy.KEEP,
-            request
-        )
+        DecmedLog.i("PghdWorkScheduler", "PGHD_BATCH_NOW_ENQUEUE workId=${request.id}")
+        WorkManager.getInstance(context).enqueue(request)
+    }
+
+    fun cancelStressTestWork(context: Context) {
+        WorkManager.getInstance(context).cancelUniqueWork(CONNECTIVITY_SUBMIT_WORK)
+        WorkManager.getInstance(context).cancelAllWorkByTag(BATCH_NOW_TAG)
     }
 
     private fun scheduleHealthConnectSync(context: Context) {
@@ -86,7 +92,7 @@ object PghdWorkScheduler {
 
         WorkManager.getInstance(context).enqueueUniqueWork(
             HEALTH_CONNECT_SYNC_WORK,
-            ExistingWorkPolicy.REPLACE,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
             request
         )
     }
@@ -102,7 +108,7 @@ object PghdWorkScheduler {
 
         WorkManager.getInstance(context).enqueueUniqueWork(
             HEALTH_CONNECT_SYNC_WORK,
-            ExistingWorkPolicy.REPLACE,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
             request
         )
     }

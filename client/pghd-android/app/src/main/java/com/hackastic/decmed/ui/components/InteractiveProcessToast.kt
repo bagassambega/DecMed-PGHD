@@ -75,8 +75,12 @@ fun InteractiveProcessToastHost(
         if (event == null) return@LaunchedEffect
         visibleEvent = event
         onEventConsumed()
+    }
+
+    LaunchedEffect(visibleEvent) {
+        val current = visibleEvent ?: return@LaunchedEffect
         delay(visibleMillis)
-        if (visibleEvent == event) {
+        if (visibleEvent == current) {
             visibleEvent = null
         }
     }

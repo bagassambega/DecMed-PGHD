@@ -368,6 +368,8 @@ fun AppNavigation(
         composable(Screen.Settings.route) {
             SettingsScreen(
                 themeViewModel = themeViewModel,
+                pghdViewModel = pghdCollectionViewModel,
+                patientAuthViewModel = patientAuthViewModel,
                 onNavigateToSensorConfig = {
                     sensorViewModel.prepareForReconfiguration()
                     navController.navigate(Screen.SensorConfig.route)

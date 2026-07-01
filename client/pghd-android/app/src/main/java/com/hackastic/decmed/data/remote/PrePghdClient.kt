@@ -60,13 +60,12 @@ class PrePghdClient(private val baseUrl: String) {
         hospitalPersonnelPrePublicKey: String
     ): PghdAccessGrantResult = withContext(Dispatchers.IO) {
         require(baseUrl.isNotBlank()) { "PRE_BASE_URL must be configured before granting PGHD access." }
-        val patientIotaAddress = profile.iotaAddress.requireField("iota_address")
+        val patientIotaAddress = profile.iotaAddress.requireIotaAddress("patient IOTA address")
         val patientIotaKeyPair = profile.iotaKeyPair.requireField("iota_key_pair")
         val patientPghdPrePublicKey = profile.pghdPrePublicKey.requireField("pghd_pre_public_key")
         val patientPghdPreSecretKey = profile.pghdPreSecretKey.requireField("pghd_pre_secret_key")
-        val personnelAddress = hospitalPersonnelIotaAddress.trim()
+        val personnelAddress = hospitalPersonnelIotaAddress.requireIotaAddress("hospital personnel IOTA address")
         val personnelPrePublicKey = hospitalPersonnelPrePublicKey.trim()
-        require(personnelAddress.isNotBlank()) { "Hospital personnel IOTA address is required." }
         require(personnelPrePublicKey.isNotBlank()) { "Hospital personnel PRE public key is required." }
 
         val nonce = getNonce(patientIotaAddress)
@@ -133,15 +132,14 @@ class PrePghdClient(private val baseUrl: String) {
         hospitalPersonnelPrePublicKey: String
     ): PghdAccessGrantResult = withContext(Dispatchers.IO) {
         require(baseUrl.isNotBlank()) { "PRE_BASE_URL must be configured before granting medical record access." }
-        val patientIotaAddress = profile.iotaAddress.requireField("iota_address")
+        val patientIotaAddress = profile.iotaAddress.requireIotaAddress("patient IOTA address")
         val patientIotaKeyPair = profile.iotaKeyPair.requireField("iota_key_pair")
         val patientMedicalPrePublicKey = (profile.medicalPrePublicKey ?: profile.prePublicKey)
             .requireField("medical_pre_public_key")
         val patientMedicalPreSecretKey = (profile.medicalPreSecretKey ?: profile.preSecretKey)
             .requireField("medical_pre_secret_key")
-        val personnelAddress = hospitalPersonnelIotaAddress.trim()
+        val personnelAddress = hospitalPersonnelIotaAddress.requireIotaAddress("hospital personnel IOTA address")
         val personnelPrePublicKey = hospitalPersonnelPrePublicKey.trim()
-        require(personnelAddress.isNotBlank()) { "Hospital personnel IOTA address is required." }
         require(personnelPrePublicKey.isNotBlank()) { "Hospital personnel PRE public key is required." }
 
         val nonce = getNonce(patientIotaAddress)
@@ -209,10 +207,9 @@ class PrePghdClient(private val baseUrl: String) {
         purpose: String
     ): PghdAccessRevokeResult = withContext(Dispatchers.IO) {
         require(baseUrl.isNotBlank()) { "PRE_BASE_URL must be configured before revoking access." }
-        val patientIotaAddress = profile.iotaAddress.requireField("iota_address")
+        val patientIotaAddress = profile.iotaAddress.requireIotaAddress("patient IOTA address")
         val patientIotaKeyPair = profile.iotaKeyPair.requireField("iota_key_pair")
-        val personnelAddress = hospitalPersonnelIotaAddress.trim()
-        require(personnelAddress.isNotBlank()) { "Hospital personnel IOTA address is required." }
+        val personnelAddress = hospitalPersonnelIotaAddress.requireIotaAddress("hospital personnel IOTA address")
 
         val accessLogIndexes = resolveActiveAccessLogIndexes(
             patientIotaAddress = patientIotaAddress,
@@ -245,7 +242,7 @@ class PrePghdClient(private val baseUrl: String) {
     }
 
     suspend fun getActiveAccessGrants(profile: PatientProfile): List<PghdActiveAccessGrant> = withContext(Dispatchers.IO) {
-        val patientIotaAddress = profile.iotaAddress.requireField("iota_address")
+        val patientIotaAddress = profile.iotaAddress.requireIotaAddress("patient IOTA address")
         val now = Instant.now()
         val activeLogs = readRecentAccessLogs(patientIotaAddress)
             .filter { log -> !log.isRevoked && log.expiresAt()?.isAfter(now) == true }
@@ -383,6 +380,14 @@ class PrePghdClient(private val baseUrl: String) {
 
     private fun String?.requireField(name: String): String =
         require(!isNullOrBlank()) { "Missing patient $name." }.let { this!! }
+
+    private fun String?.requireIotaAddress(name: String): String {
+        val value = require(!isNullOrBlank()) { "Missing $name." }.let { this!!.trim() }
+        require(value.matches(Regex("^0x[0-9a-fA-F]{64}$"))) {
+            "Invalid $name: expected 0x followed by 64 hex characters, got '$value'."
+        }
+        return value
+    }
 
     private fun com.hackastic.decmed.iota.IotaPatientAccessLog.expiresAt(): Instant? =
         runCatching { Instant.parse(date).plus(expDur, ChronoUnit.MINUTES) }.getOrNull()

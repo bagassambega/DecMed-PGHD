@@ -14,7 +14,7 @@ class PghdAvailabilityStressTest {
     fun highVolumeTimeSeries_isConvertedIntoFewBatchesInsteadOfPerRecordPayloads() {
         val recordsPerStreamPerDay = 24 * 60
         val simulatedBacklogDays = 7
-        val simulatedStreamCount = 4
+        val simulatedStreamCount = 15
         val recordCount = recordsPerStreamPerDay * simulatedBacklogDays * simulatedStreamCount
         val batchSize = recordsPerStreamPerDay * simulatedStreamCount
         val records = syntheticWearableRecords(recordCount)
@@ -47,7 +47,7 @@ class PghdAvailabilityStressTest {
         assertEquals(recordCount, dataPointCount)
         assertEquals(simulatedBacklogDays, payloads.size)
         assertTrue("Stress conversion should not generate one batch per record", payloads.size < recordCount / 100)
-        assertTrue("Payloads should preserve grouped PGHD data", dataGroupCount in 4..(simulatedBacklogDays * simulatedStreamCount))
+        assertTrue("Payloads should preserve grouped PGHD data", dataGroupCount in 15..(simulatedBacklogDays * simulatedStreamCount))
         assertTrue(payloads.all { payload -> payload.triggerReason == PghdBatchPayload.TRIGGER_SIZE_THRESHOLD })
         assertTrue(payloads.all { payload -> payload.dataGroup.all { group -> group.deviceType == "wearable" } })
         assertTrue("Light stress conversion should finish quickly, elapsed=${elapsedMillis}ms", elapsedMillis < 10_000)
@@ -56,12 +56,7 @@ class PghdAvailabilityStressTest {
     private fun syntheticWearableRecords(count: Int): List<PghdRecordEntity> {
         val baseTime = 1_800_000_000_000L
         return List(count) { index ->
-            val type = when (index % 4) {
-                0 -> Triple("steps", "Steps", "count")
-                1 -> Triple("heart_rate", "Heart Rate", "bpm")
-                2 -> Triple("oxygen_saturation", "Oxygen Saturation", "%")
-                else -> Triple("distance", "Distance", "m")
-            }
+            val type = STRESS_TYPES[index % STRESS_TYPES.size]
             val endTime = baseTime + (index * 60_000L)
             PghdRecordEntity(
                 uid = "stress-record-$index",
@@ -85,6 +80,37 @@ class PghdAvailabilityStressTest {
             "steps" -> (80 + (index % 200)).toString()
             "heart_rate" -> (62 + (index % 45)).toString()
             "oxygen_saturation" -> (95 + (index % 5)).toString()
-            else -> (20 + (index % 50)).toString()
+            "respiratory_rate" -> (12 + (index % 12)).toString()
+            "resting_heart_rate" -> (52 + (index % 32)).toString()
+            "heart_rate_variability" -> (20 + (index % 100)).toString()
+            "total_calories_burned" -> (1 + (index % 5)).toString()
+            "active_calories_burned" -> (index % 4).toString()
+            "distance" -> (20 + (index % 140)).toString()
+            "speed" -> (1 + (index % 4)).toString()
+            "vo2_max" -> (24 + (index % 34)).toString()
+            "skin_temperature" -> (32 + (index % 5)).toString()
+            "sleep_duration" -> (index % 60).toString()
+            "floors_climbed" -> (index % 4).toString()
+            else -> (index % 12).toString()
         }
+
+    private companion object {
+        val STRESS_TYPES = listOf(
+            Triple("steps", "Steps", "count"),
+            Triple("heart_rate", "Heart Rate", "bpm"),
+            Triple("oxygen_saturation", "Oxygen Saturation", "%"),
+            Triple("respiratory_rate", "Respiratory Rate", "breaths/min"),
+            Triple("resting_heart_rate", "Resting Heart Rate", "bpm"),
+            Triple("heart_rate_variability", "Heart Rate Variability", "ms"),
+            Triple("total_calories_burned", "Total Calories Burned", "kcal"),
+            Triple("active_calories_burned", "Active Calories Burned", "kcal"),
+            Triple("distance", "Distance", "m"),
+            Triple("speed", "Speed", "m/s"),
+            Triple("vo2_max", "VO2 Max", "mL/kg/min"),
+            Triple("skin_temperature", "Skin Temperature", "C"),
+            Triple("sleep_duration", "Sleep Duration", "min"),
+            Triple("floors_climbed", "Floors Climbed", "floors"),
+            Triple("elevation_gained", "Elevation Gained", "m")
+        )
+    }
 }

@@ -42,6 +42,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.hackastic.decmed.data.local.entity.PghdBatchEntity
@@ -52,6 +53,7 @@ import com.hackastic.decmed.ui.components.ProcessToastEvent
 import com.hackastic.decmed.ui.components.ProcessToastKind
 import com.hackastic.decmed.viewmodel.ActivePghdCollectionWindow
 import com.hackastic.decmed.viewmodel.PghdCollectionViewModel
+import com.hackastic.decmed.worker.PghdWorkScheduler
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -62,12 +64,24 @@ fun PghdBatchScreen(
     viewModel: PghdCollectionViewModel,
     bottomBar: @Composable () -> Unit = {}
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val dateFormatter = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()) }
     val processToastEvent = uiState.errorMessage?.let {
         ProcessToastEvent(ProcessToastKind.Failure, it)
     } ?: uiState.lastSyncMessage?.let {
         ProcessToastEvent(ProcessToastKind.Success, it)
+    }
+    val retryableBatchKey = uiState.batches
+        .filter {
+            it.status == PghdBatchEntity.STATUS_WAITING_FOR_TRIGGER
+        }
+        .joinToString("|") { it.batchId }
+
+    LaunchedEffect(retryableBatchKey) {
+        if (retryableBatchKey.isNotBlank()) {
+            PghdWorkScheduler.scheduleSubmitWhenConnected(context.applicationContext)
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -450,7 +464,7 @@ private fun Long.toReadableBytes(): String {
 @Composable
 private fun BatchStatusChip(status: String) {
     val (label, icon, color) = when (status) {
-        PghdBatchEntity.STATUS_WAITING_FOR_TRIGGER -> Triple("Waiting for trigger", Icons.Default.CloudUpload, MaterialTheme.colorScheme.secondary)
+        PghdBatchEntity.STATUS_WAITING_FOR_TRIGGER -> Triple("Waiting for network", Icons.Default.CloudUpload, MaterialTheme.colorScheme.secondary)
         PghdBatchEntity.STATUS_PENDING -> Triple("Sending", Icons.Default.CloudUpload, MaterialTheme.colorScheme.tertiary)
         PghdBatchEntity.STATUS_SENT -> Triple("Sent", Icons.Default.CheckCircle, MaterialTheme.colorScheme.primary)
         PghdBatchEntity.STATUS_FAILED -> Triple("Failed", Icons.Default.Error, MaterialTheme.colorScheme.error)

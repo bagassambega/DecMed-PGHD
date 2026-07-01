@@ -28,15 +28,35 @@ class PatientAuthRepositoryImpl(
     override val authState: Flow<PatientAuthState> = dataStore.data.map { prefs ->
         val patientId = secureStorage.decrypt(prefs[Keys.patientId])
         val profileName = secureStorage.decrypt(prefs[Keys.profileName])
+        val iotaAddress = secureStorage.decrypt(prefs[Keys.iotaAddress])
+        val iotaKeyPair = secureStorage.decrypt(prefs[Keys.iotaKeyPair])
+        val medicalPrePublicKey = secureStorage.decrypt(prefs[Keys.medicalPrePublicKey])
+            ?: secureStorage.decrypt(prefs[Keys.prePublicKey])
+        val medicalPreSecretKey = secureStorage.decrypt(prefs[Keys.medicalPreSecretKey])
+            ?: secureStorage.decrypt(prefs[Keys.preSecretKey])
+        val pghdPrePublicKey = secureStorage.decrypt(prefs[Keys.pghdPrePublicKey])
+        val pghdPreSecretKey = secureStorage.decrypt(prefs[Keys.pghdPreSecretKey])
+        val pghdPublicKey = secureStorage.decrypt(prefs[Keys.pghdPublicKey])
+        val pghdSecretKey = secureStorage.decrypt(prefs[Keys.pghdSecretKey])
         val sessionState = prefs[Keys.sessionState]
 
         when {
             patientId.isNullOrBlank() -> PatientAuthState.NeedsSignupOrSignin
+            !hasRequiredPatientMaterial(
+                iotaAddress = iotaAddress,
+                iotaKeyPair = iotaKeyPair,
+                medicalPrePublicKey = medicalPrePublicKey,
+                medicalPreSecretKey = medicalPreSecretKey,
+                pghdPrePublicKey = pghdPrePublicKey,
+                pghdPreSecretKey = pghdPreSecretKey,
+                pghdPublicKey = pghdPublicKey,
+                pghdSecretKey = pghdSecretKey
+            ) -> PatientAuthState.NeedsSignupOrSignin
             profileName.isNullOrBlank() -> PatientAuthState.NeedsProfile(patientId)
             sessionState != SESSION_UNLOCKED -> PatientAuthState.NeedsPin(patientId)
             else -> PatientAuthState.Authenticated(
                 patientId = patientId,
-                iotaAddress = secureStorage.decrypt(prefs[Keys.iotaAddress]),
+                iotaAddress = iotaAddress,
                 displayName = profileName
             )
         }
@@ -122,7 +142,7 @@ class PatientAuthRepositoryImpl(
         val patientId = secureStorage.decrypt(prefs[Keys.patientId])
         require(!patientId.isNullOrBlank()) { "Patient identity is not available." }
 
-        return PatientProfile(
+        val profile = PatientProfile(
             id = patientId,
             idHash = secureStorage.decrypt(prefs[Keys.patientIdHash]),
             iotaAddress = secureStorage.decrypt(prefs[Keys.iotaAddress]),
@@ -146,6 +166,21 @@ class PatientAuthRepositoryImpl(
             occupation = secureStorage.decrypt(prefs[Keys.occupation]),
             maritalStatus = secureStorage.decrypt(prefs[Keys.maritalStatus])
         )
+        require(
+            hasRequiredPatientMaterial(
+                iotaAddress = profile.iotaAddress,
+                iotaKeyPair = profile.iotaKeyPair,
+                medicalPrePublicKey = profile.medicalPrePublicKey ?: profile.prePublicKey,
+                medicalPreSecretKey = profile.medicalPreSecretKey ?: profile.preSecretKey,
+                pghdPrePublicKey = profile.pghdPrePublicKey,
+                pghdPreSecretKey = profile.pghdPreSecretKey,
+                pghdPublicKey = profile.pghdPublicKey,
+                pghdSecretKey = profile.pghdSecretKey
+            )
+        ) {
+            "Patient cryptographic material is incomplete. Please sign in again with NIK and seed words."
+        }
+        return profile
     }
 
     override suspend fun unlock(pin: String) {
@@ -212,5 +247,27 @@ class PatientAuthRepositoryImpl(
     private companion object {
         const val SESSION_LOCKED = "locked"
         const val SESSION_UNLOCKED = "unlocked"
+
+        fun hasRequiredPatientMaterial(
+            iotaAddress: String?,
+            iotaKeyPair: String?,
+            medicalPrePublicKey: String?,
+            medicalPreSecretKey: String?,
+            pghdPrePublicKey: String?,
+            pghdPreSecretKey: String?,
+            pghdPublicKey: String?,
+            pghdSecretKey: String?
+        ): Boolean =
+            iotaAddress.isValidIotaAddress() &&
+                !iotaKeyPair.isNullOrBlank() &&
+                !medicalPrePublicKey.isNullOrBlank() &&
+                !medicalPreSecretKey.isNullOrBlank() &&
+                !pghdPrePublicKey.isNullOrBlank() &&
+                !pghdPreSecretKey.isNullOrBlank() &&
+                !pghdPublicKey.isNullOrBlank() &&
+                !pghdSecretKey.isNullOrBlank()
+
+        fun String?.isValidIotaAddress(): Boolean =
+            !isNullOrBlank() && trim().matches(Regex("^0x[0-9a-fA-F]{64}$"))
     }
 }

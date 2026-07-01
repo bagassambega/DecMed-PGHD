@@ -25,7 +25,12 @@ if [[ -n "${PGHD_VALID_SUBMIT_PAYLOAD:-}" ]]; then
   pass "PRE rejects tampered submit variants for enc_pghd, h_cipher, and signature"
 
   info "Creating tampered PRE-to-IPFS object fixture from valid PGHD payload."
-  "$ROOT_DIR/scripts/pghd_make_tampered_ipfs_object.py" "$PGHD_VALID_SUBMIT_PAYLOAD" ${PGHD_UPLOAD_TAMPERED_IPFS_OBJECT:+--post}
+  if [[ -n "${PGHD_WIRE_TAMPERED_IPFS_OBJECT:-}" ]]; then
+    cargo build --manifest-path "$ROOT_DIR/proxy-reencryption/Cargo.toml" --bin pghd_wire_tampered_ipfs
+    "$ROOT_DIR/scripts/pghd_make_tampered_ipfs_object.py" "$PGHD_VALID_SUBMIT_PAYLOAD" --post --wire-to-iota
+  else
+    "$ROOT_DIR/scripts/pghd_make_tampered_ipfs_object.py" "$PGHD_VALID_SUBMIT_PAYLOAD" ${PGHD_UPLOAD_TAMPERED_IPFS_OBJECT:+--post}
+  fi
   pass "Tampered IPFS object fixture created for hospital access-time integrity scenario"
 else
   info "PGHD_VALID_SUBMIT_PAYLOAD is not set; skipping optional live tampered submit and IPFS fixture attack scenario."

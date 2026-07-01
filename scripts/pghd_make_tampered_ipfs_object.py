@@ -3,6 +3,7 @@ import argparse
 import base64
 import json
 import os
+import subprocess
 from pathlib import Path
 from urllib import error, request
 
@@ -45,6 +46,37 @@ def extract_cid(body: str) -> str | None:
     return parsed.get("cid") or parsed.get("Hash")
 
 
+def run_wire_helper(helper_bin: str, payload_path: Path, tampered_cid: str, env_file: str | None) -> dict:
+    command = [
+        helper_bin,
+        "--payload",
+        str(payload_path),
+        "--tampered-cid",
+        tampered_cid,
+    ]
+    if env_file:
+        command.extend(["--env-file", env_file])
+    proc = subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    try:
+        parsed = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(
+            "[FAIL] Wire helper did not return JSON.\n"
+            f"Exit code: {proc.returncode}\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+        ) from exc
+    if proc.returncode != 0 or not parsed.get("ok"):
+        raise SystemExit(
+            "[FAIL] Failed to wire tampered CID into IOTA PGHD metadata.\n"
+            f"Exit code: {proc.returncode}\nError: {parsed.get('error')}\nSTDERR:\n{proc.stderr}"
+        )
+    return parsed["data"]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
@@ -69,7 +101,31 @@ def main() -> None:
         action="store_true",
         help="Upload the tampered ciphertext object to IPFS and print the new CID.",
     )
+    parser.add_argument(
+        "--wire-to-iota",
+        action="store_true",
+        help=(
+            "After --post uploads the tampered object, submit a controlled PGHD metadata entry "
+            "to IOTA that points to the tampered CID while keeping original h_cipher/signature."
+        ),
+    )
+    parser.add_argument(
+        "--wire-helper",
+        default=os.environ.get(
+            "PGHD_WIRE_TAMPERED_HELPER",
+            "proxy-reencryption/target/debug/pghd_wire_tampered_ipfs",
+        ),
+        help="Path to the pghd_wire_tampered_ipfs helper binary.",
+    )
+    parser.add_argument(
+        "--wire-env-file",
+        default=os.environ.get("PGHD_WIRE_TAMPERED_ENV_FILE"),
+        help="Optional .env file for the wire helper. Defaults to proxy-reencryption/.env when omitted.",
+    )
     args = parser.parse_args()
+
+    if args.wire_to_iota and not args.post:
+        raise SystemExit("[FAIL] --wire-to-iota requires --post so the tampered CID is known.")
 
     input_path = Path(args.payload)
     output_dir = Path(args.output_dir)
@@ -113,6 +169,18 @@ def main() -> None:
             raise SystemExit(f"[FAIL] IPFS response did not contain cid/Hash. HTTP {status}: {body}")
         print(f"[PASS] Uploaded tampered IPFS object. CID: {cid}")
         print("[INFO] Expected access result after wiring this CID into test metadata: OUTER_HASH_MISMATCH or SIGNATURE_INVALID.")
+        if args.wire_to_iota:
+            if not Path(args.wire_helper).exists():
+                raise SystemExit(
+                    f"[FAIL] Wire helper binary not found: {args.wire_helper}\n"
+                    "Build it first with: cargo build --manifest-path proxy-reencryption/Cargo.toml --bin pghd_wire_tampered_ipfs"
+                )
+            result = run_wire_helper(args.wire_helper, input_path, cid, args.wire_env_file)
+            print("[PASS] Wired tampered CID into IOTA PGHD metadata.")
+            print(f"       patient_iota_address: {result['patient_iota_address']}")
+            print(f"       batch_id: {result['batch_id']}")
+            print(f"       cid: {result['cid']}")
+            print(f"       expected_access_error: {result['expected_access_error']}")
 
 
 if __name__ == "__main__":
