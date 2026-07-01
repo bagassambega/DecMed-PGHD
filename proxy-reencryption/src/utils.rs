@@ -22,6 +22,7 @@ use iota_types::{
     base_types::{IotaAddress, ObjectID, ObjectRef},
     crypto::{EmptySignInfo, IotaKeyPair, Signature, SignatureScheme},
     message_envelope::Envelope,
+    object::Owner,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
     transaction::{
         CallArg, ObjectArg, ProgrammableTransaction, SenderSignedData, TransactionData,
@@ -224,6 +225,46 @@ impl Utils {
         };
 
         CallArg::Object(activation_key_table_arg)
+    }
+
+    pub async fn construct_dynamic_shared_object_call_arg(
+        iota_client: &IotaClient,
+        id: ObjectID,
+        mutable: bool,
+    ) -> Result<CallArg, ProxyError> {
+        let object = (*iota_client)
+            .read_api()
+            .get_object_with_options(
+                id,
+                IotaObjectDataOptions {
+                    show_owner: true,
+                    ..Default::default()
+                },
+            )
+            .await
+            .context(current_fn!())?;
+        let data = object
+            .data
+            .ok_or_else(|| anyhow!("shared object not found: {id}"))
+            .context(current_fn!())?;
+        let owner = data
+            .owner
+            .ok_or_else(|| anyhow!("shared object owner not returned: {id}"))
+            .context(current_fn!())?;
+
+        match owner {
+            Owner::Shared {
+                initial_shared_version,
+            } => Ok(Utils::construct_shared_object_call_arg(
+                id,
+                initial_shared_version.value(),
+                mutable,
+            )),
+            _ => Err(ProxyError::Anyhow {
+                source: anyhow!("object is not shared: {id}").context(current_fn!()),
+                code: StatusCode::INTERNAL_SERVER_ERROR,
+            }),
+        }
     }
 
     pub fn construct_signature_from_str(signature: &str) -> Result<Signature, ProxyError> {

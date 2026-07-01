@@ -12,6 +12,7 @@ use decmed::std_enum_hospital_personnel_role::{
     HospitalPersonnelRole,
 };
 use decmed::shared::{
+    assert_proxy_sender,
     GlobalAdminCap,
     ProxyCap,
 
@@ -33,6 +34,9 @@ use decmed::std_struct_patient_pghd_metadata::{
     borrow_status as patient_pghd_metadata_borrow_status,
     invalidate as patient_pghd_metadata_invalidate,
     new as patient_pghd_metadata_new,
+};
+use decmed::std_struct_patient_pghd_store::{
+    PatientPghdStore,
 };
 
 use iota::clock::Clock;
@@ -67,9 +71,11 @@ entry fun create_medical_record(
     metadata: String,
     patient_address: address,
     patient_id_account: &mut PatientIdAccount,
-    _: &ProxyCap,
+    proxy_cap: &ProxyCap,
+    ctx: &TxContext,
 )
 {
+    assert_proxy_sender(proxy_cap, ctx);
     let address_id_table = address_id.borrow_table();
 
     let patient_id = address_id_table.borrow(patient_address);
@@ -116,6 +122,7 @@ public(package) fun create_medical_record_test(
     patient_address: address,
     patient_id_account: &mut PatientIdAccount,
     proxy_cap: &ProxyCap,
+    ctx: &TxContext,
 )
 {
     create_medical_record(
@@ -127,6 +134,7 @@ public(package) fun create_medical_record_test(
         patient_address,
         patient_id_account,
         proxy_cap,
+        ctx,
     );
 }
 
@@ -137,9 +145,11 @@ entry fun get_administrative_data(
     hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
     patient_address: address,
     patient_id_account: &PatientIdAccount,
-    _: &ProxyCap,
+    proxy_cap: &ProxyCap,
+    ctx: &TxContext,
 ): PatientAdministrativeMetadata
 {
+    assert_proxy_sender(proxy_cap, ctx);
     let address_id_table = address_id.borrow_table();
     let hospital_personnel_id = *address_id_table.borrow(hospital_personnel_address);
     let patient_id = *address_id_table.borrow(patient_address);
@@ -194,6 +204,7 @@ public(package) fun get_administrative_data_test(
     patient_address: address,
     patient_id_account: &PatientIdAccount,
     proxy_cap: &ProxyCap,
+    ctx: &TxContext,
 ): PatientAdministrativeMetadata
 {
     get_administrative_data(
@@ -203,7 +214,8 @@ public(package) fun get_administrative_data_test(
         hospital_personnel_id_account,
         patient_address,
         patient_id_account,
-        proxy_cap
+        proxy_cap,
+        ctx,
     )
 }
 
@@ -211,9 +223,11 @@ entry fun get_hospital_personnel_role(
     address_id: &AddressId,
     hospital_personnel_id_account: &HospitalPersonnelIdAccount,
     hospital_personnel_address: address,
-    _: &ProxyCap,
+    proxy_cap: &ProxyCap,
+    ctx: &TxContext,
 ): HospitalPersonnelRole
 {
+    assert_proxy_sender(proxy_cap, ctx);
     let address_id_table = address_id.borrow_table();
     let hospital_personnel_id = *address_id_table.borrow(hospital_personnel_address);
     let hospital_personnel_id_account_table = hospital_personnel_id_account.borrow_table();
@@ -235,9 +249,11 @@ entry fun get_medical_record(
     index: u64,
     patient_address: address,
     patient_id_account: &PatientIdAccount,
-    _: &ProxyCap,
+    proxy_cap: &ProxyCap,
+    ctx: &TxContext,
 ): (PatientMedicalMetadata, PatientAdministrativeMetadata, u64, Option<u64>, Option<u64>)
 {
+    assert_proxy_sender(proxy_cap, ctx);
     let address_id_table = address_id.borrow_table();
     let hospital_personnel_id = *address_id_table.borrow(hospital_personnel_address);
     let patient_id = *address_id_table.borrow(patient_address);
@@ -291,6 +307,7 @@ public(package) fun get_medical_record_test(
     patient_address: address,
     patient_id_account: &PatientIdAccount,
     proxy_cap: &ProxyCap,
+    ctx: &TxContext,
 ): (PatientMedicalMetadata, PatientAdministrativeMetadata, u64, Option<u64>, Option<u64>)
 {
     get_medical_record(
@@ -301,7 +318,8 @@ public(package) fun get_medical_record_test(
         index,
         patient_address,
         patient_id_account,
-        proxy_cap
+        proxy_cap,
+        ctx,
     )
 }
 
@@ -313,9 +331,11 @@ entry fun get_medical_record_update(
     index: u64,
     patient_address: address,
     patient_id_account: &PatientIdAccount,
-    _: &ProxyCap,
+    proxy_cap: &ProxyCap,
+    ctx: &TxContext,
 ): (PatientMedicalMetadata, PatientAdministrativeMetadata)
 {
+    assert_proxy_sender(proxy_cap, ctx);
     let address_id_table = address_id.borrow_table();
     let hospital_personnel_id = *address_id_table.borrow(hospital_personnel_address);
     let patient_id = *address_id_table.borrow(patient_address);
@@ -353,9 +373,11 @@ entry fun is_patient_registered(
     address_id: &AddressId,
     patient_id_account: &PatientIdAccount,
     patient_address: address,
-    _: &ProxyCap,
+    proxy_cap: &ProxyCap,
+    ctx: &TxContext,
 )
 {
+    assert_proxy_sender(proxy_cap, ctx);
     let address_id_table = address_id.borrow_table();
 
     assert!(address_id_table.contains(patient_address), EAddressNotFound);
@@ -373,21 +395,24 @@ entry fun submit_pghd(
     h_cipher: String,
     metadata: String,
     patient_address: address,
-    patient_id_account: &mut PatientIdAccount,
-    _: &ProxyCap,
+    patient_id_account: &PatientIdAccount,
+    patient_pghd_store: &mut PatientPghdStore,
+    proxy_cap: &ProxyCap,
+    ctx: &TxContext,
 )
 {
+    assert_proxy_sender(proxy_cap, ctx);
     assert!(metadata.length() > 0, EInvalidPghdMetadata);
 
     let address_id_table = address_id.borrow_table();
     assert!(address_id_table.contains(patient_address), EAddressNotFound);
 
     let patient_id = *address_id_table.borrow(patient_address);
-    let patient_id_account_table = patient_id_account.borrow_mut_table();
+    let patient_id_account_table = patient_id_account.borrow_table();
     assert!(patient_id_account_table.contains(patient_id), EAccountNotFound);
+    assert!(*patient_pghd_store.borrow_patient_id() == patient_id, EAccountNotFound);
 
-    let patient_account = patient_id_account_table.borrow_mut(patient_id);
-    let pghd_metadata = patient_account.borrow_mut_pghd_metadata();
+    let pghd_metadata = patient_pghd_store.borrow_mut_metadata();
     let index = pghd_metadata.length();
     let metadata = patient_pghd_metadata_new(index, cid, h_cipher, metadata, clock.timestamp_ms());
     pghd_metadata.push_back(metadata);
@@ -401,8 +426,10 @@ public(package) fun submit_pghd_test(
     h_cipher: String,
     metadata: String,
     patient_address: address,
-    patient_id_account: &mut PatientIdAccount,
+    patient_id_account: &PatientIdAccount,
+    patient_pghd_store: &mut PatientPghdStore,
     proxy_cap: &ProxyCap,
+    ctx: &TxContext,
 )
 {
     submit_pghd(
@@ -413,7 +440,9 @@ public(package) fun submit_pghd_test(
         metadata,
         patient_address,
         patient_id_account,
+        patient_pghd_store,
         proxy_cap,
+        ctx,
     );
 }
 
@@ -424,9 +453,12 @@ entry fun get_pghd_list(
     hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
     patient_address: address,
     patient_id_account: &PatientIdAccount,
-    _: &ProxyCap,
+    patient_pghd_store: &PatientPghdStore,
+    proxy_cap: &ProxyCap,
+    ctx: &TxContext,
 ): vector<PatientPghdMetadata>
 {
+    assert_proxy_sender(proxy_cap, ctx);
     let address_id_table = address_id.borrow_table();
     assert!(address_id_table.contains(patient_address), EAddressNotFound);
     assert!(address_id_table.contains(hospital_personnel_address), EAddressNotFound);
@@ -442,9 +474,9 @@ entry fun get_pghd_list(
 
     let patient_id_account_table = patient_id_account.borrow_table();
     assert!(patient_id_account_table.contains(patient_id), EAccountNotFound);
+    assert!(*patient_pghd_store.borrow_patient_id() == patient_id, EAccountNotFound);
 
-    let patient_account = patient_id_account_table.borrow(patient_id);
-    let pghd_metadata = patient_account.borrow_pghd_metadata();
+    let pghd_metadata = patient_pghd_store.borrow_metadata();
     let mut index = 0;
     let metadata_len = pghd_metadata.length();
     let mut metadata_list = vector[];
@@ -468,7 +500,9 @@ public(package) fun get_pghd_list_test(
     hospital_personnel_id_account: &mut HospitalPersonnelIdAccount,
     patient_address: address,
     patient_id_account: &PatientIdAccount,
+    patient_pghd_store: &PatientPghdStore,
     proxy_cap: &ProxyCap,
+    ctx: &TxContext,
 ): vector<PatientPghdMetadata>
 {
     get_pghd_list(
@@ -478,7 +512,9 @@ public(package) fun get_pghd_list_test(
         hospital_personnel_id_account,
         patient_address,
         patient_id_account,
+        patient_pghd_store,
         proxy_cap,
+        ctx,
     )
 }
 
@@ -490,9 +526,12 @@ entry fun get_pghd(
     index: u64,
     patient_address: address,
     patient_id_account: &PatientIdAccount,
-    _: &ProxyCap,
+    patient_pghd_store: &PatientPghdStore,
+    proxy_cap: &ProxyCap,
+    ctx: &TxContext,
 ): (PatientPghdMetadata, u64, Option<u64>, Option<u64>)
 {
+    assert_proxy_sender(proxy_cap, ctx);
     let address_id_table = address_id.borrow_table();
     assert!(address_id_table.contains(patient_address), EAddressNotFound);
     assert!(address_id_table.contains(hospital_personnel_address), EAddressNotFound);
@@ -508,9 +547,9 @@ entry fun get_pghd(
 
     let patient_id_account_table = patient_id_account.borrow_table();
     assert!(patient_id_account_table.contains(patient_id), EAccountNotFound);
+    assert!(*patient_pghd_store.borrow_patient_id() == patient_id, EAccountNotFound);
 
-    let patient_account = patient_id_account_table.borrow(patient_id);
-    let pghd_metadata = patient_account.borrow_pghd_metadata();
+    let pghd_metadata = patient_pghd_store.borrow_metadata();
     let metadata_len = pghd_metadata.length();
     assert!(index < metadata_len, EPGHDRecordNotFound);
     let metadata = pghd_metadata.borrow(index);
@@ -538,7 +577,9 @@ public(package) fun get_pghd_test(
     index: u64,
     patient_address: address,
     patient_id_account: &PatientIdAccount,
+    patient_pghd_store: &PatientPghdStore,
     proxy_cap: &ProxyCap,
+    ctx: &TxContext,
 ): (PatientPghdMetadata, u64, Option<u64>, Option<u64>)
 {
     get_pghd(
@@ -549,7 +590,9 @@ public(package) fun get_pghd_test(
         index,
         patient_address,
         patient_id_account,
+        patient_pghd_store,
         proxy_cap,
+        ctx,
     )
 }
 
@@ -561,10 +604,13 @@ entry fun invalidate_pghd_entry(
     cid: String,
     failure_reason: String,
     patient_address: address,
-    patient_id_account: &mut PatientIdAccount,
-    _: &ProxyCap,
+    patient_id_account: &PatientIdAccount,
+    patient_pghd_store: &mut PatientPghdStore,
+    proxy_cap: &ProxyCap,
+    ctx: &TxContext,
 )
 {
+    assert_proxy_sender(proxy_cap, ctx);
     let address_id_table = address_id.borrow_table();
     assert!(address_id_table.contains(patient_address), EAddressNotFound);
     assert!(address_id_table.contains(hospital_personnel_address), EAddressNotFound);
@@ -578,11 +624,11 @@ entry fun invalidate_pghd_entry(
         patient_id,
     );
 
-    let patient_id_account_table = patient_id_account.borrow_mut_table();
+    let patient_id_account_table = patient_id_account.borrow_table();
     assert!(patient_id_account_table.contains(patient_id), EAccountNotFound);
+    assert!(*patient_pghd_store.borrow_patient_id() == patient_id, EAccountNotFound);
 
-    let patient_account = patient_id_account_table.borrow_mut(patient_id);
-    let pghd_metadata = patient_account.borrow_mut_pghd_metadata();
+    let pghd_metadata = patient_pghd_store.borrow_mut_metadata();
     let mut index = 0;
     let metadata_len = pghd_metadata.length();
 
@@ -607,8 +653,10 @@ public(package) fun invalidate_pghd_entry_test(
     cid: String,
     failure_reason: String,
     patient_address: address,
-    patient_id_account: &mut PatientIdAccount,
+    patient_id_account: &PatientIdAccount,
+    patient_pghd_store: &mut PatientPghdStore,
     proxy_cap: &ProxyCap,
+    ctx: &TxContext,
 )
 {
     invalidate_pghd_entry(
@@ -620,7 +668,9 @@ public(package) fun invalidate_pghd_entry_test(
         failure_reason,
         patient_address,
         patient_id_account,
+        patient_pghd_store,
         proxy_cap,
+        ctx,
     );
 }
 
@@ -655,9 +705,11 @@ entry fun update_medical_record(
     metadata: String,
     patient_address: address,
     patient_id_account: &mut PatientIdAccount,
-    _: &ProxyCap,
+    proxy_cap: &ProxyCap,
+    ctx: &TxContext,
 )
 {
+    assert_proxy_sender(proxy_cap, ctx);
     let address_id_table = address_id.borrow_table();
 
     let patient_id = address_id_table.borrow(patient_address);
@@ -705,6 +757,7 @@ public(package) fun update_medical_record_test(
     patient_address: address,
     patient_id_account: &mut PatientIdAccount,
     proxy_cap: &ProxyCap,
+    ctx: &TxContext,
 )
 {
     update_medical_record(
@@ -715,6 +768,7 @@ public(package) fun update_medical_record_test(
         metadata,
         patient_address,
         patient_id_account,
-        proxy_cap
+        proxy_cap,
+        ctx,
     );
 }

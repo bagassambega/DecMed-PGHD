@@ -15,6 +15,7 @@ public struct GlobalAdminCap has key {
 
 public struct ProxyCap has key {
     id: UID,
+    proxy_address: address,
 }
 
 // Functions
@@ -24,8 +25,19 @@ public(package) fun transfer_proxy_cap(
     ctx: &mut TxContext
 )
 {
-    let proxy_cap = ProxyCap { id: object::new(ctx) };
-    transfer::transfer(proxy_cap, proxy_address);
+    let proxy_cap = ProxyCap {
+        id: object::new(ctx),
+        proxy_address,
+    };
+    transfer::share_object(proxy_cap);
+}
+
+public(package) fun assert_proxy_sender(
+    proxy_cap: &ProxyCap,
+    ctx: &TxContext,
+)
+{
+    assert!(proxy_cap.proxy_address == ctx.sender(), 1000);
 }
 
 public(package) fun encode_hospital_id(

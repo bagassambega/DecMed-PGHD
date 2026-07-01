@@ -38,6 +38,10 @@ use decmed::std_struct_patient_administrative_metadata::{
 use decmed::std_struct_patient_id_account::PatientIdAccount;
 use decmed::std_struct_patient_medical_metadata::PatientMedicalMetadata;
 use decmed::std_struct_patient_pghd_metadata::PatientPghdMetadata;
+use decmed::std_struct_patient_pghd_store::{
+    new as patient_pghd_store_new,
+    share as patient_pghd_store_share,
+};
 
 use iota::clock::Clock;
 use iota::table_vec;
@@ -358,6 +362,8 @@ entry fun signup(
     let administrative_metadata = patient_administrative_metadata_new(private_metadata);
     let medical_metadata = table_vec::empty<PatientMedicalMetadata>(ctx);
     let pghd_metadata = table_vec::empty<PatientPghdMetadata>(ctx);
+    let patient_pghd_store = patient_pghd_store_new(patient_id, ctx);
+    let pghd_store_id = object::uid_to_inner(patient_pghd_store.borrow_id());
 
     let patient_account = patient_account_new(
         access_log,
@@ -366,9 +372,11 @@ entry fun signup(
         false,
         medical_metadata,
         pghd_metadata,
+        pghd_store_id,
         string::utf8(b""),
     );
     patient_id_account_table.add(patient_id, patient_account);
+    patient_pghd_store_share(patient_pghd_store);
 }
 
 #[test_only]
@@ -432,6 +440,23 @@ entry fun get_pghd_public_key(
     let patient_id_account_table = patient_id_account.borrow_table();
     let patient_account = patient_id_account_table.borrow(patient_id);
     *patient_account.borrow_pghd_public_key()
+}
+
+entry fun get_patient_pghd_store_id(
+    address_id: &AddressId,
+    patient_address: address,
+    patient_id_account: &PatientIdAccount,
+): ID
+{
+    let address_id_table = address_id.borrow_table();
+    assert!(address_id_table.contains(patient_address), EAddressNotFound);
+
+    let patient_id = *address_id_table.borrow(patient_address);
+    let patient_id_account_table = patient_id_account.borrow_table();
+    assert!(patient_id_account_table.contains(patient_id), EAccountNotFound);
+
+    let patient_account = patient_id_account_table.borrow(patient_id);
+    patient_account.borrow_pghd_store_id()
 }
 
 entry fun get_patient_pghd_public_key(

@@ -2,6 +2,7 @@
 module decmed::pghd_smart_contract_tests;
 
 use decmed::shared_tests::{
+    patient_id,
     setup_data,
     setup_shared_objects,
 };
@@ -17,12 +18,20 @@ use decmed::proxy::{
     submit_pghd_test,
 };
 
-use decmed::shared::ProxyCap;
+use decmed::shared::{
+    encode_patient_id,
+    ProxyCap,
+};
 
 use decmed::std_struct_address_id::AddressId;
 use decmed::std_struct_hospital_id_metadata::HospitalIdMetadata;
 use decmed::std_struct_hospital_personnel_id_account::HospitalPersonnelIdAccount;
 use decmed::std_struct_patient_id_account::PatientIdAccount;
+use decmed::std_struct_patient_pghd_store::{
+    PatientPghdStore,
+    default as patient_pghd_store_default,
+    destroy_for_testing as patient_pghd_store_destroy_for_testing,
+};
 
 use std::string::{Self, String};
 
@@ -117,12 +126,13 @@ fun submit_one_pghd(
     clock: &Clock,
     patient_address: address,
     index: u64,
-    scenario: &test_scenario::Scenario,
+    patient_pghd_store: &mut PatientPghdStore,
+    scenario: &mut test_scenario::Scenario,
 )
 {
     let address_id = test_scenario::take_shared<AddressId>(scenario);
-    let mut patient_id_account = test_scenario::take_shared<PatientIdAccount>(scenario);
-    let proxy_cap = test_scenario::take_from_address<ProxyCap>(scenario, PROXY_ADDR);
+    let patient_id_account = test_scenario::take_shared<PatientIdAccount>(scenario);
+    let proxy_cap = test_scenario::take_shared<ProxyCap>(scenario);
 
     submit_pghd_test(
         &address_id,
@@ -131,13 +141,27 @@ fun submit_one_pghd(
         pghd_h_cipher(index),
         pghd_metadata(index),
         patient_address,
-        &mut patient_id_account,
+        &patient_id_account,
+        patient_pghd_store,
         &proxy_cap,
-    );
+            test_scenario::ctx(scenario),
+        );
 
     test_scenario::return_shared(address_id);
     test_scenario::return_shared(patient_id_account);
-    test_scenario::return_to_address(PROXY_ADDR, proxy_cap);
+    test_scenario::return_shared(proxy_cap);
+}
+
+#[test_only]
+fun new_patient_pghd_store(
+    patient_index: u64,
+    scenario: &mut test_scenario::Scenario,
+): PatientPghdStore
+{
+    patient_pghd_store_default(
+        encode_patient_id(patient_id(patient_index)),
+        test_scenario::ctx(scenario),
+    )
 }
 
 #[test_only]
@@ -160,9 +184,10 @@ fun test_sc_pghd_01_submit_and_read_success()
 {
     let (mut scenario_val, mut clck) = setup_pghd_scenario();
     let scenario = &mut scenario_val;
+    let mut patient_pghd_store = new_patient_pghd_store(1, scenario);
 
     test_scenario::next_tx(scenario, PROXY_ADDR);
-    submit_one_pghd(&clck, PATIENT_ADDR, 1, scenario);
+    submit_one_pghd(&clck, PATIENT_ADDR, 1, &mut patient_pghd_store, scenario);
 
     test_scenario::next_tx(scenario, PATIENT_ADDR);
     create_access(&clck, MEDICAL_PERSONNEL_ADDR, pghd_access_metadata(), scenario);
@@ -172,7 +197,7 @@ fun test_sc_pghd_01_submit_and_read_success()
         let address_id = test_scenario::take_shared<AddressId>(scenario);
         let mut hospital_personnel_id_account = test_scenario::take_shared<HospitalPersonnelIdAccount>(scenario);
         let patient_id_account = test_scenario::take_shared<PatientIdAccount>(scenario);
-        let proxy_cap = test_scenario::take_from_address<ProxyCap>(scenario, PROXY_ADDR);
+        let proxy_cap = test_scenario::take_shared<ProxyCap>(scenario);
         clck.set_for_testing(3 * 60 * 1000);
 
         let pghd_list = get_pghd_list_test(
@@ -182,7 +207,9 @@ fun test_sc_pghd_01_submit_and_read_success()
             &mut hospital_personnel_id_account,
             PATIENT_ADDR,
             &patient_id_account,
+            &patient_pghd_store,
             &proxy_cap,
+            test_scenario::ctx(scenario),
         );
         assert!(pghd_list.length() == 1, 0);
 
@@ -194,7 +221,9 @@ fun test_sc_pghd_01_submit_and_read_success()
             0,
             PATIENT_ADDR,
             &patient_id_account,
+            &patient_pghd_store,
             &proxy_cap,
+            test_scenario::ctx(scenario),
         );
         assert!(returned_index == 0, 0);
         assert!(prev_index.is_none(), 0);
@@ -203,9 +232,9 @@ fun test_sc_pghd_01_submit_and_read_success()
         test_scenario::return_shared(address_id);
         test_scenario::return_shared(hospital_personnel_id_account);
         test_scenario::return_shared(patient_id_account);
-        test_scenario::return_to_address(PROXY_ADDR, proxy_cap);
+        test_scenario::return_shared(proxy_cap);
     };
-
+    patient_pghd_store_destroy_for_testing(patient_pghd_store);
     clck.destroy_for_testing();
     test_scenario::end(scenario_val);
 }
@@ -216,16 +245,17 @@ fun test_sc_pghd_02_read_without_access()
 {
     let (mut scenario_val, mut clck) = setup_pghd_scenario();
     let scenario = &mut scenario_val;
+    let mut patient_pghd_store = new_patient_pghd_store(1, scenario);
 
     test_scenario::next_tx(scenario, PROXY_ADDR);
-    submit_one_pghd(&clck, PATIENT_ADDR, 1, scenario);
+    submit_one_pghd(&clck, PATIENT_ADDR, 1, &mut patient_pghd_store, scenario);
 
     test_scenario::next_tx(scenario, PROXY_ADDR);
     {
         let address_id = test_scenario::take_shared<AddressId>(scenario);
         let mut hospital_personnel_id_account = test_scenario::take_shared<HospitalPersonnelIdAccount>(scenario);
         let patient_id_account = test_scenario::take_shared<PatientIdAccount>(scenario);
-        let proxy_cap = test_scenario::take_from_address<ProxyCap>(scenario, PROXY_ADDR);
+        let proxy_cap = test_scenario::take_shared<ProxyCap>(scenario);
         clck.set_for_testing(3 * 60 * 1000);
 
         let _ = get_pghd_list_test(
@@ -235,15 +265,17 @@ fun test_sc_pghd_02_read_without_access()
             &mut hospital_personnel_id_account,
             PATIENT_ADDR,
             &patient_id_account,
+            &patient_pghd_store,
             &proxy_cap,
+            test_scenario::ctx(scenario),
         );
 
         test_scenario::return_shared(address_id);
         test_scenario::return_shared(hospital_personnel_id_account);
         test_scenario::return_shared(patient_id_account);
-        test_scenario::return_to_address(PROXY_ADDR, proxy_cap);
+        test_scenario::return_shared(proxy_cap);
     };
-
+    patient_pghd_store_destroy_for_testing(patient_pghd_store);
     clck.destroy_for_testing();
     test_scenario::end(scenario_val);
 }
@@ -254,9 +286,10 @@ fun test_sc_pghd_03_read_with_wrong_access_type()
 {
     let (mut scenario_val, mut clck) = setup_pghd_scenario();
     let scenario = &mut scenario_val;
+    let mut patient_pghd_store = new_patient_pghd_store(1, scenario);
 
     test_scenario::next_tx(scenario, PROXY_ADDR);
-    submit_one_pghd(&clck, PATIENT_ADDR, 1, scenario);
+    submit_one_pghd(&clck, PATIENT_ADDR, 1, &mut patient_pghd_store, scenario);
 
     test_scenario::next_tx(scenario, PATIENT_ADDR);
     create_access(&clck, MEDICAL_PERSONNEL_ADDR, medical_access_metadata(), scenario);
@@ -266,7 +299,7 @@ fun test_sc_pghd_03_read_with_wrong_access_type()
         let address_id = test_scenario::take_shared<AddressId>(scenario);
         let mut hospital_personnel_id_account = test_scenario::take_shared<HospitalPersonnelIdAccount>(scenario);
         let patient_id_account = test_scenario::take_shared<PatientIdAccount>(scenario);
-        let proxy_cap = test_scenario::take_from_address<ProxyCap>(scenario, PROXY_ADDR);
+        let proxy_cap = test_scenario::take_shared<ProxyCap>(scenario);
         clck.set_for_testing(3 * 60 * 1000);
 
         let _ = get_pghd_list_test(
@@ -276,15 +309,17 @@ fun test_sc_pghd_03_read_with_wrong_access_type()
             &mut hospital_personnel_id_account,
             PATIENT_ADDR,
             &patient_id_account,
+            &patient_pghd_store,
             &proxy_cap,
+            test_scenario::ctx(scenario),
         );
 
         test_scenario::return_shared(address_id);
         test_scenario::return_shared(hospital_personnel_id_account);
         test_scenario::return_shared(patient_id_account);
-        test_scenario::return_to_address(PROXY_ADDR, proxy_cap);
+        test_scenario::return_shared(proxy_cap);
     };
-
+    patient_pghd_store_destroy_for_testing(patient_pghd_store);
     clck.destroy_for_testing();
     test_scenario::end(scenario_val);
 }
@@ -295,9 +330,10 @@ fun test_sc_pghd_04_read_after_access_expired()
 {
     let (mut scenario_val, mut clck) = setup_pghd_scenario();
     let scenario = &mut scenario_val;
+    let mut patient_pghd_store = new_patient_pghd_store(1, scenario);
 
     test_scenario::next_tx(scenario, PROXY_ADDR);
-    submit_one_pghd(&clck, PATIENT_ADDR, 1, scenario);
+    submit_one_pghd(&clck, PATIENT_ADDR, 1, &mut patient_pghd_store, scenario);
 
     test_scenario::next_tx(scenario, PATIENT_ADDR);
     create_access(&clck, MEDICAL_PERSONNEL_ADDR, pghd_access_metadata(), scenario);
@@ -307,7 +343,7 @@ fun test_sc_pghd_04_read_after_access_expired()
         let address_id = test_scenario::take_shared<AddressId>(scenario);
         let mut hospital_personnel_id_account = test_scenario::take_shared<HospitalPersonnelIdAccount>(scenario);
         let patient_id_account = test_scenario::take_shared<PatientIdAccount>(scenario);
-        let proxy_cap = test_scenario::take_from_address<ProxyCap>(scenario, PROXY_ADDR);
+        let proxy_cap = test_scenario::take_shared<ProxyCap>(scenario);
         clck.set_for_testing((24 * 60 * 60 * 1000) + 1);
 
         let _ = get_pghd_list_test(
@@ -317,15 +353,17 @@ fun test_sc_pghd_04_read_after_access_expired()
             &mut hospital_personnel_id_account,
             PATIENT_ADDR,
             &patient_id_account,
+            &patient_pghd_store,
             &proxy_cap,
+            test_scenario::ctx(scenario),
         );
 
         test_scenario::return_shared(address_id);
         test_scenario::return_shared(hospital_personnel_id_account);
         test_scenario::return_shared(patient_id_account);
-        test_scenario::return_to_address(PROXY_ADDR, proxy_cap);
+        test_scenario::return_shared(proxy_cap);
     };
-
+    patient_pghd_store_destroy_for_testing(patient_pghd_store);
     clck.destroy_for_testing();
     test_scenario::end(scenario_val);
 }
@@ -336,9 +374,10 @@ fun test_sc_pghd_05_read_missing_index()
 {
     let (mut scenario_val, mut clck) = setup_pghd_scenario();
     let scenario = &mut scenario_val;
+    let mut patient_pghd_store = new_patient_pghd_store(1, scenario);
 
     test_scenario::next_tx(scenario, PROXY_ADDR);
-    submit_one_pghd(&clck, PATIENT_ADDR, 1, scenario);
+    submit_one_pghd(&clck, PATIENT_ADDR, 1, &mut patient_pghd_store, scenario);
 
     test_scenario::next_tx(scenario, PATIENT_ADDR);
     create_access(&clck, MEDICAL_PERSONNEL_ADDR, pghd_access_metadata(), scenario);
@@ -348,7 +387,7 @@ fun test_sc_pghd_05_read_missing_index()
         let address_id = test_scenario::take_shared<AddressId>(scenario);
         let mut hospital_personnel_id_account = test_scenario::take_shared<HospitalPersonnelIdAccount>(scenario);
         let patient_id_account = test_scenario::take_shared<PatientIdAccount>(scenario);
-        let proxy_cap = test_scenario::take_from_address<ProxyCap>(scenario, PROXY_ADDR);
+        let proxy_cap = test_scenario::take_shared<ProxyCap>(scenario);
         clck.set_for_testing(3 * 60 * 1000);
 
         let (_, _, _, _) = get_pghd_test(
@@ -359,15 +398,17 @@ fun test_sc_pghd_05_read_missing_index()
             99,
             PATIENT_ADDR,
             &patient_id_account,
+            &patient_pghd_store,
             &proxy_cap,
+            test_scenario::ctx(scenario),
         );
 
         test_scenario::return_shared(address_id);
         test_scenario::return_shared(hospital_personnel_id_account);
         test_scenario::return_shared(patient_id_account);
-        test_scenario::return_to_address(PROXY_ADDR, proxy_cap);
+        test_scenario::return_shared(proxy_cap);
     };
-
+    patient_pghd_store_destroy_for_testing(patient_pghd_store);
     clck.destroy_for_testing();
     test_scenario::end(scenario_val);
 }
@@ -378,9 +419,10 @@ fun test_sc_pghd_06_read_invalidated_entry()
 {
     let (mut scenario_val, mut clck) = setup_pghd_scenario();
     let scenario = &mut scenario_val;
+    let mut patient_pghd_store = new_patient_pghd_store(1, scenario);
 
     test_scenario::next_tx(scenario, PROXY_ADDR);
-    submit_one_pghd(&clck, PATIENT_ADDR, 1, scenario);
+    submit_one_pghd(&clck, PATIENT_ADDR, 1, &mut patient_pghd_store, scenario);
 
     test_scenario::next_tx(scenario, PATIENT_ADDR);
     create_access(&clck, MEDICAL_PERSONNEL_ADDR, pghd_access_metadata(), scenario);
@@ -389,8 +431,8 @@ fun test_sc_pghd_06_read_invalidated_entry()
     {
         let address_id = test_scenario::take_shared<AddressId>(scenario);
         let mut hospital_personnel_id_account = test_scenario::take_shared<HospitalPersonnelIdAccount>(scenario);
-        let mut patient_id_account = test_scenario::take_shared<PatientIdAccount>(scenario);
-        let proxy_cap = test_scenario::take_from_address<ProxyCap>(scenario, PROXY_ADDR);
+        let patient_id_account = test_scenario::take_shared<PatientIdAccount>(scenario);
+        let proxy_cap = test_scenario::take_shared<ProxyCap>(scenario);
         clck.set_for_testing(3 * 60 * 1000);
 
         invalidate_pghd_entry_test(
@@ -401,8 +443,10 @@ fun test_sc_pghd_06_read_invalidated_entry()
             pghd_cid(1),
             string::utf8(b"hash mismatch"),
             PATIENT_ADDR,
-            &mut patient_id_account,
+            &patient_id_account,
+            &mut patient_pghd_store,
             &proxy_cap,
+            test_scenario::ctx(scenario),
         );
 
         let (_, _, _, _) = get_pghd_test(
@@ -413,15 +457,17 @@ fun test_sc_pghd_06_read_invalidated_entry()
             0,
             PATIENT_ADDR,
             &patient_id_account,
+            &patient_pghd_store,
             &proxy_cap,
+            test_scenario::ctx(scenario),
         );
 
         test_scenario::return_shared(address_id);
         test_scenario::return_shared(hospital_personnel_id_account);
         test_scenario::return_shared(patient_id_account);
-        test_scenario::return_to_address(PROXY_ADDR, proxy_cap);
+        test_scenario::return_shared(proxy_cap);
     };
-
+    patient_pghd_store_destroy_for_testing(patient_pghd_store);
     clck.destroy_for_testing();
     test_scenario::end(scenario_val);
 }
@@ -432,9 +478,10 @@ fun test_sc_pghd_07_invalidate_missing_cid()
 {
     let (mut scenario_val, mut clck) = setup_pghd_scenario();
     let scenario = &mut scenario_val;
+    let mut patient_pghd_store = new_patient_pghd_store(1, scenario);
 
     test_scenario::next_tx(scenario, PROXY_ADDR);
-    submit_one_pghd(&clck, PATIENT_ADDR, 1, scenario);
+    submit_one_pghd(&clck, PATIENT_ADDR, 1, &mut patient_pghd_store, scenario);
 
     test_scenario::next_tx(scenario, PATIENT_ADDR);
     create_access(&clck, MEDICAL_PERSONNEL_ADDR, pghd_access_metadata(), scenario);
@@ -443,8 +490,8 @@ fun test_sc_pghd_07_invalidate_missing_cid()
     {
         let address_id = test_scenario::take_shared<AddressId>(scenario);
         let mut hospital_personnel_id_account = test_scenario::take_shared<HospitalPersonnelIdAccount>(scenario);
-        let mut patient_id_account = test_scenario::take_shared<PatientIdAccount>(scenario);
-        let proxy_cap = test_scenario::take_from_address<ProxyCap>(scenario, PROXY_ADDR);
+        let patient_id_account = test_scenario::take_shared<PatientIdAccount>(scenario);
+        let proxy_cap = test_scenario::take_shared<ProxyCap>(scenario);
         clck.set_for_testing(3 * 60 * 1000);
 
         invalidate_pghd_entry_test(
@@ -455,16 +502,18 @@ fun test_sc_pghd_07_invalidate_missing_cid()
             string::utf8(b"bafy-missing"),
             string::utf8(b"hash mismatch"),
             PATIENT_ADDR,
-            &mut patient_id_account,
+            &patient_id_account,
+            &mut patient_pghd_store,
             &proxy_cap,
+            test_scenario::ctx(scenario),
         );
 
         test_scenario::return_shared(address_id);
         test_scenario::return_shared(hospital_personnel_id_account);
         test_scenario::return_shared(patient_id_account);
-        test_scenario::return_to_address(PROXY_ADDR, proxy_cap);
+        test_scenario::return_shared(proxy_cap);
     };
-
+    patient_pghd_store_destroy_for_testing(patient_pghd_store);
     clck.destroy_for_testing();
     test_scenario::end(scenario_val);
 }
@@ -475,12 +524,13 @@ fun test_sc_pghd_08_submit_empty_metadata()
 {
     let (mut scenario_val, clck) = setup_pghd_scenario();
     let scenario = &mut scenario_val;
+    let mut patient_pghd_store = new_patient_pghd_store(1, scenario);
 
     test_scenario::next_tx(scenario, PROXY_ADDR);
     {
         let address_id = test_scenario::take_shared<AddressId>(scenario);
-        let mut patient_id_account = test_scenario::take_shared<PatientIdAccount>(scenario);
-        let proxy_cap = test_scenario::take_from_address<ProxyCap>(scenario, PROXY_ADDR);
+        let patient_id_account = test_scenario::take_shared<PatientIdAccount>(scenario);
+        let proxy_cap = test_scenario::take_shared<ProxyCap>(scenario);
 
         submit_pghd_test(
             &address_id,
@@ -489,15 +539,17 @@ fun test_sc_pghd_08_submit_empty_metadata()
             pghd_h_cipher(1),
             string::utf8(b""),
             PATIENT_ADDR,
-            &mut patient_id_account,
+            &patient_id_account,
+            &mut patient_pghd_store,
             &proxy_cap,
+            test_scenario::ctx(scenario),
         );
 
         test_scenario::return_shared(address_id);
         test_scenario::return_shared(patient_id_account);
-        test_scenario::return_to_address(PROXY_ADDR, proxy_cap);
+        test_scenario::return_shared(proxy_cap);
     };
-
+    patient_pghd_store_destroy_for_testing(patient_pghd_store);
     clck.destroy_for_testing();
     test_scenario::end(scenario_val);
 }
@@ -508,9 +560,10 @@ fun test_sc_pghd_09_read_different_patient_without_access()
 {
     let (mut scenario_val, mut clck) = setup_pghd_scenario();
     let scenario = &mut scenario_val;
+    let mut patient_2_pghd_store = new_patient_pghd_store(2, scenario);
 
     test_scenario::next_tx(scenario, PROXY_ADDR);
-    submit_one_pghd(&clck, PATIENT_2_ADDR, 1, scenario);
+    submit_one_pghd(&clck, PATIENT_2_ADDR, 1, &mut patient_2_pghd_store, scenario);
 
     test_scenario::next_tx(scenario, PATIENT_ADDR);
     create_access(&clck, MEDICAL_PERSONNEL_ADDR, pghd_access_metadata(), scenario);
@@ -520,7 +573,7 @@ fun test_sc_pghd_09_read_different_patient_without_access()
         let address_id = test_scenario::take_shared<AddressId>(scenario);
         let mut hospital_personnel_id_account = test_scenario::take_shared<HospitalPersonnelIdAccount>(scenario);
         let patient_id_account = test_scenario::take_shared<PatientIdAccount>(scenario);
-        let proxy_cap = test_scenario::take_from_address<ProxyCap>(scenario, PROXY_ADDR);
+        let proxy_cap = test_scenario::take_shared<ProxyCap>(scenario);
         clck.set_for_testing(3 * 60 * 1000);
 
         let _ = get_pghd_list_test(
@@ -530,15 +583,17 @@ fun test_sc_pghd_09_read_different_patient_without_access()
             &mut hospital_personnel_id_account,
             PATIENT_2_ADDR,
             &patient_id_account,
+            &patient_2_pghd_store,
             &proxy_cap,
+            test_scenario::ctx(scenario),
         );
 
         test_scenario::return_shared(address_id);
         test_scenario::return_shared(hospital_personnel_id_account);
         test_scenario::return_shared(patient_id_account);
-        test_scenario::return_to_address(PROXY_ADDR, proxy_cap);
+        test_scenario::return_shared(proxy_cap);
     };
-
+    patient_pghd_store_destroy_for_testing(patient_2_pghd_store);
     clck.destroy_for_testing();
     test_scenario::end(scenario_val);
 }

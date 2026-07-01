@@ -1,5 +1,5 @@
 # DecMed PGHD PRE scalability dummy patient accounts
-# generated_at=2026-07-01T05:18:24.542792Z
+# generated_at=2026-07-01T10:49:35.631076Z
 # mode=registered_e2e
 # These accounts are dummy test material. Do not use them outside controlled tests.
 # Android login uses NIK + seed words to derive the IOTA identity; PIN is local session input.

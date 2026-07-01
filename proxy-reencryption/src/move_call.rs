@@ -10,10 +10,8 @@ use iota_types::{
     transaction::{CallArg, Transaction},
     Identifier,
 };
-use move_core_types::account_address::AccountAddress;
-
 use crate::{
-    constants::{DECMED_MODULE_SHARED, DECMED_PACKAGE_ID, GAS_BUDGET},
+    constants::GAS_BUDGET,
     current_fn,
     proxy_error::{ProxyError, ResultExt},
     types::{
@@ -72,21 +70,60 @@ impl MoveCall {
         )
     }
 
-    pub async fn construct_proxy_cap(
+    pub async fn get_patient_pghd_store_id(
         &self,
-        iota_client: &IotaClient,
-        module: Identifier,
-        package_id: AccountAddress,
-        proxy_iota_address: IotaAddress,
-    ) -> Result<CallArg, ProxyError> {
-        let cap = Utils::get_proxy_cap(iota_client, module, package_id, proxy_iota_address)
+        patient_address: &IotaAddress,
+        sender: IotaAddress,
+    ) -> Result<ObjectID, ProxyError> {
+        let iota_client = Utils::get_iota_client().await.context(current_fn!())?;
+        let pt = Utils::construct_pt(
+            "get_patient_pghd_store_id",
+            self.decmed_package.package_id,
+            Identifier::from_str(DECMED_MODULE_PATIENT).context(current_fn!())?,
+            vec![],
+            vec![
+                self.construct_address_id_object_call_arg(false),
+                CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
+                self.construct_patient_id_account_object_call_arg(false),
+            ],
+        )
+        .context(current_fn!())?;
+
+        let response = Utils::move_call_read_only(sender, &iota_client, pt)
             .await
             .context(current_fn!())?;
 
-        Ok(
-            Utils::construct_capability_call_arg(iota_client, cap.object_id)
-                .await
-                .context(current_fn!())?,
+        Utils::handle_error_move_call_read_only(response.clone())
+            .context(current_fn!())
+            .code(StatusCode::UNAUTHORIZED)?;
+
+        Utils::parse_move_read_only_result(response, 0)
+            .context(current_fn!())
+            .map_err(ProxyError::from)
+    }
+
+    async fn construct_patient_pghd_store_call_arg(
+        &self,
+        iota_client: &IotaClient,
+        patient_address: &IotaAddress,
+        sender: IotaAddress,
+        mutable: bool,
+    ) -> Result<CallArg, ProxyError> {
+        let store_id = self
+            .get_patient_pghd_store_id(patient_address, sender)
+            .await
+            .context(current_fn!())?;
+
+        Ok(Utils::construct_dynamic_shared_object_call_arg(iota_client, store_id, mutable)
+            .await
+            .context(current_fn!())?)
+    }
+
+    pub fn construct_proxy_cap(&self) -> CallArg {
+        Utils::construct_shared_object_call_arg(
+            self.decmed_package.proxy_cap_object_id,
+            self.decmed_package.proxy_cap_object_version,
+            false,
         )
     }
 
@@ -161,15 +198,16 @@ impl MoveCall {
                 self.construct_hospital_personnel_id_account_object_call_arg(true),
                 CallArg::Pure(bcs::to_bytes(&metadata).context(current_fn!())?),
                 CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
-                self.construct_patient_id_account_object_call_arg(true),
-                self.construct_proxy_cap(
+                self.construct_patient_id_account_object_call_arg(false),
+                self.construct_patient_pghd_store_call_arg(
                     &iota_client,
-                    Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                    AccountAddress::from_str(DECMED_PACKAGE_ID).context(current_fn!())?,
+                    patient_address,
                     sender,
+                    true,
                 )
                 .await
                 .context(current_fn!())?,
+                self.construct_proxy_cap(),
             ],
         )
         .context(current_fn!())?;
@@ -225,15 +263,16 @@ impl MoveCall {
                 CallArg::Pure(bcs::to_bytes(&h_cipher).context(current_fn!())?),
                 CallArg::Pure(bcs::to_bytes(&metadata).context(current_fn!())?),
                 CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
-                self.construct_patient_id_account_object_call_arg(true),
-                self.construct_proxy_cap(
+                self.construct_patient_id_account_object_call_arg(false),
+                self.construct_patient_pghd_store_call_arg(
                     &iota_client,
-                    Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                    AccountAddress::from_str(DECMED_PACKAGE_ID).context(current_fn!())?,
+                    patient_address,
                     sender,
+                    true,
                 )
                 .await
                 .context(current_fn!())?,
+                self.construct_proxy_cap(),
             ],
         )
         .context(current_fn!())?;
@@ -286,14 +325,15 @@ impl MoveCall {
                 self.construct_hospital_personnel_id_account_object_call_arg(true),
                 CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
                 self.construct_patient_id_account_object_call_arg(false),
-                self.construct_proxy_cap(
+                self.construct_patient_pghd_store_call_arg(
                     &iota_client,
-                    Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                    AccountAddress::from_str(DECMED_PACKAGE_ID).context(current_fn!())?,
+                    patient_address,
                     sender,
+                    false,
                 )
                 .await
                 .context(current_fn!())?,
+                self.construct_proxy_cap(),
             ],
         )
         .context(current_fn!())?;
@@ -331,14 +371,7 @@ impl MoveCall {
                 self.construct_hospital_personnel_id_account_object_call_arg(true),
                 CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
                 self.construct_patient_id_account_object_call_arg(false),
-                self.construct_proxy_cap(
-                    &iota_client,
-                    Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                    AccountAddress::from_str(DECMED_PACKAGE_ID).context(current_fn!())?,
-                    sender,
-                )
-                .await
-                .context(current_fn!())?,
+                self.construct_proxy_cap(),
             ],
         )
         .context(current_fn!())?;
@@ -378,14 +411,15 @@ impl MoveCall {
                 CallArg::Pure(bcs::to_bytes(&index).context(current_fn!())?),
                 CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
                 self.construct_patient_id_account_object_call_arg(false),
-                self.construct_proxy_cap(
+                self.construct_patient_pghd_store_call_arg(
                     &iota_client,
-                    Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                    AccountAddress::from_str(DECMED_PACKAGE_ID).context(current_fn!())?,
+                    patient_address,
                     sender,
+                    false,
                 )
                 .await
                 .context(current_fn!())?,
+                self.construct_proxy_cap(),
             ],
         )
         .context(current_fn!())?;
@@ -429,15 +463,16 @@ impl MoveCall {
                 CallArg::Pure(bcs::to_bytes(&cid).context(current_fn!())?),
                 CallArg::Pure(bcs::to_bytes(&failure_reason).context(current_fn!())?),
                 CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
-                self.construct_patient_id_account_object_call_arg(true),
-                self.construct_proxy_cap(
+                self.construct_patient_id_account_object_call_arg(false),
+                self.construct_patient_pghd_store_call_arg(
                     &iota_client,
-                    Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                    AccountAddress::from_str(DECMED_PACKAGE_ID).context(current_fn!())?,
+                    patient_address,
                     sender,
+                    true,
                 )
                 .await
                 .context(current_fn!())?,
+                self.construct_proxy_cap(),
             ],
         )
         .context(current_fn!())?;
@@ -516,14 +551,7 @@ impl MoveCall {
                 self.construct_address_id_object_call_arg(false),
                 self.construct_hospital_personnel_id_account_object_call_arg(false),
                 CallArg::Pure(bcs::to_bytes(hospital_personnel_address).context(current_fn!())?),
-                self.construct_proxy_cap(
-                    &iota_client,
-                    Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                    AccountAddress::from_str(DECMED_PACKAGE_ID).context(current_fn!())?,
-                    sender,
-                )
-                .await
-                .context(current_fn!())?,
+                self.construct_proxy_cap(),
             ],
         )
         .context(current_fn!())?;
@@ -575,14 +603,7 @@ impl MoveCall {
                 CallArg::Pure(bcs::to_bytes(&index).context(current_fn!())?),
                 CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
                 self.construct_patient_id_account_object_call_arg(false),
-                self.construct_proxy_cap(
-                    &iota_client,
-                    Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                    AccountAddress::from_str(DECMED_PACKAGE_ID).context(current_fn!())?,
-                    sender,
-                )
-                .await
-                .context(current_fn!())?,
+                self.construct_proxy_cap(),
             ],
         )
         .context(current_fn!())?;
@@ -642,14 +663,7 @@ impl MoveCall {
                 CallArg::Pure(bcs::to_bytes(&index).context(current_fn!())?),
                 CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
                 self.construct_patient_id_account_object_call_arg(false),
-                self.construct_proxy_cap(
-                    &iota_client,
-                    Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                    AccountAddress::from_str(DECMED_PACKAGE_ID).context(current_fn!())?,
-                    sender,
-                )
-                .await
-                .context(current_fn!())?,
+                self.construct_proxy_cap(),
             ],
         )
         .context(current_fn!())?;
@@ -685,14 +699,7 @@ impl MoveCall {
                 self.construct_address_id_object_call_arg(false),
                 self.construct_patient_id_account_object_call_arg(false),
                 CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
-                self.construct_proxy_cap(
-                    &iota_client,
-                    Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                    AccountAddress::from_str(DECMED_PACKAGE_ID).context(current_fn!())?,
-                    sender,
-                )
-                .await
-                .context(current_fn!())?,
+                self.construct_proxy_cap(),
             ],
         )
         .context(current_fn!())?;
@@ -730,14 +737,7 @@ impl MoveCall {
                 CallArg::Pure(bcs::to_bytes(&metadata).context(current_fn!())?),
                 CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
                 self.construct_patient_id_account_object_call_arg(true),
-                self.construct_proxy_cap(
-                    &iota_client,
-                    Identifier::from_str(DECMED_MODULE_SHARED).context(current_fn!())?,
-                    AccountAddress::from_str(DECMED_PACKAGE_ID).context(current_fn!())?,
-                    sender,
-                )
-                .await
-                .context(current_fn!())?,
+                self.construct_proxy_cap(),
             ],
         )
         .context(current_fn!())?;

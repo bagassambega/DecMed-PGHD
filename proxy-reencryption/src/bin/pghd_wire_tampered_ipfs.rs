@@ -15,7 +15,8 @@ use proxy_reencryption::{
         DECMED_HOSPITAL_PERSONNEL_ID_ACCOUNT_OBJECT_ID,
         DECMED_HOSPITAL_PERSONNEL_ID_ACCOUNT_OBJECT_VERSION, DECMED_MODULE_ADMIN,
         DECMED_MODULE_PROXY, DECMED_PACKAGE_ID, DECMED_PATIENT_ID_ACCOUNT_OBJECT_ID,
-        DECMED_PATIENT_ID_ACCOUNT_OBJECT_VERSION,
+        DECMED_PATIENT_ID_ACCOUNT_OBJECT_VERSION, DECMED_PROXY_CAP_OBJECT_ID,
+        DECMED_PROXY_CAP_OBJECT_VERSION,
     },
     move_call::MoveCall,
     types::{DecmedPackage, HandlerSubmitPghdPayload, PghdMetadata},
@@ -57,6 +58,15 @@ fn decmed_move_call() -> anyhow::Result<MoveCall> {
                 DECMED_HOSPITAL_PERSONNEL_ID_ACCOUNT_OBJECT_VERSION,
             patient_id_account_object_id: ObjectID::from_str(DECMED_PATIENT_ID_ACCOUNT_OBJECT_ID)?,
             patient_id_account_object_version: DECMED_PATIENT_ID_ACCOUNT_OBJECT_VERSION,
+            proxy_cap_object_id: ObjectID::from_str(&Utils::env_string(
+                "DECMED_PROXY_CAP_OBJECT_ID",
+                DECMED_PROXY_CAP_OBJECT_ID,
+            ))?,
+            proxy_cap_object_version: Utils::env_string(
+                "DECMED_PROXY_CAP_OBJECT_VERSION",
+                &DECMED_PROXY_CAP_OBJECT_VERSION.to_string(),
+            )
+            .parse()?,
             global_admin_cap_id: ObjectID::from_str(DECMED_GLOBAL_ADMIN_CAP_ID)?,
         },
     })

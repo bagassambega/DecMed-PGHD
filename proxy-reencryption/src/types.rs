@@ -233,6 +233,8 @@ pub struct DecmedPackage {
     pub hospital_personnel_id_account_object_version: u64,
     pub patient_id_account_object_id: ObjectID,
     pub patient_id_account_object_version: u64,
+    pub proxy_cap_object_id: ObjectID,
+    pub proxy_cap_object_version: u64,
 
     pub global_admin_cap_id: ObjectID,
 }

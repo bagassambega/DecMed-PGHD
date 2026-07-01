@@ -21,6 +21,7 @@ public struct PatientAccount has store {
     is_profile_completed: bool,
     medical_metadata: TableVec<PatientMedicalMetadata>,
     pghd_metadata: TableVec<PatientPghdMetadata>,
+    pghd_store_id: ID,
     pghd_public_key: String,
 }
 
@@ -31,6 +32,7 @@ public(package) fun new(
     is_profile_completed: bool,
     medical_metadata: TableVec<PatientMedicalMetadata>,
     pghd_metadata: TableVec<PatientPghdMetadata>,
+    pghd_store_id: ID,
     pghd_public_key: String,
 ): PatientAccount
 {
@@ -41,6 +43,7 @@ public(package) fun new(
         is_profile_completed,
     	medical_metadata,
         pghd_metadata,
+        pghd_store_id,
         pghd_public_key,
     }
 }
@@ -139,6 +142,13 @@ public(package) fun set_pghd_public_key(
     self.pghd_public_key = pghd_public_key;
 }
 
+public(package) fun borrow_pghd_store_id(
+    self: &PatientAccount,
+): ID
+{
+    self.pghd_store_id
+}
+
 #[test_only]
 public(package) fun default(
     address: address,
@@ -152,6 +162,7 @@ public(package) fun default(
     	is_profile_completed: false,
     	medical_metadata: table_vec::empty<PatientMedicalMetadata>(ctx),
         pghd_metadata: table_vec::empty<PatientPghdMetadata>(ctx),
+        pghd_store_id: object::id_from_address(@0x0),
         pghd_public_key: string::utf8(b""),
     }
 }
