@@ -17,6 +17,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -61,171 +64,284 @@ private data class TosSection(
     val checkboxLabel: String
 )
 
-// ─── Terms content (mirrors terms-content.ts TERMS_SECTIONS exactly) ──────────
+// ─── Terms content ─────────────────────────────────────────────────────────────
 
 private val TERMS_SECTIONS = listOf(
     TosSection(
         id = "general",
-        title = "General Terms & PGHD Consent Framework",
-        summary = "These terms govern your use of the DecMed Patient-Generated Health Data (PGHD) experience. " +
-            "By proceeding, you confirm that you have read each section in full and explicitly agree to all terms below.",
+        title = "Ketentuan Umum & Kerangka Persetujuan PGHD",
+        summary = "Ketentuan ini mengatur penggunaan aplikasi DecMed untuk pengumpulan, pengiriman, dan pengelolaan " +
+            "Patient-Generated Health Data (PGHD) dalam ekosistem Rekam Medis Elektronik terdesentralisasi. " +
+            "Dengan melanjutkan, Anda menyatakan telah membaca setiap bagian secara penuh dan menyetujui seluruh ketentuan di bawah ini.",
         clauses = listOf(
             TosClause(
-                "1.1 Acceptance of Terms",
-                "By accessing or using the DecMed application, you confirm that you are at least 18 years old " +
-                    "(or have verifiable parental/guardian consent) and agree to be bound by these terms. " +
-                    "If you do not agree, you must not use this application."
+                "1.1 Penerimaan Ketentuan",
+                "Dengan mengakses atau menggunakan aplikasi DecMed, Anda menyatakan berusia minimal 18 tahun " +
+                    "(atau memiliki persetujuan orang tua/wali yang dapat diverifikasi) dan bersedia terikat oleh " +
+                    "ketentuan ini. Jika Anda tidak setuju, Anda tidak diperbolehkan menggunakan aplikasi ini."
             ),
             TosClause(
-                "1.2 PGHD Collection Scope",
-                "DecMed collects patient-generated health data (PGHD) from your approved device sensors and from " +
-                    "your in-app health interactions. This PGHD is used to support your longitudinal health record " +
-                    "and authorized care workflows."
+                "1.2 Lingkup Pengumpulan PGHD",
+                "DecMed mengumpulkan Patient-Generated Health Data (PGHD) dari sensor perangkat Android Anda " +
+                    "(termasuk Health Connect/wearable, sensor bawaan, dan input manual) setelah Anda mengaktifkan " +
+                    "mode pengumpulan secara eksplisit. Data ini digunakan untuk mendukung rekam medis longitudinal " +
+                    "Anda dan alur kerja pelayanan kesehatan yang telah Anda otorisasi."
             ),
             TosClause(
-                "1.3 Account Responsibilities",
-                "You are responsible for maintaining the confidentiality of your PIN, seed words, and any " +
-                    "authentication credentials. Activity performed under your account is your responsibility. " +
-                    "You must notify DecMed immediately if you suspect unauthorized access."
+                "1.3 Tanggung Jawab Akun",
+                "Anda bertanggung jawab menjaga kerahasiaan PIN lokal dan seluruh " +
+                    "kredensial autentikasi Anda. Aktivitas yang dilakukan di bawah akun Anda menjadi tanggung jawab Anda. " +
+                    "Anda harus segera menghubungi DecMed jika menduga adanya akses tidak sah."
             ),
             TosClause(
-                "1.4 Accuracy of Information",
-                "You agree to provide accurate, current, and complete information during registration and while " +
-                    "using the platform. False or misleading information may result in suspension or termination of access."
+                "1.4 Akurasi Informasi",
+                "Anda menyetujui untuk memberikan informasi yang akurat, terkini, dan lengkap selama registrasi " +
+                    "dan penggunaan platform."
             ),
             TosClause(
-                "1.5 Irreversible Decision After Acceptance",
-                "Once you accept these Terms and PGHD consent, that acceptance decision is final for your account " +
-                    "context and cannot be revoked, withdrawn, or changed through in-app controls. If you do not " +
-                    "agree with this condition, you must decline before continuing."
+                "1.5 Sifat Final Persetujuan",
+                "Setelah Anda menerima Ketentuan ini dan persetujuan PGHD, keputusan penerimaan tersebut bersifat " +
+                    "final untuk konteks akun Anda dan tidak dapat dicabut atau diubah melalui kontrol dalam aplikasi. " +
+                    "Jika Anda tidak setuju dengan kondisi ini, Anda harus menolak sebelum melanjutkan."
             ),
             TosClause(
-                "1.6 Limitation of Liability",
-                "DecMed is provided on an \"as-is\" basis. To the maximum extent permitted by applicable rules and " +
-                    "agreements, DecMed developers and operators are not liable for indirect, incidental, special, " +
-                    "consequential, or punitive damages resulting from use of the platform."
+                "1.6 Pembatasan Tanggung Jawab",
+                "DecMed disediakan sebagaimana adanya (as-is). Sejauh yang diizinkan oleh aturan dan perjanjian " +
+                    "yang berlaku, pengembang dan operator DecMed tidak bertanggung jawab atas kerugian tidak " +
+                    "langsung, insidental, khusus, atau konsekuensial yang timbul dari penggunaan platform."
             ),
             TosClause(
-                "1.7 Modifications to Terms",
-                "DecMed may update these terms over time. Material changes will be communicated in-app. " +
-                    "Continued use after such updates indicates acceptance of the revised terms."
+                "1.7 Perubahan Ketentuan",
+                "DecMed dapat memperbarui ketentuan ini sewaktu-waktu. Perubahan material akan dikomunikasikan " +
+                    "melalui notifikasi dalam aplikasi. Penggunaan yang berlanjut setelah pembaruan tersebut " +
+                    "menunjukkan penerimaan terhadap ketentuan yang telah direvisi."
             )
         ),
-        checkboxLabel = "I have read and agree to the General Terms & PGHD Consent Framework."
-    ),
-    TosSection(
-        id = "data-access",
-        title = "PGHD Access by Authorized Care Parties",
-        summary = "This section describes how authorized healthcare organizations and approved personnel may " +
-            "access and act on your PGHD-linked records within DecMed.",
-        clauses = listOf(
-            TosClause(
-                "2.1 Authorized Access",
-                "By agreeing to this section, you consent to authorized healthcare organizations and credentialed " +
-                    "personnel accessing your records where PGHD is included. Access is session-bound through " +
-                    "cryptographic authorization and all access events are auditable."
-            ),
-            TosClause(
-                "2.2 Scope of Access",
-                "Authorized personnel may access relevant administrative context, clinical records, and " +
-                    "PGHD-derived summaries needed for care delivery and continuity."
-            ),
-            TosClause(
-                "2.3 Data Modification Rights",
-                "Authorized personnel may create and update clinical records related to your care. All changes " +
-                    "are versioned and timestamped to preserve traceability."
-            ),
-            TosClause(
-                "2.4 Institutional Accountability",
-                "Each organization and personnel account interacting with your records is identifiable and " +
-                    "auditable. Access and modification events are retained for oversight and verification."
-            ),
-            TosClause(
-                "2.5 Emergency Access Context",
-                "In emergency contexts, designated providers may receive temporary access to critical records, " +
-                    "including relevant PGHD context, with all events recorded for later review."
-            )
-        ),
-        checkboxLabel = "I consent to authorized care parties accessing and updating my records with PGHD context as described above."
+        checkboxLabel = "Saya telah membaca dan menyetujui Ketentuan Umum & Kerangka Persetujuan PGHD di atas."
     ),
     TosSection(
         id = "data-collection",
-        title = "PGHD Collection, Processing, and Retention",
-        summary = "This section covers data gathered from device sensors and patient inputs, how it is processed, " +
-            "and how it is retained in DecMed.",
+        title = "Pengumpulan, Pengiriman, dan Penyimpanan PGHD",
+        summary = "Bagian ini menjelaskan cara DecMed mengumpulkan data dari perangkat Anda, memproses data " +
+            "secara lokal sebelum pengiriman, dan menyimpannya secara terenkripsi pada infrastruktur terdesentralisasi.",
         clauses = listOf(
             TosClause(
-                "3.1 Sensor Data Collection",
-                "DecMed may collect data from approved device sensors, including motion, environmental, and " +
-                    "health-related streams supported by your hardware. Collection begins only after your explicit " +
-                    "acceptance and sensor configuration."
+                "2.1 Sumber Data PGHD",
+                "DecMed dapat mengumpulkan PGHD dari: (a) Health Connect dan perangkat wearable yang didukung, " +
+                    "(b) sensor Android yang memiliki pemetaan ke tipe data kesehatan, dan (c) input manual yang " +
+                    "Anda masukkan secara langsung. Pengumpulan baru dimulai setelah Anda mengaktifkan mode " +
+                    "pengumpulan secara eksplisit dan mengonfigurasi sensor yang diinginkan."
             ),
             TosClause(
-                "3.2 PGHD Classification",
-                "PGHD includes self-reported inputs and device-generated measurements. DecMed stores PGHD with " +
-                    "dedicated classification metadata so it can be distinguished from clinician-verified records."
+                "2.2 Penyimpanan Lokal Sementara (Offline-First)",
+                "PGHD yang dikumpulkan disimpan terlebih dahulu di database lokal (Room DB) pada perangkat Anda " +
+                    "sebelum dikirimkan. Pendekatan offline-first ini memastikan data tetap tersedia meskipun " +
+                    "perangkat Anda sedang tidak terhubung ke jaringan. Backup otomatis Android dinonaktifkan " +
+                    "untuk mencegah restorasi state terenkripsi ke lingkungan yang tidak kompatibel."
             ),
             TosClause(
-                "3.3 Processing and Storage",
-                "Collected data is processed and stored using protected data pipelines and encrypted storage layers. " +
-                    "Access is restricted to authorized workflows and auditable operations."
+                "2.3 Mekanisme Batching",
+                "Data lokal dikelompokkan menjadi batch secara periodik (default setiap 15 menit) atau lebih " +
+                    "awal jika ukuran payload mencapai batas tertentu. Health Connect disinkronkan secara " +
+                    "otomatis setiap 3 menit ketika mode pengumpulan aktif. Sensor disampling default setiap " +
+                    "1 menit. Mekanisme ini memastikan pengiriman data yang efisien dan meminimalkan beban jaringan."
             ),
             TosClause(
-                "3.4 Irrevocable Consent Acknowledgement",
-                "By accepting this section, you acknowledge that PGHD collection consent is final for your accepted " +
-                    "terms state and cannot be revoked or changed through in-app controls after acceptance."
+                "2.4 Enkripsi Sebelum Pengiriman",
+                "Setiap batch PGHD dienkripsi secara lokal di perangkat Anda menggunakan AES-GCM sebelum " +
+                    "dikirimkan ke server. Kunci enkripsi AES dibungkus menggunakan Proxy Re-Encryption (PRE) " +
+                    "dengan kunci publik PGHD Anda. Plaintext PGHD tidak pernah dikirimkan ke PRE, IPFS, " +
+                    "maupun IOTA dalam bentuk yang dapat dibaca."
             ),
             TosClause(
-                "3.5 Retention and Integrity",
-                "PGHD and related record artifacts are retained according to platform retention policy to preserve " +
-                    "continuity, reproducibility, and audit integrity."
+                "2.5 Integritas Data",
+                "Setelah enkripsi, hash SHA-256 dari ciphertext (h_cipher) dihitung dan ditandatangani secara " +
+                    "digital menggunakan kunci penandatanganan PGHD Anda (ECDSA). Tanda tangan ini memungkinkan " +
+                    "verifikasi keaslian dan integritas data oleh server PRE dan tenaga kesehatan penerima."
             ),
             TosClause(
-                "3.6 Collection Control Before Start",
-                "You choose sensors and collection intervals before collection starts. The manual start action " +
-                    "indicates your instruction to begin data capture under the accepted terms."
+                "2.6 Penyimpanan Terdesentralisasi",
+                "Ciphertext PGHD yang telah dienkripsi disimpan di IPFS (InterPlanetary File System) dan " +
+                    "diidentifikasi melalui Content Identifier (CID). Metadata PGHD—termasuk CID, hash " +
+                    "ciphertext, kapsul PRE, kunci terenkripsi, tanda tangan, dan status validitas—dicatat " +
+                    "pada smart contract IOTA sebagai sumber kebenaran (source of truth)."
+            ),
+            TosClause(
+                "2.7 Klasifikasi PGHD",
+                "PGHD disimpan dengan metadata klasifikasi khusus agar dapat dibedakan dari rekam medis " +
+                    "klinis yang dibuat oleh tenaga kesehatan."
+            ),
+            TosClause(
+                "2.8 Retensi dan Integritas Jangka Panjang",
+                "PGHD dan artefak terkait dipertahankan sesuai kebijakan retensi platform untuk menjaga " +
+                    "kontinuitas, reprodusibilitas, dan integritas audit. Status PGHD dapat berubah menjadi " +
+                    "valid atau tidak valid; invalidasi dilakukan melalui transaksi baru tanpa menghapus " +
+                    "riwayat lama di blockchain."
+            ),
+            TosClause(
+                "2.9 Persetujuan Pengumpulan Bersifat Final",
+                "Dengan menerima bagian ini, Anda mengakui bahwa persetujuan pengumpulan PGHD bersifat final " +
+                    "untuk status ketentuan yang telah diterima dan tidak dapat dicabut melalui kontrol dalam " +
+                    "aplikasi setelah penerimaan."
             )
         ),
-        checkboxLabel = "I consent to PGHD collection, processing, retention, and the irrevocable-consent acknowledgement described above."
+        checkboxLabel = "Saya menyetujui pengumpulan, pengiriman, dan penyimpanan PGHD sebagaimana dijelaskan di atas, termasuk pengakuan sifat final persetujuan."
+    ),
+    TosSection(
+        id = "data-access",
+        title = "Pengaksesan PGHD oleh Tenaga Kesehatan",
+        summary = "Bagian ini menjelaskan bagaimana tenaga kesehatan yang telah Anda otorisasi dapat mengakses " +
+            "dan menggunakan PGHD Anda dalam ekosistem DecMed melalui mekanisme kontrol akses berbasis kapabilitas.",
+        clauses = listOf(
+            TosClause(
+                "2.1 Mekanisme Pemberian Akses (Grant)",
+                "Anda memberikan akses PGHD kepada tenaga kesehatan secara eksplisit dengan memindai kode QR " +
+                    "milik mereka menggunakan aplikasi Android DecMed. Kode QR hanya memuat alamat IOTA dan " +
+                    "kunci publik PRE tenaga kesehatan; identitas lengkap (nama, rumah sakit) diverifikasi " +
+                    "dari smart contract IOTA, bukan dari kode QR."
+            ),
+            TosClause(
+                "2.2 Infrastruktur Kontrol Akses",
+                "Saat Anda memberikan akses, aplikasi membuat sepasang kunci PRE khusus (Data PRE keypair), " +
+                    "key re-encryption fragment (kfrag), dan seed terenkripsi untuk tenaga kesehatan tersebut. " +
+                    "Material kunci ini disimpan sementara di Redis dengan durasi default 24 jam. Kapabilitas " +
+                    "akses juga dicatat pada smart contract IOTA (CapBAC) sebagai bukti otorisasi yang dapat diaudit."
+            ),
+            TosClause(
+                "2.3 Proses Pembacaan PGHD oleh Tenaga Kesehatan",
+                "Tenaga kesehatan mengakses PGHD Anda melalui client rumah sakit (Hospital Client) yang " +
+                    "berkomunikasi dengan PRE backend. PRE memvalidasi akses melalui smart contract IOTA, " +
+                    "mengambil ciphertext dari IPFS, memverifikasi hash, membangun cfrag, lalu " +
+                    "mengembalikan material terenkripsi ke client. Dekripsi dilakukan sepenuhnya secara " +
+                    "lokal di sisi client tenaga kesehatan setelah verifikasi hash dan tanda tangan berhasil."
+            ),
+            TosClause(
+                "2.4 Pemisahan Akses PGHD dan RME",
+                "Akses PGHD menggunakan tujuan (purpose) ReadPghd yang terpisah dari tujuan akses rekam " +
+                    "medis klinis (Read/Update). Tenaga kesehatan yang memiliki akses PGHD tidak serta-merta " +
+                    "memiliki akses ke rekam medis klinis Anda, dan sebaliknya."
+            ),
+            TosClause(
+                "2.5 Pencabutan Akses (Revoke)",
+                "Anda dapat mencabut akses PGHD yang sebelumnya diberikan melalui aplikasi Android. " +
+                    "Pencabutan akan menghapus material kunci PRE dari Redis. Status akses yang paling " +
+                    "akurat bersumber dari IOTA, PRE, dan Redis—bukan hanya dari daftar lokal di aplikasi Anda."
+            ),
+            TosClause(
+                "2.6 Akuntabilitas Institusi dan Personel",
+                "Setiap organisasi dan akun personel yang berinteraksi dengan data Anda dapat diidentifikasi " +
+                    "dan diaudit melalui smart contract IOTA. Semua peristiwa akses dan modifikasi direkam " +
+                    "untuk keperluan pengawasan dan verifikasi."
+            ),
+            TosClause(
+                "2.7 Pembatasan Penggunaan Data Klinis",
+                "PGHD yang dihasilkan pasien tidak diverifikasi secara klinis oleh tenaga kesehatan sebelum " +
+                    "diunggah. Tenaga kesehatan wajib memverifikasi dan mendekripsi PGHD di sisi client mereka " +
+                    "sebelum menggunakannya untuk keputusan klinis. Data yang gagal verifikasi hash atau " +
+                    "tanda tangan tidak boleh digunakan dan dapat diinvalidasi."
+            )
+        ),
+        checkboxLabel = "Saya menyetujui pemberian akses PGHD kepada tenaga kesehatan yang saya otorisasi melalui mekanisme yang dijelaskan di atas."
+    ),
+    TosSection(
+        id = "data-processing",
+        title = "Pengolahan dan Pengelolaan PGHD",
+        summary = "Bagian ini menjelaskan bagaimana DecMed memproses, mengelola, dan menjaga keamanan PGHD " +
+            "Anda sepanjang siklus hidupnya—mulai dari pengumpulan hingga penyimpanan jangka panjang.",
+        clauses = listOf(
+            TosClause(
+                "3.1 Pemrosesan Kriptografi",
+                "Seluruh operasi kriptografi PGHD—termasuk enkripsi AES-GCM, pembungkusan kunci PRE/Umbral, " +
+                    "pembuatan kfrag, dan penandatanganan digital—dilakukan secara lokal di perangkat Anda " +
+                    "menggunakan library native (libdecmed_crypto.so dan libdecmed_iota.so). Private key Anda " +
+                    "tidak pernah dikirimkan ke server PRE, IPFS, maupun dicatat di smart contract."
+            ),
+            TosClause(
+                "3.2 Verifikasi Sisi Server (PRE)",
+                "Server PRE hanya menerima payload terenkripsi. Saat menerima batch PGHD, PRE melakukan: " +
+                    "(a) verifikasi hash ciphertext terhadap h_cipher yang dikirimkan, (b) pengambilan kunci " +
+                    "publik penandatanganan PGHD Anda dari IOTA, (c) verifikasi tanda tangan digital terhadap " +
+                    "hash ciphertext, (d) upload ciphertext ke IPFS, dan (e) pencatatan metadata ke smart " +
+                    "contract IOTA."
+            ),
+            TosClause(
+                "3.3 Data Provenance",
+                "Sistem DecMed menjamin keterlacakan asal-usul data (data provenance) melalui pencatatan " +
+                    "metadata pada smart contract IOTA dan payload IPFS. Setiap batch PGHD memiliki metadata " +
+                    "yang mencakup CID, hash ciphertext, kapsul PRE, tanda tangan digital, timestamp, dan " +
+                    "indeks batch. Riwayat ini tidak dapat dimanipulasi karena dicatat di ledger terdesentralisasi."
+            ),
+            TosClause(
+                "3.4 Pengelolaan Kunci dan Pemisahan",
+                "Sistem menggunakan pemisahan kunci yang ketat: (a) Kunci IOTA pasien untuk autentikasi dan " +
+                    "otorisasi, (b) Kunci PRE PGHD pasien untuk re-enkripsi kunci AES, (c) Kunci penandatanganan " +
+                    "PGHD pasien untuk tanda tangan digital (public key dicatat di IOTA), dan (d) Data PRE " +
+                    "keypair per-grant untuk setiap otorisasi akses. Seluruh kunci private disimpan di " +
+                    "secure storage lokal perangkat Anda."
+            ),
+            TosClause(
+                "3.5 Invalidasi Data",
+                "Anda atau tenaga kesehatan yang berwenang dapat menginvalidasi batch PGHD yang terbukti " +
+                    "rusak atau tidak sah. Invalidasi dilakukan melalui transaksi baru di smart contract " +
+                    "IOTA yang mengubah status PGHD menjadi tidak valid. Pin IPFS untuk ciphertext terkait " +
+                    "dapat dihapus setelah invalidasi. Riwayat invalidasi tetap tercatat di blockchain."
+            ),
+            TosClause(
+                "3.6 Retry dan Ketersediaan",
+                "Batch yang gagal dikirim disimpan lokal dan dijadwalkan ulang oleh WorkManager saat jaringan " +
+                    "tersedia. Mekanisme pengamanan (PghdBatchCreationGuard) mencegah pembuatan batch ganda " +
+                    "dari data yang sama. Anda dapat memicu pengiriman ulang secara manual melalui antarmuka " +
+                    "aplikasi."
+            ),
+            TosClause(
+                "3.7 Kontrol Sebelum Pengumpulan Dimulai",
+                "Anda memilih sensor dan data kesehatan yang dikumpulkan melalui layar konfigurasi sebelum " +
+                    "pengumpulan dimulai. Tindakan memulai pengumpulan secara manual merupakan instruksi " +
+                    "eksplisit Anda untuk memulai pengambilan data di bawah ketentuan yang telah disetujui."
+            )
+        ),
+        checkboxLabel = "Saya memahami dan menyetujui mekanisme pengolahan dan pengelolaan PGHD, termasuk pemrosesan kriptografi, data provenance, dan pengelolaan kunci sebagaimana dijelaskan di atas."
     ),
     TosSection(
         id = "notifications",
-        title = "PGHD Access and Change Notifications",
-        summary = "This section describes how DecMed notifies you when records that include PGHD are accessed or modified.",
+        title = "Notifikasi Akses dan Perubahan PGHD",
+        summary = "Bagian ini menjelaskan cara DecMed memberi tahu Anda ketika rekam medis yang mencakup PGHD " +
+            "diakses atau dimodifikasi, serta hak Anda untuk mempersoalkan akses yang tidak sah.",
         clauses = listOf(
             TosClause(
-                "4.1 Access Notifications",
-                "You receive notifications when authorized parties access your records, including actor identity, " +
-                    "access type, data scope, and timestamp."
+                "4.1 Notifikasi Akses",
+                "Anda akan menerima notifikasi ketika tenaga kesehatan yang berwenang mengakses rekam medis " +
+                    "Anda, termasuk informasi identitas aktor (dari smart contract IOTA), tipe akses, " +
+                    "cakupan data, dan timestamp kejadian."
             ),
             TosClause(
-                "4.2 Modification Notifications",
-                "You receive notifications when records are created or updated, including what changed, who initiated " +
-                    "the action, and when it occurred."
+                "4.2 Notifikasi Modifikasi",
+                "Anda akan menerima notifikasi ketika rekam medis dibuat atau diperbarui oleh tenaga kesehatan " +
+                    "berwenang, mencakup informasi perubahan yang dilakukan, inisiator tindakan, dan waktu kejadian."
             ),
             TosClause(
-                "4.3 System and Oversight Access",
-                "Where operational oversight or mandated platform reviews require controlled access, such access " +
-                    "remains auditable and is surfaced to you through the notification and access-log experience " +
-                    "when available."
+                "4.3 Akses Pengawasan Sistem",
+                "Dalam keperluan pengawasan operasional atau tinjauan platform yang diwajibkan, akses semacam " +
+                    "itu tetap dapat diaudit dan akan ditampilkan kepada Anda melalui pengalaman notifikasi " +
+                    "dan log akses dalam aplikasi jika tersedia."
             ),
             TosClause(
-                "4.4 Third-Party Audit Access",
-                "If independent auditors are engaged to verify system integrity, their access is controlled, " +
-                    "auditable, and limited to agreed review scope."
+                "4.4 Akses Auditor Pihak Ketiga",
+                "Jika auditor independen dilibatkan untuk memverifikasi integritas sistem, akses mereka " +
+                    "dikendalikan, dapat diaudit, dan dibatasi sesuai cakupan tinjauan yang disepakati."
             ),
             TosClause(
-                "4.5 Notification Delivery",
-                "Notifications are provided via in-app channels and access logs. You are responsible for reviewing " +
-                    "these notices regularly."
+                "4.5 Pengiriman Notifikasi",
+                "Notifikasi disampaikan melalui saluran dalam aplikasi dan log akses. Anda bertanggung jawab " +
+                    "untuk meninjau notifikasi ini secara berkala."
             ),
             TosClause(
-                "4.6 Contesting Access",
-                "If you believe access was unauthorized or improper, you may submit a dispute through official " +
-                    "support channels for investigation and follow-up."
+                "4.6 Pelaporan Akses Tidak Sah",
+                "Jika Anda yakin terdapat akses yang tidak sah atau tidak tepat terhadap data Anda, Anda dapat " +
+                    "mengajukan laporan melalui saluran dukungan resmi untuk investigasi dan tindak lanjut."
             )
         ),
-        checkboxLabel = "I acknowledge and agree to receive notifications when PGHD-related records are accessed or modified as described above."
+        checkboxLabel = "Saya memahami dan menyetujui menerima notifikasi ketika rekam medis terkait PGHD diakses atau dimodifikasi sebagaimana dijelaskan di atas."
     )
 )
 
@@ -254,7 +370,7 @@ fun TermsOfServiceScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
 
-            // ── Sticky header ──────────────────────────────────────────────
+            // ── Sticky header — respects status bar insets ──────────────────
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.surface,
@@ -263,6 +379,10 @@ fun TermsOfServiceScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        // windowInsetsPadding(WindowInsets.statusBars) pushes content
+                        // below the system status bar / notification panel so the
+                        // header title is never obscured on any Android device.
+                        .windowInsetsPadding(WindowInsets.statusBars)
                         .padding(horizontal = 20.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -283,13 +403,13 @@ fun TermsOfServiceScreen(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = "Terms & Conditions",
+                            text = "Syarat & Ketentuan",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "DecMed — Decentralized EHR Management",
+                            text = "DecMed — Rekam Medis Elektronik Terdesentralisasi",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -306,8 +426,9 @@ fun TermsOfServiceScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "Please carefully read each section below. You must scroll to the bottom of every " +
-                        "section and check the agreement box before you can proceed. All sections require your explicit consent.",
+                    text = "Harap baca setiap bagian di bawah ini dengan saksama. Anda harus menggulir hingga " +
+                        "bagian bawah setiap bagian dan mencentang kotak persetujuan sebelum dapat melanjutkan. " +
+                        "Semua bagian memerlukan persetujuan eksplisit Anda.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -356,8 +477,8 @@ fun TermsOfServiceScreen(
                             Spacer(modifier = Modifier.width(4.dp))
                             Column(modifier = Modifier.padding(top = 12.dp)) {
                                 Text(
-                                    text = "I have read, understood, and agree to all of the above Terms and Conditions, " +
-                                        "including the irrevocable PGHD consent effect after acceptance.",
+                                    text = "Saya telah membaca, memahami, dan menyetujui seluruh Syarat & Ketentuan " +
+                                        "di atas, termasuk efek persetujuan PGHD yang bersifat final setelah penerimaan.",
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Medium,
                                     color = if (allSectionsAgreed)
@@ -367,7 +488,7 @@ fun TermsOfServiceScreen(
                                 )
                                 if (!allSectionsAgreed) {
                                     Text(
-                                        text = "(agree to all sections above to enable)",
+                                        text = "(setujui semua bagian di atas untuk mengaktifkan)",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                         modifier = Modifier.padding(top = 2.dp)
@@ -389,14 +510,14 @@ fun TermsOfServiceScreen(
                                     contentColor = MaterialTheme.colorScheme.error
                                 )
                             ) {
-                                Text("Decline")
+                                Text("Tolak")
                             }
                             Button(
                                 onClick = onAccept,
                                 enabled = canProceed,
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Text("Accept & Continue")
+                                Text("Setuju & Lanjutkan")
                             }
                         }
                     }
@@ -404,7 +525,7 @@ fun TermsOfServiceScreen(
 
                 // Footer
                 Text(
-                    text = "DecMed — Decentralized Electronic Health Record System",
+                    text = "DecMed — Sistem Rekam Medis Elektronik Terdesentralisasi",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                     textAlign = TextAlign.Center,
@@ -416,33 +537,33 @@ fun TermsOfServiceScreen(
         }
     }
 
-    // ── Decline dialog (mirrors web decline dialog exactly) ────────────────
+    // ── Decline dialog ─────────────────────────────────────────────────────
     if (showDeclineDialog) {
         AlertDialog(
             onDismissRequest = { showDeclineDialog = false },
             title = {
                 Text(
-                    text = "Unable to Continue",
+                    text = "Tidak Dapat Melanjutkan",
                     fontWeight = FontWeight.Bold
                 )
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "You must accept all Terms and Conditions to use the DecMed application. " +
-                            "PGHD consent in this flow is final after acceptance.",
+                        text = "Anda harus menerima seluruh Syarat & Ketentuan untuk menggunakan aplikasi DecMed. " +
+                            "Persetujuan pengumpulan PGHD dalam alur ini bersifat final setelah diterima.",
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Text(
-                        text = "If you have concerns about any specific terms, please contact our support team " +
-                            "for clarification before making your decision.",
+                        text = "Jika Anda memiliki pertanyaan terkait ketentuan tertentu, silakan hubungi tim " +
+                            "dukungan kami untuk klarifikasi sebelum membuat keputusan.",
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
             },
             confirmButton = {
                 Button(onClick = { showDeclineDialog = false }) {
-                    Text("Return to Terms")
+                    Text("Kembali ke Ketentuan")
                 }
             }
         )
@@ -486,17 +607,17 @@ private fun TermsSectionCard(
 
     when {
         isAgreed -> {
-            badgeText = "Agreed"
+            badgeText = "Disetujui"
             badgeContainerColor = MaterialTheme.colorScheme.tertiaryContainer
             badgeContentColor = MaterialTheme.colorScheme.onTertiaryContainer
         }
         isScrolled -> {
-            badgeText = "Read"
+            badgeText = "Dibaca"
             badgeContainerColor = MaterialTheme.colorScheme.secondaryContainer
             badgeContentColor = MaterialTheme.colorScheme.onSecondaryContainer
         }
         else -> {
-            badgeText = "Unread"
+            badgeText = "Belum Dibaca"
             badgeContainerColor = MaterialTheme.colorScheme.surfaceVariant
             badgeContentColor = MaterialTheme.colorScheme.onSurfaceVariant
         }
@@ -520,7 +641,7 @@ private fun TermsSectionCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Section $sectionNumber",
+                        text = "Bagian $sectionNumber",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.SemiBold
@@ -552,7 +673,7 @@ private fun TermsSectionCard(
 
                 androidx.compose.material3.Icon(
                     imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = if (isExpanded) "Collapse section" else "Expand section",
+                    contentDescription = if (isExpanded) "Tutup bagian" else "Buka bagian",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -609,7 +730,7 @@ private fun TermsSectionCard(
                     ) {
                         if (!isScrolled) {
                             Text(
-                                text = "Scroll to the bottom to enable",
+                                text = "Gulir ke bawah untuk mengaktifkan",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                 modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
