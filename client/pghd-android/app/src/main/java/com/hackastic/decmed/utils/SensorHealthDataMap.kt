@@ -40,10 +40,9 @@ object SensorHealthDataMap {
         Sensor.TYPE_HEART_BEAT to SensorHealthInfo(
             displayName = "Heart Beat Sensor",
             healthDataTypes = listOf(
-                direct("heart_beat", "Heart beat event", "event"),
                 derived("heart_rate_variability", "Heart rate variability", "ms")
             ),
-            clinicalRelevance = "Arrhythmia screening, stress assessment, and autonomic nervous system monitoring."
+            clinicalRelevance = "Heart-beat interval can be converted into HRV when the sensor exposes a usable interval value."
         ),
         Sensor.TYPE_STEP_DETECTOR to SensorHealthInfo(
             displayName = "Step Detector",
@@ -55,41 +54,16 @@ object SensorHealthDataMap {
         Sensor.TYPE_STEP_COUNTER to SensorHealthInfo(
             displayName = "Step Counter",
             healthDataTypes = listOf(
-                direct("steps", "Steps", "count"),
-                derived("steps_cadence", "Steps cadence", "steps/min")
+                direct("steps", "Steps", "count")
             ),
-            clinicalRelevance = "Daily activity level, longitudinal mobility trends, and cadence-based gait monitoring."
-        ),
-        Sensor.TYPE_SIGNIFICANT_MOTION to SensorHealthInfo(
-            displayName = "Significant Motion Detector",
-            healthDataTypes = listOf(
-                direct("activity_event", "Activity event", "event")
-            ),
-            clinicalRelevance = "Sedentary-to-active transitions and activity bout detection."
-        ),
-        Sensor.TYPE_STATIONARY_DETECT to SensorHealthInfo(
-            displayName = "Stationary Detector",
-            healthDataTypes = listOf(
-                direct("activity_event", "Activity event", "event")
-            ),
-            clinicalRelevance = "Sedentary behavior monitoring and prolonged inactivity detection."
-        ),
-        Sensor.TYPE_MOTION_DETECT to SensorHealthInfo(
-            displayName = "Motion Detector",
-            healthDataTypes = listOf(
-                direct("activity_event", "Activity event", "event")
-            ),
-            clinicalRelevance = "Activity onset detection and rest-to-motion monitoring."
+            clinicalRelevance = "Daily activity level and longitudinal mobility trends."
         ),
         Sensor.TYPE_PRESSURE to SensorHealthInfo(
             displayName = "Barometric Pressure Sensor",
             healthDataTypes = listOf(
-                direct("barometric_pressure", "Barometric pressure", "hPa"),
-                derived("elevation_estimate", "Elevation estimate", "m"),
-                derived("elevation_gained", "Elevation gained", "m"),
-                derived("floors_climbed", "Floors climbed", "floors")
+                direct("barometric_pressure", "Barometric pressure", "hPa")
             ),
-            clinicalRelevance = "Stair climbing, activity context enrichment, and environmental trigger monitoring."
+            clinicalRelevance = "Environmental pressure context that may be relevant for respiratory or environmental-trigger review."
         ),
         Sensor.TYPE_LIGHT to SensorHealthInfo(
             displayName = "Ambient Light Sensor",
@@ -114,59 +88,58 @@ object SensorHealthDataMap {
         ),
         Sensor.TYPE_PROXIMITY to SensorHealthInfo(
             displayName = "Proximity Sensor",
-            healthDataTypes = listOf(
-                direct("proximity", "Proximity", "cm")
-            ),
-            clinicalRelevance = "Phone-near-body context and usage behavior around sleep or activity sessions."
+            healthDataTypes = emptyList(),
+            clinicalRelevance = "No PGHD conversion is enabled because proximity is device-context data, not a health measurement."
         ),
         Sensor.TYPE_LOW_LATENCY_OFFBODY_DETECT to SensorHealthInfo(
             displayName = "Off-Body Detector",
-            healthDataTypes = listOf(
-                direct("wear_status", "Wear status", "state")
-            ),
-            clinicalRelevance = "Wear-time compliance and confidence in continuous sensor collection."
+            healthDataTypes = emptyList(),
+            clinicalRelevance = "No PGHD conversion is enabled because this is collection-quality context, not patient health data."
+        ),
+        Sensor.TYPE_SIGNIFICANT_MOTION to SensorHealthInfo(
+            displayName = "Significant Motion Detector",
+            healthDataTypes = emptyList(),
+            clinicalRelevance = "No PGHD conversion is enabled because motion events are not stored as standalone health measurements."
+        ),
+        Sensor.TYPE_STATIONARY_DETECT to SensorHealthInfo(
+            displayName = "Stationary Detector",
+            healthDataTypes = emptyList(),
+            clinicalRelevance = "No PGHD conversion is enabled because stationary events are device motion context, not health data."
+        ),
+        Sensor.TYPE_MOTION_DETECT to SensorHealthInfo(
+            displayName = "Motion Detector",
+            healthDataTypes = emptyList(),
+            clinicalRelevance = "No PGHD conversion is enabled because motion events are not stored as standalone health measurements."
         ),
         Sensor.TYPE_ACCELEROMETER to SensorHealthInfo(
             displayName = "Accelerometer",
-            healthDataTypes = listOf(
-                derived("movement_intensity", "Movement intensity", "m/s^2")
-            ),
-            clinicalRelevance = "Physical activity intensity, fall screening, gait analysis, and tremor monitoring."
+            healthDataTypes = emptyList(),
+            clinicalRelevance = "No PGHD conversion is enabled because raw acceleration and magnitude are not sent as patient health measurements."
         ),
         Sensor.TYPE_ACCELEROMETER_UNCALIBRATED to SensorHealthInfo(
             displayName = "Accelerometer (Uncalibrated)",
-            healthDataTypes = listOf(
-                derived("movement_intensity", "Movement intensity", "m/s^2")
-            ),
-            clinicalRelevance = "Research-grade motion analysis after conversion into interpretable movement indicators."
+            healthDataTypes = emptyList(),
+            clinicalRelevance = "No PGHD conversion is enabled because raw acceleration and magnitude are not sent as patient health measurements."
         ),
         Sensor.TYPE_LINEAR_ACCELERATION to SensorHealthInfo(
             displayName = "Linear Acceleration Sensor",
-            healthDataTypes = listOf(
-                derived("movement_intensity", "Movement intensity", "m/s^2")
-            ),
-            clinicalRelevance = "Impact detection, sudden movement detection, and exercise movement intensity."
+            healthDataTypes = emptyList(),
+            clinicalRelevance = "No PGHD conversion is enabled because raw acceleration and magnitude are not sent as patient health measurements."
         ),
         Sensor.TYPE_GRAVITY to SensorHealthInfo(
             displayName = "Gravity Sensor",
-            healthDataTypes = listOf(
-                derived("tilt_angle", "Tilt angle", "degrees")
-            ),
-            clinicalRelevance = "Posture monitoring, body tilt estimation, and lying or sitting context inference."
+            healthDataTypes = emptyList(),
+            clinicalRelevance = "No PGHD conversion is enabled because gravity/tilt values are device orientation context."
         ),
         Sensor.TYPE_GYROSCOPE to SensorHealthInfo(
             displayName = "Gyroscope",
-            healthDataTypes = listOf(
-                derived("rotation_intensity", "Rotation intensity", "rad/s")
-            ),
-            clinicalRelevance = "Balance assessment, tremor characterization, and rotational movement monitoring."
+            healthDataTypes = emptyList(),
+            clinicalRelevance = "No PGHD conversion is enabled because raw angular velocity and rotation magnitude are not sent as health measurements."
         ),
         Sensor.TYPE_GYROSCOPE_UNCALIBRATED to SensorHealthInfo(
             displayName = "Gyroscope (Uncalibrated)",
-            healthDataTypes = listOf(
-                derived("rotation_intensity", "Rotation intensity", "rad/s")
-            ),
-            clinicalRelevance = "Rotation measurement after conversion into interpretable motion indicators."
+            healthDataTypes = emptyList(),
+            clinicalRelevance = "No PGHD conversion is enabled because raw angular velocity and rotation magnitude are not sent as health measurements."
         ),
         Sensor.TYPE_MAGNETIC_FIELD to SensorHealthInfo(
             displayName = "Magnetometer",
@@ -180,31 +153,23 @@ object SensorHealthDataMap {
         ),
         Sensor.TYPE_ROTATION_VECTOR to SensorHealthInfo(
             displayName = "Rotation Vector Sensor",
-            healthDataTypes = listOf(
-                derived("orientation_change", "Orientation change", "unitless")
-            ),
-            clinicalRelevance = "Complex motion pattern recognition, balance analysis, and device orientation context."
+            healthDataTypes = emptyList(),
+            clinicalRelevance = "No PGHD conversion is enabled because rotation-vector values are device orientation context."
         ),
         Sensor.TYPE_GAME_ROTATION_VECTOR to SensorHealthInfo(
             displayName = "Game Rotation Vector",
-            healthDataTypes = listOf(
-                derived("orientation_change", "Orientation change", "unitless")
-            ),
-            clinicalRelevance = "Short-term exercise form analysis and rehabilitation movement tracking."
+            healthDataTypes = emptyList(),
+            clinicalRelevance = "No PGHD conversion is enabled because rotation-vector values are device orientation context."
         ),
         Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR to SensorHealthInfo(
             displayName = "Geomagnetic Rotation Vector",
-            healthDataTypes = listOf(
-                derived("orientation_change", "Orientation change", "unitless")
-            ),
-            clinicalRelevance = "Battery-efficient orientation tracking for long-running posture monitoring."
+            healthDataTypes = emptyList(),
+            clinicalRelevance = "No PGHD conversion is enabled because rotation-vector values are device orientation context."
         ),
         Sensor.TYPE_HINGE_ANGLE to SensorHealthInfo(
             displayName = "Hinge Angle Sensor",
-            healthDataTypes = listOf(
-                direct("device_hinge_angle", "Device hinge angle", "degrees")
-            ),
-            clinicalRelevance = "Device usage posture and ergonomic context on foldable devices."
+            healthDataTypes = emptyList(),
+            clinicalRelevance = "No PGHD conversion is enabled because hinge angle is device form-factor context."
         )
     )
 }

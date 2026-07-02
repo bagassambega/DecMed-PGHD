@@ -1345,15 +1345,15 @@ private val STRESS_TEST_SENSOR_TYPES = listOf(
     StressTestDataType("respiratory_rate", "Respiratory Rate", "breaths/min", 12.0, 24.0),
     StressTestDataType("resting_heart_rate", "Resting Heart Rate", "bpm", 52.0, 82.0),
     StressTestDataType("heart_rate_variability", "Heart Rate Variability", "ms", 20.0, 120.0),
-    StressTestDataType("total_calories_burned", "Total Calories Burned", "kcal", 1.0, 5.0, precision = 2),
     StressTestDataType("active_calories_burned", "Active Calories Burned", "kcal", 0.0, 4.0, precision = 2),
     StressTestDataType("distance", "Distance", "m", 0.0, 160.0, precision = 2),
-    StressTestDataType("speed", "Speed", "m/s", 0.0, 3.2, precision = 2),
     StressTestDataType("vo2_max", "VO2 Max", "mL/kg/min", 24.0, 58.0, precision = 1),
-    StressTestDataType("skin_temperature", "Skin Temperature", "C", 32.0, 36.5, precision = 1),
+    StressTestDataType("body_temperature", "Body Temperature", "C", 36.0, 38.5, precision = 1),
     StressTestDataType("sleep_duration", "Sleep Duration", "min", 0.0, 60.0),
-    StressTestDataType("floors_climbed", "Floors Climbed", "floors", 0.0, 4.0),
-    StressTestDataType("elevation_gained", "Elevation Gained", "m", 0.0, 12.0, precision = 1)
+    StressTestDataType("environmental_temperature", "Environmental Temperature", "C", 24.0, 34.0, precision = 1),
+    StressTestDataType("environmental_humidity", "Environmental Humidity", "%", 35.0, 85.0, precision = 1),
+    StressTestDataType("ambient_light", "Ambient Light", "lux", 0.0, 1200.0, precision = 1),
+    StressTestDataType("barometric_pressure", "Barometric Pressure", "hPa", 990.0, 1025.0, precision = 1)
 )
 
 private fun PghdStressTestProgress.withBatchStats(

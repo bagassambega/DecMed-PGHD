@@ -172,6 +172,8 @@ class SensorCollectionService : Service(), SensorEventListener {
         val ev = event ?: return
         val now = System.currentTimeMillis()
         val sensorType = ev.sensor.type
+        if (SensorHealthDataMap.recordTypesFor(sensorType).isEmpty()) return
+
         val intervalMs = sensorIntervalsMs[sensorType] ?: return
         val lastEmit   = sensorLastEmitMs[sensorType]  ?: 0L
 
@@ -182,9 +184,9 @@ class SensorCollectionService : Service(), SensorEventListener {
         val (dataType, unit) = dataTypeAndUnit(sensorType)
         val values = ev.values
 
-        // Scalar sensors (heart rate, step counter, proximity, light, pressure…)
-        // populate [value]; vector sensors populate [valueX/Y/Z] and also [value]
-        // as the primary magnitude for convenience.
+        // Scalar sensors populate [value]. Vector/raw device-context sensors may
+        // still populate [valueX/Y/Z] internally, but they are not converted into
+        // PGHD records unless an explicit health-data mapping is enabled.
         val record = SensorData(
             dataType              = dataType,
             sensorType            = sensorType,

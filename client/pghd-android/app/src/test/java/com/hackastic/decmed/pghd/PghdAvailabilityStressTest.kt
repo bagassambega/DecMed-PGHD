@@ -83,14 +83,15 @@ class PghdAvailabilityStressTest {
             "respiratory_rate" -> (12 + (index % 12)).toString()
             "resting_heart_rate" -> (52 + (index % 32)).toString()
             "heart_rate_variability" -> (20 + (index % 100)).toString()
-            "total_calories_burned" -> (1 + (index % 5)).toString()
             "active_calories_burned" -> (index % 4).toString()
             "distance" -> (20 + (index % 140)).toString()
-            "speed" -> (1 + (index % 4)).toString()
             "vo2_max" -> (24 + (index % 34)).toString()
-            "skin_temperature" -> (32 + (index % 5)).toString()
+            "body_temperature" -> (36 + (index % 3)).toString()
             "sleep_duration" -> (index % 60).toString()
-            "floors_climbed" -> (index % 4).toString()
+            "environmental_temperature" -> (24 + (index % 10)).toString()
+            "environmental_humidity" -> (35 + (index % 50)).toString()
+            "ambient_light" -> (index % 1200).toString()
+            "barometric_pressure" -> (990 + (index % 35)).toString()
             else -> (index % 12).toString()
         }
 
@@ -102,15 +103,15 @@ class PghdAvailabilityStressTest {
             Triple("respiratory_rate", "Respiratory Rate", "breaths/min"),
             Triple("resting_heart_rate", "Resting Heart Rate", "bpm"),
             Triple("heart_rate_variability", "Heart Rate Variability", "ms"),
-            Triple("total_calories_burned", "Total Calories Burned", "kcal"),
             Triple("active_calories_burned", "Active Calories Burned", "kcal"),
             Triple("distance", "Distance", "m"),
-            Triple("speed", "Speed", "m/s"),
             Triple("vo2_max", "VO2 Max", "mL/kg/min"),
-            Triple("skin_temperature", "Skin Temperature", "C"),
+            Triple("body_temperature", "Body Temperature", "C"),
             Triple("sleep_duration", "Sleep Duration", "min"),
-            Triple("floors_climbed", "Floors Climbed", "floors"),
-            Triple("elevation_gained", "Elevation Gained", "m")
+            Triple("environmental_temperature", "Environmental Temperature", "C"),
+            Triple("environmental_humidity", "Environmental Humidity", "%"),
+            Triple("ambient_light", "Ambient Light", "lux"),
+            Triple("barometric_pressure", "Barometric Pressure", "hPa")
         )
     }
 }

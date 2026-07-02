@@ -506,16 +506,10 @@ private fun List<PghdRecordEntity>.toHomeMetrics(): List<PghdHomeMetric> {
         "speed",
         "steps_cadence",
         "vo2_max",
-        "floors_climbed",
-        "elevation_gained",
-        "movement_intensity",
-        "rotation_intensity",
-        "tilt_angle",
         "barometric_pressure",
         "environmental_temperature",
         "environmental_humidity",
-        "ambient_light",
-        "wear_status"
+        "ambient_light"
     )
 
     val latestByType = groupBy { it.recordType }
@@ -578,21 +572,10 @@ private fun String.toFriendlyMetricName(fallback: String): String =
         "speed" -> "Speed"
         "steps_cadence" -> "Walking Cadence"
         "vo2_max" -> "VO2 Max"
-        "floors_climbed" -> "Floors Climbed"
-        "elevation_gained" -> "Elevation Gained"
-        "elevation_estimate" -> "Elevation"
-        "movement_intensity" -> "Movement Intensity"
-        "rotation_intensity" -> "Motion Rotation"
-        "orientation_change" -> "Orientation Change"
-        "tilt_angle" -> "Tilt Angle"
-        "magnetic_field_strength" -> "Magnetic Field"
         "barometric_pressure" -> "Barometric Pressure"
         "environmental_temperature" -> "Environment Temperature"
         "environmental_humidity" -> "Environment Humidity"
         "ambient_light" -> "Light Exposure"
-        "proximity" -> "Proximity"
-        "wear_status" -> "Wear Status"
-        "activity_event" -> "Activity Event"
         else -> fallback.ifBlank {
             replace('_', ' ')
                 .split(' ')
