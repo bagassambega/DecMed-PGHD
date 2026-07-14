@@ -37,6 +37,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Sync
@@ -129,6 +130,7 @@ fun PghdCollectionScreen(
     var showRevokeAccessDialog by rememberSaveable { mutableStateOf(false) }
     var selectedSummaryType by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedDetailRecord by remember { mutableStateOf<PghdRecordEntity?>(null) }
+    var selectedEditRecord by remember { mutableStateOf<PghdRecordEntity?>(null) }
     val dateFormatter = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()) }
     val permissionLauncher = rememberLauncherForActivityResult(
         PermissionController.createRequestPermissionResultContract()
@@ -270,7 +272,8 @@ fun PghdCollectionScreen(
                     PghdRecordCard(
                         record = record,
                         dateFormatter = dateFormatter,
-                        onDetail = { selectedDetailRecord = record }
+                        onDetail = { selectedDetailRecord = record },
+                        onEdit = { selectedEditRecord = record }
                     )
                 }
             }
@@ -284,11 +287,23 @@ fun PghdCollectionScreen(
     }
 
     if (showManualDialog) {
-        ManualPghdDialog(
+        PghdRecordEditorDialog(
+            record = null,
             onDismiss = { showManualDialog = false },
             onSave = { recordType, displayName, valueText, unit, notes ->
                 viewModel.addManualRecord(recordType, displayName, valueText, unit, notes)
                 showManualDialog = false
+            }
+        )
+    }
+
+    selectedEditRecord?.let { record ->
+        PghdRecordEditorDialog(
+            record = record,
+            onDismiss = { selectedEditRecord = null },
+            onSave = { recordType, displayName, valueText, unit, notes ->
+                viewModel.updateRecord(record, recordType, displayName, valueText, unit, notes)
+                selectedEditRecord = null
             }
         )
     }
@@ -323,7 +338,11 @@ fun PghdCollectionScreen(
         PghdRecordDetailDialog(
             record = record,
             dateFormatter = dateFormatter,
-            onDismiss = { selectedDetailRecord = null }
+            onDismiss = { selectedDetailRecord = null },
+            onEdit = {
+                selectedDetailRecord = null
+                selectedEditRecord = record
+            }
         )
     }
 
@@ -1385,7 +1404,8 @@ private fun SourceFilters(
 private fun PghdRecordCard(
     record: PghdRecordEntity,
     dateFormatter: SimpleDateFormat,
-    onDetail: () -> Unit
+    onDetail: () -> Unit,
+    onEdit: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -1428,8 +1448,17 @@ private fun PghdRecordCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            OutlinedButton(onClick = onDetail) {
-                Text("Detail")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onDetail) {
+                    Text("Detail")
+                }
+                if (record.batchId == null) {
+                    OutlinedButton(onClick = onEdit) {
+                        Icon(Icons.Default.Edit, contentDescription = null)
+                        Spacer(modifier = Modifier.widthIn(min = 6.dp))
+                        Text("Edit")
+                    }
+                }
             }
         }
     }
@@ -1506,13 +1535,21 @@ private fun PghdSummaryDetailDialog(
 private fun PghdRecordDetailDialog(
     record: PghdRecordEntity,
     dateFormatter: SimpleDateFormat,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onEdit: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
             Button(onClick = onDismiss) {
                 Text("Close")
+            }
+        },
+        dismissButton = {
+            if (record.batchId == null) {
+                OutlinedButton(onClick = onEdit) {
+                    Text("Edit")
+                }
             }
         },
         title = { Text(record.displayName) },
@@ -1621,15 +1658,16 @@ private fun RecordTypeFilter(
 }
 
 @Composable
-private fun ManualPghdDialog(
+private fun PghdRecordEditorDialog(
+    record: PghdRecordEntity?,
     onDismiss: () -> Unit,
     onSave: (String, String, String, String, String?) -> Unit
 ) {
-    var recordType by rememberSaveable { mutableStateOf("manual_pghd") }
-    var displayName by rememberSaveable { mutableStateOf("Manual PGHD") }
-    var valueText by rememberSaveable { mutableStateOf("") }
-    var unit by rememberSaveable { mutableStateOf("") }
-    var notes by rememberSaveable { mutableStateOf("") }
+    var recordType by rememberSaveable(record?.uid) { mutableStateOf(record?.recordType ?: "manual_pghd") }
+    var displayName by rememberSaveable(record?.uid) { mutableStateOf(record?.displayName ?: "Manual PGHD") }
+    var valueText by rememberSaveable(record?.uid) { mutableStateOf(record?.valueText ?: "") }
+    var unit by rememberSaveable(record?.uid) { mutableStateOf(record?.unit ?: "") }
+    var notes by rememberSaveable(record?.uid) { mutableStateOf(record?.notes.orEmpty()) }
     val canSave = remember(recordType, displayName, valueText, unit, notes) {
         runCatching {
             PghdInputSanitizer.sanitizeManualInput(recordType, displayName, valueText, unit, notes)
@@ -1651,7 +1689,7 @@ private fun ManualPghdDialog(
                 Text("Cancel")
             }
         },
-        title = { Text("Add manual PGHD") },
+        title = { Text(if (record == null) "Add manual PGHD" else "Edit PGHD") },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),

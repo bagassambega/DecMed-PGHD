@@ -317,6 +317,46 @@ class PghdCollectionViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    fun updateRecord(
+        record: PghdRecordEntity,
+        recordType: String,
+        displayName: String,
+        valueText: String,
+        unit: String,
+        notes: String?
+    ) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(errorMessage = null, lastSyncMessage = null) }
+            try {
+                val updated = PghdBatchCreationGuard.withLock {
+                    pghdRepository.updateUnbatchedRecord(
+                        uid = record.uid,
+                        recordType = recordType,
+                        displayName = displayName,
+                        valueText = valueText,
+                        unit = unit,
+                        notes = notes
+                    )
+                }
+                _uiState.update {
+                    if (updated) {
+                        it.copy(lastSyncMessage = "PGHD record updated.", errorMessage = null)
+                    } else {
+                        it.copy(
+                            lastSyncMessage = null,
+                            errorMessage = "This PGHD record has already been added to a batch and can no longer be edited."
+                        )
+                    }
+                }
+            } catch (err: Exception) {
+                DecmedLog.e(TAG, "Failed to update PGHD record: uid=${record.uid}", err)
+                _uiState.update {
+                    it.copy(errorMessage = err.toVerboseUserMessage("Unable to update PGHD record."))
+                }
+            }
+        }
+    }
+
     fun submitDisplayedPghd() {
         viewModelScope.launch {
             val displayedRecordIds = uiState.value.records

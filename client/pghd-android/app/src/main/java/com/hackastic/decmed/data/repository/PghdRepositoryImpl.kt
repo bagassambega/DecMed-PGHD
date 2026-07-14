@@ -66,6 +66,33 @@ class PghdRepositoryImpl(
         pghdRecordDao.insertAllIgnoringConflicts(PghdInputSanitizer.sanitizeRecords(records))
     }
 
+    override suspend fun updateUnbatchedRecord(
+        uid: String,
+        recordType: String,
+        displayName: String,
+        valueText: String,
+        unit: String,
+        notes: String?
+    ): Boolean {
+        val input = PghdInputSanitizer.sanitizeManualInput(
+            recordType = recordType,
+            displayName = displayName,
+            valueText = valueText,
+            unit = unit,
+            notes = notes
+        )
+        return pghdRecordDao.updateUnbatchedRecord(
+            uid = uid,
+            recordType = input.recordType,
+            displayName = input.displayName,
+            valueText = input.valueText,
+            unit = input.unit,
+            numericValue = input.numericValue,
+            notes = input.notes,
+            updatedAtEpochMillis = System.currentTimeMillis()
+        ) == 1
+    }
+
     override suspend fun getUnbatchedRecords(): List<PghdRecordEntity> =
         pghdRecordDao.getUnbatchedRecords()
 

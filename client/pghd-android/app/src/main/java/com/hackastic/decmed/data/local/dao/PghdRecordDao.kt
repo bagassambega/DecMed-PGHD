@@ -93,6 +93,31 @@ interface PghdRecordDao {
 
     @Query(
         """
+        UPDATE pghd_records
+        SET recordType = :recordType,
+            displayName = :displayName,
+            valueText = :valueText,
+            unit = :unit,
+            numericValue = :numericValue,
+            notes = :notes,
+            syncedAtEpochMillis = :updatedAtEpochMillis
+        WHERE uid = :uid
+          AND batchId IS NULL
+        """
+    )
+    suspend fun updateUnbatchedRecord(
+        uid: String,
+        recordType: String,
+        displayName: String,
+        valueText: String,
+        unit: String,
+        numericValue: Double?,
+        notes: String?,
+        updatedAtEpochMillis: Long
+    ): Int
+
+    @Query(
+        """
         DELETE FROM pghd_records
         WHERE sourcePackageName LIKE :sourcePackagePrefix || '%'
           AND syncedAtEpochMillis >= :startedAtEpochMillis

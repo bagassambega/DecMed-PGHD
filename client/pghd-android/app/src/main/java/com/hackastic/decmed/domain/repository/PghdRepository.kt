@@ -22,6 +22,14 @@ interface PghdRepository {
         numericValue: Double?,
         notes: String?
     )
+    suspend fun updateUnbatchedRecord(
+        uid: String,
+        recordType: String,
+        displayName: String,
+        valueText: String,
+        unit: String,
+        notes: String?
+    ): Boolean
     suspend fun saveHealthConnectRecords(records: List<PghdRecordEntity>)
     suspend fun getUnbatchedRecords(): List<PghdRecordEntity>
     suspend fun getUnbatchedRecordsSince(minEndTimeEpochMillis: Long): List<PghdRecordEntity>
