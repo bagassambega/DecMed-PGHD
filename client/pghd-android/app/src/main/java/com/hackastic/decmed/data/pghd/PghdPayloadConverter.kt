@@ -43,7 +43,7 @@ object PghdPayloadConverter {
                 )
             },
             triggerReason = triggerReason,
-            dataGroup = recordsToDataGroups(sortedRecords)
+            dataGroup = PghdBatchAnalyzer.analyze(recordsToDataGroups(sortedRecords))
         )
     }
 

@@ -21,6 +21,19 @@ val env = loadEnv()
 fun envString(name: String, defaultValue: String = ""): String =
     env[name] ?: System.getenv(name) ?: defaultValue
 
+fun buildConfigString(value: String): String =
+    "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
+val defaultClinicalThresholds = listOf(
+    "heart_rate|value|60|100|true|true|beats/min|Normal resting adult heart rate|American Heart Association|https://www.heart.org/en/healthy-living/fitness/fitness-basics/target-heart-rates|adult at rest",
+    "resting_heart_rate|value|60|100|true|true|beats/min|Normal resting adult heart rate|American Heart Association|https://www.heart.org/en/healthy-living/fitness/fitness-basics/target-heart-rates|adult at rest",
+    "oxygen_saturation|value|95|100|true|true|percent|Typical oxygen saturation|U.S. Food and Drug Administration|https://www.fda.gov/consumers/consumer-updates/pulse-oximeter-basics|most healthy individuals; interpret with symptoms and condition",
+    "respiratory_rate|value|12|20|true|true|breaths/min|Normal adult respiratory rate|NCBI Bookshelf|https://www.ncbi.nlm.nih.gov/books/NBK553213/|average adult at rest",
+    "body_temperature|value|36.5|37.3|true|true|Cel|Normal adult body temperature|MedlinePlus|https://medlineplus.gov/ency/article/002341.htm|average healthy adult; varies by measurement site and context",
+    "blood_pressure|systolic|90|120|true|false|mm[Hg]|Normal adult systolic blood pressure|MedlinePlus and American Heart Association|https://medlineplus.gov/ency/article/002341.htm|average healthy adult at rest",
+    "blood_pressure|diastolic|60|80|true|false|mm[Hg]|Normal adult diastolic blood pressure|MedlinePlus and American Heart Association|https://www.heart.org/en/health-topics/high-blood-pressure/understanding-blood-pressure-readings|average healthy adult at rest"
+).joinToString(";;")
+
 android {
     namespace = "com.hackastic.decmed"
     compileSdk {
@@ -63,6 +76,11 @@ android {
         buildConfigField("int", "PGHD_DEFAULT_SENSOR_INTERVAL_MS", envString("PGHD_DEFAULT_SENSOR_INTERVAL_MS", "60000"))
         buildConfigField("String", "PGHD_SENSOR_INTERVAL_OPTIONS_MS", "\"${envString("PGHD_SENSOR_INTERVAL_OPTIONS_MS", "60000,900000")}\"")
         buildConfigField("String", "PGHD_DEFAULT_TEST_VECTOR_MNEMONIC", "\"${envString("PGHD_DEFAULT_TEST_VECTOR_MNEMONIC")}\"")
+        buildConfigField(
+            "String",
+            "PGHD_CLINICAL_THRESHOLDS",
+            buildConfigString(envString("PGHD_CLINICAL_THRESHOLDS", defaultClinicalThresholds))
+        )
     }
 
     buildTypes {

@@ -2,10 +2,12 @@ package com.hackastic.decmed.data.pghd
 
 import com.hackastic.decmed.domain.model.pghd.PghdBatchPayload
 import com.hackastic.decmed.domain.model.pghd.PghdBatchPeriod
+import com.hackastic.decmed.domain.model.pghd.PghdClinicalThreshold
 import com.hackastic.decmed.domain.model.pghd.PghdCollectionPeriod
 import com.hackastic.decmed.domain.model.pghd.PghdDataGroupPayload
 import com.hackastic.decmed.domain.model.pghd.PghdDataPointPayload
 import com.hackastic.decmed.domain.model.pghd.PghdMeasurementValue
+import com.hackastic.decmed.domain.model.pghd.PghdStatisticsSummary
 import com.hackastic.decmed.domain.model.pghd.PghdSourceDevice
 import org.json.JSONArray
 import org.json.JSONObject
@@ -56,6 +58,9 @@ object PghdPayloadSerializer {
             .put("measurement_type", dataGroup.measurementType)
             .put("device_type", dataGroup.deviceType)
             .put("source", dataGroup.source)
+            .put("statistics", JSONArray(dataGroup.statistics.map(::statisticsToJson)))
+            .put("clinical_thresholds", JSONArray(dataGroup.clinicalThresholds.map(::thresholdToJson)))
+            .put("anomaly_count", dataGroup.anomalyCount)
             .put("data_points", JSONArray(dataGroup.dataPoints.map(::dataPointToJson)))
 
         dataGroup.recordingMethod?.let { json.put("recording_method", it) }
@@ -70,5 +75,46 @@ object PghdPayloadSerializer {
             .put("timestamp", dataPoint.timestamp)
             .put("value", dataPointValueToJson(dataPoint.value))
             .put("unit", dataPoint.unit)
+            .put("anomalies", JSONArray(dataPoint.anomalies.map { anomaly ->
+                JSONObject()
+                    .put("field", anomaly.field)
+                    .put("value", anomaly.value)
+                    .put("direction", anomaly.direction)
+                    .put("normal_minimum", anomaly.normalMinimum)
+                    .put("normal_maximum", anomaly.normalMaximum)
+            }))
     }
+
+    private fun statisticsToJson(statistics: PghdStatisticsSummary): JSONObject =
+        JSONObject()
+            .put("field", statistics.field)
+            .put("count", statistics.count)
+            .put("minimum", statistics.minimum)
+            .put("maximum", statistics.maximum)
+            .put("mean", statistics.mean)
+            .put("median", statistics.median)
+            .put("mode", JSONArray(statistics.mode))
+            .put(
+                "percentiles",
+                JSONObject()
+                    .put("p5", statistics.percentiles.p5)
+                    .put("p25", statistics.percentiles.p25)
+                    .put("p50", statistics.percentiles.p50)
+                    .put("p75", statistics.percentiles.p75)
+                    .put("p95", statistics.percentiles.p95)
+            )
+            .put("unit", statistics.unit)
+
+    private fun thresholdToJson(threshold: PghdClinicalThreshold): JSONObject =
+        JSONObject()
+            .put("field", threshold.field)
+            .put("minimum", threshold.minimum)
+            .put("maximum", threshold.maximum)
+            .put("minimum_inclusive", threshold.minimumInclusive)
+            .put("maximum_inclusive", threshold.maximumInclusive)
+            .put("unit", threshold.unit)
+            .put("label", threshold.label)
+            .put("reference", threshold.reference)
+            .put("reference_url", threshold.referenceUrl)
+            .put("population", threshold.population)
 }

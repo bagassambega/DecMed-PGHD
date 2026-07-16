@@ -113,6 +113,48 @@ export type PghdDataPoint = {
 	timestamp: number;
 	value: number | string | Record<string, unknown>;
 	unit: string;
+	anomalies?: PghdAnomalyFlag[];
+};
+
+export type PghdAnomalyFlag = {
+	field: string;
+	value: number;
+	direction: 'below_range' | 'above_range' | string;
+	normal_minimum: number;
+	normal_maximum: number;
+};
+
+export type PghdPercentiles = {
+	p5: number;
+	p25: number;
+	p50: number;
+	p75: number;
+	p95: number;
+};
+
+export type PghdStatisticsSummary = {
+	field: string;
+	count: number;
+	minimum: number;
+	maximum: number;
+	mean: number;
+	median: number;
+	mode: number[];
+	percentiles: PghdPercentiles;
+	unit: string;
+};
+
+export type PghdClinicalThreshold = {
+	field: string;
+	minimum: number;
+	maximum: number;
+	minimum_inclusive: boolean;
+	maximum_inclusive: boolean;
+	unit: string;
+	label: string;
+	reference: string;
+	reference_url: string;
+	population: string;
 };
 
 export type PghdDataGroup = {
@@ -123,6 +165,9 @@ export type PghdDataGroup = {
 	source_label?: string;
 	source_package_name?: string;
 	device_source?: string;
+	statistics?: PghdStatisticsSummary[];
+	clinical_thresholds?: PghdClinicalThreshold[];
+	anomaly_count?: number;
 	data_points: PghdDataPoint[];
 };
 

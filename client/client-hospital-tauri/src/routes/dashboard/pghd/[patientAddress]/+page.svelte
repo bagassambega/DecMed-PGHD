@@ -1,5 +1,6 @@
 <script lang="ts">
-	import type { InvokeGetPghdResponseData, PghdDataPoint } from '$lib/types';
+	import type { InvokeGetPghdResponseData, PghdDataGroup, PghdDataPoint } from '$lib/types';
+	import PghdMeasurementVisualization from './PghdMeasurementVisualization.svelte';
 	import { PghdReadState } from './state.svelte.js';
 
 	let { data } = $props();
@@ -22,6 +23,7 @@
 	let isRefreshingList = $state(false);
 	let isRefreshingSelected = $state(false);
 	let invalidatingCid = $state<string | null>(null);
+	let selectedMeasurementType = $state('');
 
 	const openPghd = (index: number, cid?: string) => {
 		if (openingIndex !== null) return;
@@ -33,6 +35,7 @@
 		openingIndex = index;
 		selectedPghdIndex = index;
 		selectedPghdCid = cid ?? null;
+		selectedMeasurementType = '';
 		selectedPghd = pghdReadState
 			.getPghd(data.accessToken, index, data.patientIotaAddress)
 			.catch((error) => {
@@ -66,6 +69,7 @@
 		selectedPghd = null;
 		selectedPghdIndex = null;
 		selectedPghdCid = null;
+		selectedMeasurementType = '';
 	};
 
 	const refreshPghdList = async () => {
@@ -122,6 +126,46 @@
 
 	const formatUnknown = (value: unknown) =>
 		value === undefined || value === null || value === '' ? '-' : String(value);
+
+	const humanize = (value: string) =>
+		value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+	const formatNumber = (value: number) =>
+		new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(value);
+
+	const measurementTypes = (groups: PghdDataGroup[]) => [
+		...new Set(groups.map((group) => group.measurement_type))
+	];
+
+	const activeMeasurementType = (groups: PghdDataGroup[]) => {
+		const available = measurementTypes(groups);
+		return available.includes(selectedMeasurementType) ? selectedMeasurementType : (available[0] ?? '');
+	};
+
+	const groupsForMeasurement = (groups: PghdDataGroup[]) => {
+		const active = activeMeasurementType(groups);
+		return groups.filter((group) => group.measurement_type === active);
+	};
+
+	const thresholdRange = (threshold: NonNullable<PghdDataGroup['clinical_thresholds']>[number]) => {
+		const left = threshold.minimum_inclusive ? '[' : '(';
+		const right = threshold.maximum_inclusive ? ']' : ')';
+		return `${left}${formatNumber(threshold.minimum)}, ${formatNumber(threshold.maximum)}${right} ${threshold.unit}`;
+	};
+
+	const anomalyLabel = (point: PghdDataPoint, group: PghdDataGroup) => {
+		if (!point.anomalies?.length) {
+			return group.clinical_thresholds?.length
+				? 'Dalam rentang normal'
+				: 'Rentang klinis tidak tersedia';
+		}
+		return point.anomalies
+			.map(
+				(anomaly) =>
+					`${humanize(anomaly.field)} ${anomaly.direction === 'below_range' ? 'di bawah' : 'di atas'} rentang normal`
+			)
+			.join(', ');
+	};
 
 	const isIntegrityWarning = (message: string) => {
 		const lower = message.toLowerCase();
@@ -248,7 +292,14 @@
 				Opening and verifying PGHD...
 			</div>
 		{:then pghd}
-			<div class="relative max-h-[90vh] w-full max-w-6xl overflow-y-auto rounded-md border border-zinc-200 bg-white shadow-xl">
+			{@const availableMeasurementTypes = measurementTypes(pghd.pghd_data.data_group)}
+			{@const activeType = activeMeasurementType(pghd.pghd_data.data_group)}
+			{@const activeGroups = groupsForMeasurement(pghd.pghd_data.data_group)}
+			{@const totalAnomalies = activeGroups.reduce((total, group) => total + (group.anomaly_count ?? group.data_points.reduce((count, point) => count + (point.anomalies?.length ?? 0), 0)), 0)}
+			{@const thresholds = activeGroups.flatMap((group) => group.clinical_thresholds ?? []).filter((threshold, index, all) => all.findIndex((candidate) => candidate.field === threshold.field && candidate.reference_url === threshold.reference_url) === index)}
+			{@const statisticsCount = activeGroups.reduce((total, group) => total + (group.statistics?.length ?? 0), 0)}
+			{@const hasConfiguredThresholds = thresholds.length > 0}
+			<div id="pghd-detail-modal" class="relative max-h-[90vh] w-full max-w-[1600px] overflow-y-auto rounded-md border border-zinc-200 bg-white shadow-xl">
 				<div class="p-4 border-b border-zinc-200 flex items-start justify-between gap-4">
 					<div>
 						<div class="flex items-center gap-2">
@@ -313,64 +364,123 @@
 					</div>
 				</div>
 
-				<div class="grid sm:grid-cols-3 gap-3 p-4 border-b border-zinc-200">
-					{#each pghd.pghd_data.data_group as group}
-						<div class="bg-zinc-50 border border-zinc-200 rounded-md p-3">
-							<p class="text-sm font-medium">{group.measurement_type}</p>
-							<p class="text-2xl font-semibold">{group.data_points.length}</p>
-							<p class="text-xs text-zinc-500">
-								Source: {group.source_label ?? group.source} · Device: {group.device_type}
-							</p>
-						</div>
-					{/each}
+				<div class="border-b border-zinc-200 px-4 pt-4">
+					<p class="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">Tipe data</p>
+					<div class="flex gap-2 overflow-x-auto pb-3">
+						{#each availableMeasurementTypes as measurementType}
+							<button
+								type="button"
+								class={`whitespace-nowrap rounded-md border px-3 py-2 text-sm ${activeType === measurementType ? 'border-zinc-800 bg-zinc-800 text-white' : 'border-zinc-300 bg-white text-zinc-700'}`}
+								onclick={() => (selectedMeasurementType = measurementType)}
+							>
+								{humanize(measurementType)}
+							</button>
+						{/each}
+					</div>
 				</div>
 
-				<div class="p-4 grid gap-4">
-					{#each pghd.pghd_data.data_group as group}
-						<div>
-							<h5 class="font-medium mb-2">{group.measurement_type}</h5>
-							<div class="grid sm:grid-cols-4 gap-2 mb-2 text-xs">
-								<div class="bg-zinc-50 border border-zinc-200 rounded-md p-2">
-									<p class="text-zinc-500">Source</p>
-									<p class="font-medium">{group.source_label ?? group.source}</p>
-								</div>
-								<div class="bg-zinc-50 border border-zinc-200 rounded-md p-2">
-									<p class="text-zinc-500">Device Source</p>
-									<p class="font-medium">{group.device_source ?? group.source_package_name ?? '-'}</p>
-								</div>
-								<div class="bg-zinc-50 border border-zinc-200 rounded-md p-2">
-									<p class="text-zinc-500">Device Type</p>
-									<p class="font-medium">{group.device_type}</p>
-								</div>
-								<div class="bg-zinc-50 border border-zinc-200 rounded-md p-2">
-									<p class="text-zinc-500">Recording Method</p>
-									<p class="font-medium">{group.recording_method ?? '-'}</p>
-								</div>
-							</div>
-							<div class="overflow-hidden border border-zinc-200 rounded-md">
-								<table class="w-full text-sm">
-									<thead class="bg-zinc-50 text-zinc-500">
-										<tr>
-											<th class="text-left p-2">Time</th>
-											<th class="text-left p-2">Value</th>
-											<th class="text-left p-2">Source</th>
-											<th class="text-left p-2">Method</th>
-										</tr>
-									</thead>
-									<tbody>
-										{#each group.data_points as point}
-											<tr class="border-t border-zinc-200">
-												<td class="p-2">{formatDate(point.timestamp)}</td>
-												<td class="p-2">{formatPointValue(point)}</td>
-												<td class="p-2">{group.source_label ?? group.source}</td>
-												<td class="p-2">{group.recording_method ?? '-'}</td>
-											</tr>
-										{/each}
-									</tbody>
-								</table>
+				<div class="grid gap-4 p-4">
+					<div class={`rounded-md border p-4 ${totalAnomalies > 0 ? 'border-red-200 bg-red-50' : hasConfiguredThresholds ? 'border-green-200 bg-green-50' : 'border-zinc-200 bg-zinc-50'}`}>
+						<div class="flex items-start justify-between gap-4">
+							<div>
+								<h5 class={`font-medium ${totalAnomalies > 0 ? 'text-red-800' : hasConfiguredThresholds ? 'text-green-800' : 'text-zinc-700'}`}>
+									{totalAnomalies > 0
+										? `${totalAnomalies} penanda anomali ditemukan`
+										: hasConfiguredThresholds
+											? 'Tidak ada anomali berdasarkan rentang yang dikonfigurasi'
+											: 'Rentang klinis tidak tersedia untuk tipe data ini'}
+								</h5>
 							</div>
 						</div>
-					{/each}
+					</div>
+
+					<section>
+						<h5 class="mb-2 font-medium">Ringkasan statistik</h5>
+						{#if activeGroups.some((group) => group.statistics?.length)}
+							<div class={`grid gap-3 ${statisticsCount > 1 ? 'lg:grid-cols-2' : 'grid-cols-1'}`}>
+								{#each activeGroups as group}
+									{#each group.statistics ?? [] as summary}
+										<div class="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+											<div class="mb-3 flex items-start justify-between gap-2">
+												<div>
+													<p class="font-medium">{summary.field === 'value' ? humanize(activeType) : humanize(summary.field)}</p>
+													<p class="text-xs text-zinc-500">{summary.count} data · {group.source_label ?? group.source} · {summary.unit}</p>
+												</div>
+											</div>
+											<div class="grid grid-cols-3 gap-2 text-xs sm:grid-cols-6">
+												<div><p class="text-zinc-500">Minimum</p><p class="font-semibold">{formatNumber(summary.minimum)}</p></div>
+												<div><p class="text-zinc-500">Maksimum</p><p class="font-semibold">{formatNumber(summary.maximum)}</p></div>
+												<div><p class="text-zinc-500">Rata-rata</p><p class="font-semibold">{formatNumber(summary.mean)}</p></div>
+												<div><p class="text-zinc-500">Median</p><p class="font-semibold">{formatNumber(summary.median)}</p></div>
+												<div class="col-span-2"><p class="text-zinc-500">Modus</p><p class="font-semibold">{summary.mode.length ? summary.mode.map(formatNumber).join(', ') : 'Tidak ada'}</p></div>
+											</div>
+											<div class="mt-3 grid grid-cols-5 gap-2 border-t border-zinc-200 pt-2 text-xs">
+												{#each [['P5', summary.percentiles.p5], ['P25', summary.percentiles.p25], ['P50', summary.percentiles.p50], ['P75', summary.percentiles.p75], ['P95', summary.percentiles.p95]] as percentile}
+													<div><p class="text-zinc-500">{percentile[0]}</p><p class="font-medium">{formatNumber(Number(percentile[1]))}</p></div>
+												{/each}
+											</div>
+										</div>
+									{/each}
+								{/each}
+							</div>
+						{:else}
+							<div class="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Batch lama tidak membawa ringkasan statistik. Data mentah tetap tersedia di bawah.</div>
+						{/if}
+					</section>
+
+					<section>
+						<h5 class="mb-2 font-medium">Rentang klinis yang digunakan saat pembentukan batch</h5>
+						{#if thresholds.length}
+							<div class="grid gap-3 md:grid-cols-2">
+								{#each thresholds as threshold}
+									<div class="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">
+										<p class="font-medium text-amber-900">{threshold.label}</p>
+										<p class="mt-1 text-lg font-semibold text-zinc-900">{thresholdRange(threshold)}</p>
+										<p class="mt-1 text-xs text-zinc-600">Populasi/konteks: {threshold.population}</p>
+										<a class="mt-2 inline-block text-xs text-blue-700 underline" href={threshold.reference_url} target="_blank" rel="noreferrer">{threshold.reference}</a>
+									</div>
+								{/each}
+							</div>
+						{:else}
+							<div class="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">Tidak ada rentang klinis umum yang dikonfigurasi untuk tipe data ini. Nilai ditampilkan tanpa klasifikasi normal/anomali.</div>
+						{/if}
+					</section>
+
+					<PghdMeasurementVisualization groups={activeGroups} measurementType={activeType} />
+
+					<section>
+						<h5 class="mb-2 font-medium">Detail seluruh data PGHD</h5>
+						<div class="grid gap-4">
+							{#each activeGroups as group}
+								<div class="overflow-hidden rounded-md border border-zinc-200">
+									<div class="grid gap-2 bg-zinc-50 p-3 text-xs sm:grid-cols-4">
+										<div><p class="text-zinc-500">Sumber</p><p class="font-medium">{group.source_label ?? group.source}</p></div>
+										<div><p class="text-zinc-500">Sumber perangkat</p><p class="font-medium">{group.device_source ?? group.source_package_name ?? '-'}</p></div>
+										<div><p class="text-zinc-500">Tipe perangkat</p><p class="font-medium">{group.device_type}</p></div>
+										<div><p class="text-zinc-500">Metode</p><p class="font-medium">{group.recording_method ?? '-'}</p></div>
+									</div>
+									<div class="overflow-x-auto">
+										<table class="w-full min-w-[760px] text-sm">
+											<thead class="border-t border-zinc-200 bg-zinc-50 text-zinc-500">
+												<tr><th class="p-2 text-left">Waktu</th><th class="p-2 text-left">Nilai asli</th><th class="p-2 text-left">Status</th><th class="p-2 text-left">Sumber</th><th class="p-2 text-left">Metode</th></tr>
+											</thead>
+											<tbody>
+												{#each group.data_points as point}
+													<tr class={`border-t border-zinc-200 ${point.anomalies?.length ? 'bg-red-50 text-red-900' : ''}`}>
+														<td class="p-2">{formatDate(point.timestamp)}</td>
+														<td class="p-2 font-medium">{formatPointValue(point)}</td>
+														<td class="p-2"><span class={`rounded-full px-2 py-1 text-xs ${point.anomalies?.length ? 'bg-red-100 text-red-800' : group.clinical_thresholds?.length ? 'bg-green-100 text-green-800' : 'bg-zinc-100 text-zinc-700'}`}>{anomalyLabel(point, group)}</span></td>
+														<td class="p-2">{group.source_label ?? group.source}</td>
+														<td class="p-2">{group.recording_method ?? '-'}</td>
+													</tr>
+												{/each}
+											</tbody>
+										</table>
+									</div>
+								</div>
+							{/each}
+						</div>
+					</section>
 				</div>
 			</div>
 		{:catch error}

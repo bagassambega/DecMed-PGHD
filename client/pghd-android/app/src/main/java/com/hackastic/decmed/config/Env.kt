@@ -39,4 +39,5 @@ object Env {
         BuildConfig.PGHD_DEFAULT_TEST_VECTOR_MNEMONIC.ifBlank {
             error("PGHD_DEFAULT_TEST_VECTOR_MNEMONIC must be configured in .env for deterministic patient test vectors.")
         }
+    val pghdClinicalThresholds: String = BuildConfig.PGHD_CLINICAL_THRESHOLDS
 }

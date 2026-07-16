@@ -371,6 +371,14 @@ impl MoveCall {
                 self.construct_hospital_personnel_id_account_object_call_arg(true),
                 CallArg::Pure(bcs::to_bytes(patient_address).context(current_fn!())?),
                 self.construct_patient_id_account_object_call_arg(false),
+                self.construct_patient_pghd_store_call_arg(
+                    &iota_client,
+                    patient_address,
+                    sender,
+                    false,
+                )
+                .await
+                .context(current_fn!())?,
                 self.construct_proxy_cap(),
             ],
         )
